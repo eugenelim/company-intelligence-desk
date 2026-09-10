@@ -1,7 +1,7 @@
 # Company Intelligence Desk — inspectable multi-agent diligence
 
 **Author(s):** eugenelim
-**Status:** Draft — revision r5, after four independent architecture reviews and
+**Status:** Draft — revision r6, after four independent architecture reviews and
 one evidence survey
 **Last updated:** 2026-09-09
 **Reviewers:** independent architecture review — four rounds complete, converged;
@@ -503,12 +503,18 @@ is **proven by an executable Phase 0 test** — a `worker`-role session attempti
 `INSERT INTO events (type='policy.decision')` and being refused — not by prose
 review.
 
+**The constraint is symmetric.** No role holds an unqualified `events` insert.
+`api` is restricted to the run-lifecycle types it actually needs
+(`run.requested`, `run.cancelled`), `worker` to its step-scoped types, and
+`policy-writer` to `policy.decision` alone. An internet-facing component able to
+write a policy decision would defeat the split entirely, so `api` is constrained
+by the same mechanism rather than trusted.
+
 **What the split does and does not buy.** It separates **recording** authority,
 never **decision** authority: the worker still makes the call at `PDP`. It defends
-against a bug or partial compromise in the worker's general write path forging a
-decision. It does **not** defend against full worker compromise. And until `api`'s
-direct `events` insert is also constrained, it places no restriction on the
-internet-facing component at all — see *Known at ship*.
+against a bug or partial compromise in any single write path forging a decision.
+It does **not** defend against full compromise of the `worker` process, which
+legitimately holds the credential that reaches `PDP`.
 
 On AWS, denying a model requires denying **both** `bedrock:InvokeModel` and
 `bedrock:InvokeModelWithResponseStream`; grants must name the **inference-profile
@@ -600,6 +606,27 @@ abstract method. Behind it the MVP hypothesis is **LiteLLM**, chosen for provide
 fan-out: under a portability constraint, model access must reach Bedrock, Vertex,
 and Azure OpenAI behind one seam. Falsifiable and spiked before ratification; the
 fallback is an application-owned Converse adapter behind the same seam.
+
+### Local development — recorded-fixture replay
+
+The charter promises a containerized local-development path, and the MVP requires
+a real model call. A contributor without cloud access runs the system in
+**fixture mode**: a `BaseLlm` adapter replaying recorded model responses, and a
+fetch adapter replaying recorded filings, both keyed by content hash.
+
+Everything else runs for real — orchestration, the work table and leases, the
+event log, the stream, the quarantine boundary, authorization, the UI. Only the
+two external boundaries are replaced, and both already sit behind adapters, so
+this is wiring an existing seam rather than new machinery.
+
+Two properties make this more than a convenience. The event log already makes
+runs replayable, so a recorded fixture is the same artifact the reconstruction
+goal depends on. And the fixture corpus is the substrate the **evaluation
+companion** needs for regression fixtures — building it here means not building it
+twice.
+
+A fixture run is stamped as such in the run header's producer tuple, so a fixture
+result can never be mistaken for a live one.
 
 ### Context, evidence, and reproducibility
 
@@ -766,18 +793,20 @@ document's shape; these are what remain, and none is hidden in a review file.
    attacker-authored free text reaches a planning agent"* — **not** *"no
    attacker-influenced signal"*. The reference-selection channel is unmitigated
    and unmeasured.
-2. **The `policy.decision` split separates recording, not decision.** It defends
-   against worker-path bugs and partial compromise, not full worker compromise —
-   and until `api`'s direct `events` insert is constrained, it places no
-   restriction on the internet-facing component.
+2. **The `policy.decision` split separates recording, not decision.** No role
+   holds an unqualified `events` insert, so it defends against a bug or partial
+   compromise in any single write path — but the `worker` process legitimately
+   reaches `PDP`, so full compromise of that process defeats it.
 3. **The event-append privilege model and the containment algorithm are stated as
    invariants and unproven.** Their correctness is a Phase 0 test deliverable. A
    failure there is an architecture-affecting result, not an implementation bug.
 4. **The security posture rests on `[moderate]`, self-evaluated evidence** with no
    disinterested replication, no unlimited-budget adaptive test, and no benchmark
    for long-document financial filings — this system's exact workload class.
-5. **Phase 1 is gated on an external AWS quota grant** of 16 vCPU, with no owner
-   and no submit-by date.
+5. **Phase 1 is gated on an external AWS quota grant** of 16 vCPU. Owned by
+   `eugenelim`, to be submitted before Phase 0 concludes — but it is a
+   request-and-wait dependency on a third party, so the date is a target, not a
+   commitment.
 
 ## Rollout
 
@@ -816,11 +845,14 @@ inspection history.
 - **Does references-only quarantine preserve analytical quality on a real
   filing?** *Falsified if* closed-vocabulary classification loses distinctions the
   diligence output depends on.
-- **Who owns the Fargate vCPU quota increase, and by when?** Required before
-  Phase 1, not Phase 2. Request-and-wait.
-- **Who owns rotation of the ingress OIDC client secret?** The one static
-  credential the design introduces.
-- **What is the offline contributor path**, given MVP requires a real model call
-  and the charter promises local development?
+- ~~Who owns the Fargate vCPU quota increase?~~ **Resolved** — owner
+  `eugenelim`, request **16 vCPU On-Demand Fargate**, submit **before Phase 0
+  concludes** so the grant runs in parallel with the spikes rather than after
+  them.
+- ~~Who owns rotation of the ingress OIDC client secret?~~ **Resolved** — owner
+  `eugenelim`; the rotation procedure is defined at Phase 2, when a real
+  deployment holds the secret. Recorded rather than deferred silently.
+- ~~What is the offline contributor path?~~ **Resolved** — recorded-fixture
+  replay mode; see *Local development*.
 - **Does an ALB truncate an in-flight SSE response at client-keepalive expiry?**
   Answered by test; changes operational tuning, not architecture.

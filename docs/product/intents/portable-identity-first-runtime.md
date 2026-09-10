@@ -73,8 +73,10 @@ eugenelim — decides runtime, deployment, and identity scope.
 - Should the Bedrock integration use an existing provider adapter or an
   application-owned Converse adapter?
 - How should local production-parity development authenticate to AWS?
-- What offline or fixture-backed mode should contributors without AWS access
-  use?
+- ~~What offline or fixture-backed mode should contributors without AWS access
+  use?~~ **Resolved 2026-09-09** — recorded-fixture replay: `BaseLlm` and fetch
+  adapters replaying recorded responses keyed by content hash, with everything
+  else running for real. Specified in the architecture design.
 - What end-user authentication and authorization model applies, and is a
   workspace a hard isolation boundary or an organizational convenience? If the
   initial deployment is single-tenant and single-operator, say so explicitly
@@ -103,6 +105,6 @@ service set.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r4 — constraint set ratified to 14, 2026-09-09
+- Revision: r5 — offline path resolved, 2026-09-09
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
