@@ -40,6 +40,12 @@ supported. `evidence-backed-company-diligence` consumes that contract for its
 deliverables; `governed-observable-and-evaluable-operation` consumes it for
 release checks. Neither redefines it.
 
+This intent is in turn bound by the **untrusted-content boundary** owned by
+[`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md),
+which constrains what a context package may hand a component holding tool
+authority, and in what form. Context assembly conforms to it; it is not defined
+here.
+
 ### Excluded
 
 - Automatic exposure of one agent's scratch material to every other agent.
@@ -60,15 +66,15 @@ eugenelim — decides the context and evidence contract.
 - Which data should be immutable versus versioned? *Proposed in `design-doc.md`
   r6 § Context, evidence, and reproducibility; open until owner sign-off.*
 - How does the context model relate to the chosen runtime's native session and
-  memory primitives? *Proposed in `design-doc.md` r6 § Ownership split — the
+  memory primitives? *Proposed in `design-doc.md` § Ownership split — the
   context service is an application capability, not ADK's SessionService; open
   until owner sign-off.*
 - What retrieval model is required for the initial public filings?
 - How are citation locators represented and verified, and do they survive
-  evidence re-ingestion or re-indexing? *Proposed in `design-doc.md` r6 — content
-  hashes rather than document positions; open until owner sign-off.*
+  evidence re-ingestion or re-indexing? *Proposed in `design-doc.md` § Context,
+  evidence, and reproducibility; open until owner sign-off.*
 - What storage choices are sufficient without overbuilding? *Proposed in
-  `design-doc.md` r6 § Structure and § Object store contract; open until owner
+  `design-doc.md` § Structure and § Object store contract; open until owner
   sign-off.*
 - How does the context model represent retention, and how does it conform to the
   tenancy boundary owned by
@@ -90,16 +96,18 @@ context and evidence surfaces have to render).
 Settle this intent immediately after `portable-identity-first-runtime`; four
 other intents inherit its contract.
 
-**Next step.** `architect-design` has run: `design-doc.md` r6 proposes
-context-service responsibilities, persistence boundaries, evidence lineage,
-temporal rules, and retrieval contracts. It awaits owner sign-off. The retrieval
-model for the initial filing tier remains genuinely open.
+**Next step.** Settled by owner sign-off on the architecture design, which
+proposes context-service responsibilities, persistence boundaries, evidence
+lineage, temporal rules, and retrieval contracts.
+
+The retrieval model for the initial filing tier is not settled by that sign-off
+and remains open here. Owner: eugenelim.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r4 — projection retargeted; questions with proposed answers marked,
-  2026-09-10
+- Revision: r5 — untrusted-content boundary cited as binding; projection given a
+  settling event, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

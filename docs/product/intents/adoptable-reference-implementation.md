@@ -10,20 +10,22 @@ identify the governed-agent patterns it demonstrates, find where each one is
 implemented, and carry a pattern into their own system without copying this
 project's domain.
 
-**Falsifying observation:** the repository demonstrates a pattern with no
-findable implementation site — a reader can be told the pattern exists but
-cannot get from the claim to the code that embodies it. A second: a named reader
-task the repository claims to support cannot be completed end to end from the
-repository alone.
+The repository names a non-empty set of demonstrated patterns and at least one
+reader task, and each has a findable implementation site.
 
-The pattern list itself is open — naming it is this intent's first task — but
-the *form* of the failing state does not depend on which patterns are chosen.
+**Three falsifying observations**, the first of which closes the empty state:
+
+1. The repository names no pattern set, or no reader task. Claiming nothing is a
+   failure, not a pass.
+2. A named pattern has no findable implementation site — a reader is told it
+   exists but cannot get from the claim to the code that embodies it.
+3. A named reader task cannot be completed end to end from the repository alone.
+
+Which patterns are named is open — that is this intent's first task — but the
+form of the failing state does not depend on the choice.
 
 **Legibility is a satisfaction condition, not a tradeable attribute.** A design
-that is correct but unteachable does not satisfy the project's purpose. The
-owner ruled on this on 2026-09-10, and `design-doc.md` was corrected to match:
-an earlier revision ranked legibility fifth among quality attributes and called
-it tradeable.
+that is correct but unteachable does not satisfy the project's purpose.
 
 ## Boundary
 
@@ -49,11 +51,11 @@ in [`README.md`](README.md).
 
 ### Excluded
 
-- Turning the project into a framework, library, or extractable SDK. It
-  demonstrates patterns; it does not package them for import.
-- Genericizing the domain to serve more use cases. The diligence domain is the
-  demonstration, and its specificity is what makes the patterns legible.
 - Documentation that describes intent rather than what actually shipped.
+
+Becoming a framework, library, or extractable SDK, and genericizing the domain
+to serve more use cases, are excluded by
+[`docs/CHARTER.md`](../../CHARTER.md) § Scope and are not restated here.
 
 ## Owner
 
@@ -81,17 +83,19 @@ cannot be named before the architecture that would be taught exists.
 **Feeds:** nothing. This intent is the reader-facing consequence of the other
 five, and its obligations are discharged by them collectively.
 
-**Next step.** `architect-design` has run. Its result is not a design surface
-for this intent — as intended, this intent acts as a **review lens over the
-other five**, and that role continues through owner sign-off and into the two
-commissioned companion documents. What remains genuinely open here is naming the
-patterns, which no architecture run settles.
+**Next step.** This intent acts as a **review lens over the other five** rather
+than having a design surface of its own, and that role continues into the two
+commissioned companion documents.
+
+Settled by an owner-authored pass that names the pattern set and at least one
+reader task, and locates each. No architecture run produces that list; it is a
+documentation obligation this intent owns.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r4 — outcome given a falsifying observation; legibility stated as a
-  satisfaction condition per owner ruling, 2026-09-10
+- Revision: r5 — outcome given a positive minimum so the empty state falsifies;
+  charter-duplicated exclusions replaced with a citation, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

@@ -44,22 +44,26 @@ table as the constraint.
 An intent subject to a constraint it does not own cites the owner rather than
 restating it.
 
-Named at inception as **candidates to evaluate, not decisions**: NVIDIA NeMo
-Guardrails, Langfuse, OpenTelemetry, Claude Code headless, ECS Fargate,
-Application Load Balancer with server-sent events, PostgreSQL, and S3-compatible
-object storage. Each belongs in an unresolved question, never in a boundary.
+Named at inception as **candidates to evaluate, not decisions** — this list is
+authoritative and the delivery brief cites it rather than restating it:
+
+NVIDIA NeMo Guardrails · Langfuse · OpenTelemetry · Claude Code headless ·
+ECS Fargate · Application Load Balancer with server-sent events · API Gateway ·
+PostgreSQL · S3-compatible object storage · LiteLLM versus an application-owned
+Bedrock Converse adapter · PostgreSQL-backed workflow durability versus a
+dedicated queue · hosted versus self-hosted LLM operations tooling.
+
+Each belongs in an unresolved question, never in a boundary.
 
 ## 2. Handoff shape
 
-**One `architect-design` run consumed all six intents together**, on 2026-09-09
-— six independent runs would have produced six incompatible answers to the seams
-these intents deliberately share. That run produced
-[`inspectable-multi-agent-diligence`](../../architecture/inspectable-multi-agent-diligence/design-doc.md)
-r6, which awaits owner sign-off and defers two concerns to companion documents
-that do not yet exist.
+One `architect-design` run consumed all six intents together, producing
+[`inspectable-multi-agent-diligence`](../../architecture/inspectable-multi-agent-diligence/design-doc.md).
+That document is the single home for its own status; this file does not restate
+it.
 
-Each intent's `Projection` names its own next step. None of them is another
-architecture run.
+Each intent's `Projection` names what settles that intent. None of them is
+another architecture run.
 
 ## 3. Settle order
 

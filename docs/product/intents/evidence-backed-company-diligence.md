@@ -7,14 +7,15 @@
 
 A user can ask what materially changed at a public company as of a specified
 date and receive a structured analysis that reports at least one deterministic
-financial calculation, at least one filing-language change, and both a
-supporting and a challenging reading of the same evidence — in which no
+financial calculation, performs a filing-language comparison and states its
+result — including an explicit finding of no material change — and presents both
+a supporting and a challenging reading of the same evidence, in which no
 published claim lacks a resolvable link to public evidence or to deterministic
 calculation lineage.
 
-The two halves constrain each other deliberately. The refusal alone is satisfied
-by publishing nothing; the positive requirement alone is satisfied by publishing
-anything.
+Coverage is required; a *finding* is not. A company whose filing language did
+not materially change must still yield a passing analysis, and manufacturing a
+change to satisfy the outcome would violate charter principle 1.
 
 The result is a research aid, not an assurance product.
 
@@ -70,8 +71,7 @@ eugenelim — decides domain scope for the diligence surface.
 - How should a restatement be surfaced to a reader comparing periods? This is
   the domain half and remains open here.
 - How are amended filings represented in storage? *Proposed in `design-doc.md`
-  r6 § Context, evidence, and reproducibility — an amendment creates a new
-  snapshot historical runs never see; open until owner sign-off.*
+  § Context, evidence, and reproducibility; open until owner sign-off.*
 
 ## Projection
 
@@ -81,7 +81,7 @@ eugenelim — decides domain scope for the diligence surface.
 **Feeds:** `multi-workspace-inspectable-experience` (the domain artifacts its
 surfaces present).
 
-**Next step.** `architect-design` has run: `design-doc.md` r6 proposes the system
+**Next step.** `architect-design` has run: `design-doc.md` proposes the system
 responsibilities, the deterministic-versus-agentic split, the source pipeline,
 and where the no-unsupported-claim property is enforced. It awaits owner
 sign-off. Slicing this outcome into buildable work happens at
@@ -89,15 +89,18 @@ sign-off. Slicing this outcome into buildable work happens at
 
 The candidate agent roles named during inception — research coordinator,
 filing-change analyst, fundamentals analyst, positive-case analyst,
-skeptical-case analyst, evidence auditor, report composer — are inception
-context only. `architect-design` must pressure-test whether each should be an
-agent, a tool, a workflow node, or a deterministic service.
+skeptical-case analyst, evidence auditor, report composer — remain inception
+context. Whether each should be an agent, a tool, a workflow node, or a
+deterministic service is **still open**: the design settles the
+deterministic-versus-agentic boundary in principle but does not assign these
+roles. Owner: eugenelim.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r5 — outcome given a positive requirement; charter-duplicated
-  exclusions replaced with a citation, 2026-09-10
+- Revision: r6 — positive requirement restated as coverage rather than finding,
+  after the earlier wording proved unsatisfiable for a company whose filing
+  language did not change, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

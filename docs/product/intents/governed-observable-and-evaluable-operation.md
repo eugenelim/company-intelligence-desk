@@ -22,23 +22,31 @@ consumes that contract to decide what a release check may assert.
 
 ## Second outcome — the untrusted-content boundary
 
-Content the system did not author — retrieved filings, tool results, and the
-user's own prompt — never reaches a component holding tool authority in a form
-that can act as instruction.
+Two threats, two sub-results, because they do not share a defence.
 
-**Falsifying observation:** attacker-authored free text reaches a component that
-can invoke a tool. That is a defect regardless of whether the tool call was
-itself authorized, and regardless of whether anything downstream detected it.
+**1. Retrieved content is not placed in instruction position by construction.**
+Content the system retrieved — filings, tool results — does not reach a component
+holding tool authority in a form that can act as instruction.
+*Falsifying observation:* retrieved free text reaches a component that can invoke
+a tool. That is a defect regardless of whether anything downstream detected it.
 
-This intent owns that boundary. It is stated as an outcome rather than a control
-because the mechanism is an architecture decision, and because the boundary must
-remain falsifiable if the chosen mechanism is later replaced.
+**2. What an agent may be persuaded to attempt is bounded by what it is
+permitted to do.** The user's prompt cannot be kept out of instruction position —
+it legitimately *is* the instruction — so the control is authority, not
+exclusion.
+*Falsifying observation:* a tool invocation succeeds whose arguments exceed the
+acting role's ceiling or the initiating user's entitlements. The authority model
+itself is owned by
+[`portable-identity-first-runtime.md`](portable-identity-first-runtime.md); this
+intent depends on it and does not define it.
 
-Two threats sit behind it and do not share a defence. Retrieved content can be
-kept out of instruction position. The user's prompt cannot — it legitimately *is*
-the instruction — so what an agent may be persuaded to attempt has to be bounded
-by what it is permitted to do. The charter ratifies the first half of this
-posture in principle 1.
+The charter ratifies the posture behind sub-result 1 in principle 1, and
+declines in § Scope to warrant that any demonstrated pattern is effective
+against a determined adaptive attacker. This intent does not warrant more than
+the charter does: the boundary is a construction, not a guarantee of defeat.
+
+Stated as outcomes rather than controls because the mechanism is an architecture
+decision, and the boundary must stay falsifiable if that mechanism is replaced.
 
 ## Boundary
 
@@ -83,12 +91,11 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
 - Which controls belong in deterministic code and which require semantic
   guardrails, and in what order are they applied?
 - Is NVIDIA NeMo Guardrails operationally justified for the MVP, or is a
-  simpler application-owned policy layer sufficient? *Proposed answer in
-  `design-doc.md` r6 § Alternatives — detection-based defence rejected as a
-  class on cited evidence; open until owner sign-off.*
+  simpler application-owned policy layer sufficient? *Proposed in `design-doc.md`
+  § Alternatives Considered; open until owner sign-off.*
 - By what mechanism is the untrusted-content boundary held, and what does it
-  cost in analytical capability? *Proposed answer in `design-doc.md` r6
-  § Injection defence; open until owner sign-off.*
+  cost in analytical capability? *Proposed in `design-doc.md` § Injection
+  defence; open until owner sign-off.*
 - Should Langfuse be the observability and evaluation plane, and if so should it
   be hosted, self-hosted, or optional? It is an inception candidate, not a
   selection.
@@ -108,25 +115,25 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
 ## Projection
 
 **Depends on:** `portable-identity-first-runtime` (execution topology and
-identity boundaries determine where policy can be enforced),
+identity boundaries determine where policy can be enforced; and the agent
+authority ceiling that sub-result 2 rests on),
 `scoped-context-and-evidence` (what an evidence-backed release check can
 assert).
 
 **Feeds:** `multi-workspace-inspectable-experience` (which run information is
 releasable to its policy and evaluation surfaces).
 
-**Next step.** `architect-design` has run: `design-doc.md` r6 settles the policy
-plane's enforcement points and the untrusted-content boundary, and awaits owner
-sign-off. The telemetry boundary, redaction rules, evaluation architecture, and
-fixture versioning were **deferred by that design** to a commissioned
-*Observability and evaluation* companion document, which does not yet exist. This
-intent is settled by that companion, not by another architecture run.
+**Next step.** Settled by the commissioned *Observability and evaluation*
+companion document, which the architecture design deferred the telemetry
+boundary, redaction rules, evaluation architecture, and fixture versioning to.
+That companion does not yet exist.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r4 — gained the untrusted-content boundary outcome; approval question
-  narrowed against the ratified charter's reserved criteria, 2026-09-10
+- Revision: r5 — untrusted-content outcome split into two sub-results with
+  distinct falsifiers, after the single falsifier was found to fire on normal
+  operation, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

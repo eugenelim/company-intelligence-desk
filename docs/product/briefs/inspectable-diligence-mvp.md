@@ -135,14 +135,9 @@ application-owned contracts, is ratified in the intents but expressed here as
 
 ### Candidate technologies — not ratified decisions
 
-Each requires architecture review. None may be treated as chosen.
-
-ECS Fargate · Application Load Balancer · API Gateway · server-sent events ·
-PostgreSQL · S3-compatible object storage · NVIDIA NeMo Guardrails · Langfuse ·
-OpenTelemetry · LiteLLM versus an application-owned Bedrock Converse adapter ·
-Claude Code headless as a local development harness · PostgreSQL-backed workflow
-durability versus a dedicated queue · hosted versus self-hosted LLM operations
-tooling.
+Each requires architecture review. None may be treated as chosen. The
+authoritative list is [`../intents/README.md`](../intents/README.md) § 1; it is
+not restated here.
 
 ## Assumptions and risks
 

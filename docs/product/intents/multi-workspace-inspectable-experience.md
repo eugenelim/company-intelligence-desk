@@ -77,7 +77,7 @@ This intent is the most downstream of the six — its presentation contracts
 cannot be settled before the four it depends on.
 
 **Next step.** `architect-design` has run and **deferred this intent's surface
-entirely**: `design-doc.md` r6 § Scope hands the UI/API presentation contract,
+entirely**: `design-doc.md` § Scope hands the UI/API presentation contract,
 workspace information architecture, Storybook's role, and the approval UI to a
 commissioned *Experience and presentation* companion document, naming the seams
 it must respect — the event log as observability substrate, the run state
@@ -86,16 +86,16 @@ That companion does not yet exist and is what settles this intent.
 
 Inception context, not a decision: the workspace views anticipated during
 inception were Overview, Research, Workflow, Evidence, Context, Compare,
-Evaluations, Policy, and Settings. `architect-design` must pressure-test
-whether each is a view, a panel within a view, or unnecessary — the list is a
-starting point for the information-architecture question above, not an answer
-to it.
+Evaluations, Policy, and Settings. The *Experience and presentation* companion
+must pressure-test whether each is a view, a panel within a view, or
+unnecessary — the list is a starting point for the information-architecture
+question above, not an answer to it.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r4 — Feeds corrected against the authoritative edge set; slicing
-  question routed to the delivery brief, 2026-09-10
+- Revision: r5 — view pressure-test retargeted to the experience companion,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

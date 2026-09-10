@@ -669,20 +669,20 @@ assembled from step *N−1*'s output; sampling is non-deterministic and speciali
 interleave, so the snapshot pins the *universe* of retrievable evidence, not the
 *selection*.
 
-### Charter amendments required before ratification
+### Charter amendments — applied
 
-Two RFC-0001 principles overclaim relative to this design. Both are `Draft`, so
-amendment is cheap now. **Owner: eugenelim; route: amend RFC-0001 before it moves
-to Open**, per `CONVENTIONS.md` § 1 which makes foundational-principle changes
-reserved.
+Two RFC-0001 principles overclaimed relative to this design. **Both were amended
+and the charter was ratified on 2026-09-10**, so this section records what
+happened rather than what is owed:
 
-- **Principle 7** — the heading "Reproducibility and evaluation by construction"
-  should read *auditable replay and evaluation by construction*. The body ("runs
-  are temporally scoped, versioned, observable, and testable") is accurate as
-  written; only the heading invites the stronger reading.
-- **Principle 3** ("Humans retain control over approval, publication, policy
-  exceptions, and consequential use") should narrow *publication* to *approval of
-  flagged output*; publication is automatic on a clean run.
+- **Principle 7** — the heading now reads *"Auditable replay and evaluation by
+  construction"*. The body was already accurate.
+- **Principle 3** — *publication* narrowed to *approval of flagged output*;
+  a run passing every check publishes automatically.
+
+A third amendment followed from the owner's ruling on legibility: it is a
+satisfaction condition gating the ranked attributes above, not a fifth tradeable
+one.
 
 ### Capacity
 

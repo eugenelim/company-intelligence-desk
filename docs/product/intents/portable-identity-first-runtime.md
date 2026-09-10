@@ -5,13 +5,13 @@
 
 ## Outcome
 
-The application runs anywhere a container runs, and holds no long-lived model
-credential anywhere in the system.
+The application runs anywhere a container runs, and no deployed component or
+anything in the repository holds a long-lived model credential.
 
 Two independently verifiable sub-results:
 
 1. A contributor can run the whole application locally in containers without
-   cloud access.
+   cloud access, with only its external boundaries replaced.
 2. Every production component obtains model access through short-lived
    workload credentials scoped to that component.
 
@@ -67,27 +67,25 @@ eugenelim — decides runtime, deployment, and identity scope.
 ## Unresolved questions
 
 - What is the minimum justified AWS deployment profile? *Proposed in
-  `design-doc.md` r6 § Capacity; open until owner sign-off.*
+  `design-doc.md` § Capacity; open until owner sign-off.*
 - Is ECS Fargate the appropriate runtime boundary, or is another compute shape
-  better justified? *Proposed in `design-doc.md` r6 § Capacity; open until owner
+  better justified? *Proposed in `design-doc.md` § Capacity; open until owner
   sign-off.*
 - What task and IAM-role separation is required between components? *Proposed
-  in `design-doc.md` r6 § Identity — two layers; open until owner sign-off.*
+  in `design-doc.md` § Identity — two layers; open until owner sign-off.*
 - Should the Bedrock integration use an existing provider adapter or an
-  application-owned Converse adapter? *Proposed in `design-doc.md` r6 § The
+  application-owned Converse adapter? *Proposed in `design-doc.md` § The
   model-provider seam, pending a Phase 0 spike; open until owner sign-off.*
 - How should local production-parity development authenticate to AWS?
-- How should a contributor without cloud access run the system? *Resolved as an
-  outcome: the whole system must run with only its external boundaries replaced.
-  Mechanism is a design matter — proposed in `design-doc.md` r6 § Local
-  development; open until owner sign-off.*
+- By what mechanism does a contributor without cloud access run the system?
+  *Proposed in `design-doc.md` § Local development; open until owner sign-off.*
 - Should a workspace become a hard isolation boundary? `docs/CHARTER.md`
   § *What the system is today* records the current state — single operator, no
   isolation — and delegates this question here. *Proposed answer for the
-  end-user authentication and authorization model in `design-doc.md` r6
+  end-user authentication and authorization model in `design-doc.md`
   § Authentication and authorization; open until owner sign-off.*
 - What transport and durability mechanisms are required for long-running runs?
-  *Proposed in `design-doc.md` r6 § Event log and stream mechanism; open until
+  *Proposed in `design-doc.md` § Event log and stream mechanism; open until
   owner sign-off.*
 - Should Claude Code headless be used as a development or repository-automation
   harness at all, and if so where does it add value without creating drift from
@@ -103,7 +101,7 @@ constrain the context service, the diligence workflow's execution, the policy
 plane, the event transport the UI consumes, and the deployment story a reader
 reproduces.
 
-**Next step.** `architect-design` has run: `design-doc.md` r6 proposes container
+**Next step.** `architect-design` has run: `design-doc.md` proposes container
 boundaries, execution topology, identity boundaries, Bedrock integration,
 local-development modes, run-event transport and durability, the end-user
 authorization model, and the minimum AWS service set. It awaits owner sign-off,
