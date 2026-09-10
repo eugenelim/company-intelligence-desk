@@ -20,12 +20,12 @@
 
 [backlog]
 open = [
-  { path = "docs/product/intents/evidence-backed-company-diligence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Evidence-linked public-company change analysis as of an explicit date; awaits architect-design", needs = [] },
-  { path = "docs/product/intents/multi-workspace-inspectable-experience.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Distinct React workspace views over research, workflow, evidence, context, and policy; awaits architect-design", needs = [] },
-  { path = "docs/product/intents/portable-identity-first-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Portable containerized ADK runtime reaching Bedrock via short-lived workload identity; awaits architect-design", needs = [] },
-  { path = "docs/product/intents/scoped-context-and-evidence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Bounded versioned context packages and immutable evidence lineage; awaits architect-design", needs = [] },
-  { path = "docs/product/intents/governed-observable-and-evaluable-operation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Policy, telemetry, evaluation, and human-intervention visibility across runs; awaits architect-design", needs = [] },
-  { path = "docs/product/intents/adoptable-reference-implementation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Legible, learnable reference implementation whose patterns transfer without the domain; awaits architect-design", needs = [] },
-  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Draft MVP brief coordinating the six foundation intents; blocked on charter ratification and architect-design", needs = [] },
+  { path = "docs/product/intents/evidence-backed-company-diligence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Evidence-linked public-company change analysis as of an explicit date; architecture designed, awaits sign-off", needs = [] },
+  { path = "docs/product/intents/multi-workspace-inspectable-experience.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Distinct React workspace views over research, workflow, evidence, context, and policy; architecture designed, awaits sign-off", needs = [] },
+  { path = "docs/product/intents/portable-identity-first-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Portable containerized ADK runtime reaching Bedrock via short-lived workload identity; architecture designed, awaits sign-off", needs = [] },
+  { path = "docs/product/intents/scoped-context-and-evidence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Bounded versioned context packages and immutable evidence lineage; architecture designed, awaits sign-off", needs = [] },
+  { path = "docs/product/intents/governed-observable-and-evaluable-operation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Policy, telemetry, evaluation, and human-intervention visibility across runs; architecture designed, awaits sign-off", needs = [] },
+  { path = "docs/product/intents/adoptable-reference-implementation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Legible, learnable reference implementation whose patterns transfer without the domain; architecture designed, awaits sign-off", needs = [] },
+  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Draft MVP brief coordinating the six foundation intents; blocked on charter ratification; architecture designed, awaits sign-off", needs = [] },
 ]
 closed = []
