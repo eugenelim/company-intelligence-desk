@@ -20,7 +20,9 @@ same set as its headline and closes its own empty state:
    set. Documenting no path is a failure, not a pass.
 2. Any deployed component that holds model access obtains it through short-lived
    workload credentials scoped to that component; a component whose
-   responsibility does not require model access holds none.
+   responsibility does not require model access holds none — least privilege,
+   ratified in [`docs/CHARTER.md`](../../CHARTER.md) principle 5 rather than
+   implied by this outcome's headline.
    *Falsified by:* a deployed component holding model access other than through
    short-lived workload credentials scoped to that component, or a deployed
    component holding model access its responsibility does not require.
@@ -34,8 +36,7 @@ same set as its headline and closes its own empty state:
 4. No component requires a cloud-provider-specific service from outside the seam
    set named under Excluded.
    *Falsified by:* a component that requires a provider-specific service and
-   sits outside that seam set, or the absence of a named seam set, which leaves
-   the claim untestable.
+   sits outside that seam set.
 
 ## Boundary
 
@@ -100,7 +101,7 @@ eugenelim — decides runtime, deployment, and identity scope.
   `design-doc.md` § Capacity; open until owner sign-off.*
 - Is ECS Fargate the appropriate runtime boundary, or is another compute shape
   better justified? *Argued in `design-doc.md` § Alternatives Considered, with
-  the shape in § Structure; open until owner sign-off.*
+  the compute profile in § Capacity; open until owner sign-off.*
 - What task and IAM-role separation is required between components?
 - What bounds an agent role's authority at the tool-call layer, and how is
   containment within the initiating principal's entitlements enforced?
@@ -145,13 +146,10 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r13 — r12's two new falsifiers re-derived against their headlines
-  after review found both defective: sub-result 1's could not fire when no local
-  path is documented, and sub-result 2's quantified over *production* components
-  under a headline quantifying over *deployed* ones. Sub-result 4 added so the
-  headline's portability claim has a falsifier; the seam set sub-results 1 and 4
-  cite is now named and closed under Excluded; sub-result 3's enumeration
-  dropped as it narrowed a universal; the Fargate question retargeted to the
-  section that argues it, 2026-09-10
+- Revision: r14 — sub-result 4's unreachable disjunct deleted (the seam set is
+  named and closed in this same file); sub-result 2's least-privilege clause
+  attributed to charter principle 5 rather than presented as decomposition; the
+  Fargate question's second citation retargeted to the section carrying the
+  compute profile, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

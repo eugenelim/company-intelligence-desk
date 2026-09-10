@@ -8,7 +8,8 @@
 For any completed run, a user can reach from a rendered surface — without
 reading server logs or raw model output — the **per-run** properties
 [`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md)
-§ Outcome makes auditable, together with what
+§ Outcome makes auditable — as released under that intent's redaction rules,
+which it owns and this one does not — together with what
 [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § In scope
 makes versioned and inspectable, whatever its Outcome requires a material
 output to resolve to, and the two user-facing deliverables
@@ -48,6 +49,7 @@ this intent is bound by it and does not restate it.
 ### In scope
 
 - Rendering of typed domain artifacts.
+- Surfacing of the per-run sets named in § Outcome.
 - Presentation of progressive workflow updates during a run.
 
 This intent owns **what the user sees**. It does not own what may leave the
@@ -107,13 +109,10 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r11 — the `governed` sub-result index r10's note claimed to have
-  removed, but did not, replaced by the criterion that selects it, so this
-  boundary no longer decays when that intent is renumbered; the diligence
-  deliverables added to the reachable set by citation, after review found a
-  surface exposing lineage and policy but never the memo could satisfy the
-  outcome; falsifier's "either kind" corrected to the four sets the headline
-  now names; the smallest-view-set question deleted as owned by the delivery
-  brief, 2026-09-10
+- Revision: r12 — the reachable set qualified by `governed`'s redaction rules,
+  after review found an item that intent makes auditable but withholds from
+  release would otherwise falsify this outcome; § In scope given the bullet
+  covering the per-run sets, which read narrower than the outcome it bounds,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

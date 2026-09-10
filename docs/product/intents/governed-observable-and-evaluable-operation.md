@@ -20,7 +20,10 @@ verifiable and each quantified over one completed run:
    or whose recorded sequence omits a step the run took.
 2. The policy decisions applied to that run, and their outcomes, are recorded.
    *Falsified by:* a policy decision applied to a completed run with no recorded
-   decision event, or a recorded decision event with no recorded outcome.
+   decision event, or a recorded decision event with no recorded outcome, or a
+   completed run for which the third outcome's coverage property required a
+   decision and no decision event is recorded. A run that applied no policy at
+   all does not pass this by vacancy.
 3. Points where a human intervened, or was required to, are identifiable.
    *Falsified by:* a completed run in which a human intervened, or was required
    to, that no recorded point identifies.
@@ -72,14 +75,18 @@ its proposed mechanism, unmitigated and unmeasured; that document is a proposal,
 not a settled answer.
 
 **2. Every user-authored prompt is adjudicated by a recorded policy decision
-before it reaches a component holding tool authority or causes a tool
-invocation.** "Prompt" here means user-authored input only; everything the
+before it causes a tool invocation.** "Prompt" here means user-authored input only; everything the
 initiating human did not author is sub-result 1's surface. The user's prompt cannot be
 kept out of instruction position, since it legitimately *is* the instruction, so
 this intent's control is *coverage before effect*, not exclusion of content.
-*Falsifying observation:* a user-authored prompt observed at a component holding
-tool authority, or a tool invocation traceable to one, with no prior decision
-event.
+*Falsifying observation:* a tool invocation traceable to a user-authored prompt
+with no prior decision event covering that prompt.
+
+The prompt *reaching* a component holding tool authority is deliberately not a
+falsifier. Which boundaries policy is evaluated at is still open below, and the
+charter's trust posture treats the user's own prompt as instruction bounded by
+entitlements rather than as content to screen. The control here is coverage
+before effect.
 
 This is a coverage property, not a logging one: a policy plane that recorded
 `allow` unconditionally would satisfy first-outcome sub-result 2, which asserts
@@ -95,8 +102,8 @@ is not restated here. This intent depends on it.
 The charter ratifies this posture for *retrieved third-party* content in
 principle 1; this intent extends it to everything the initiating human did not
 author, for the reason given in sub-result 1. The charter separately declines in
-§ Scope to warrant that any demonstrated pattern is effective against a
-determined adaptive attacker. This intent does not warrant more than
+§ Scope to warrant that any security pattern it demonstrates is effective
+against a determined adaptive attacker. This intent does not warrant more than
 the charter does: the boundary is a construction, not a guarantee of defeat.
 
 Stated as outcomes rather than controls because the mechanism is an architecture
@@ -177,39 +184,53 @@ authority ceiling that third-outcome sub-result 2 rests on),
 assert).
 
 **Feeds:** `multi-workspace-inspectable-experience` (which run information is
-releasable to its policy and evaluation surfaces).
+releasable to its surfaces).
 
-**Next step.** Three settling events, split by which artifact proposes an
-answer rather than by outcome — the design doc proposes answers for some
-first-outcome sub-results and defers others.
+**Outstanding obligation from `scoped-context-and-evidence`** — not a `Feeds:`
+edge, because asserting one would invert README § 3's ordering of that intent
+before this one. Its § Boundary declares itself bound by the untrusted-content
+boundary owned here, and its unresolved questions defer to this intent's release
+and redaction rules; neither edge appears in either file's authoritative
+`Depends on:` or `Feeds:` lines. Discharging it means adding the citation to an
+**Accepted** file, which is a material edit returning it to Draft. Held for the
+owner's decision, alongside the duplicated interim reading of *material claim*
+recorded in `evidence-backed-company-diligence` § Projection.
+
+**Next step.** Two settling events, stated in three parts. The split is by which
+artifact proposes an answer, not by outcome: the design doc proposes answers for
+most of the first outcome and defers the rest.
 
 The **untrusted-content boundary** is settled by owner sign-off on the
 architecture design, which proposes its mechanism.
 
-**First-outcome sub-results 1 and 3** — step recoverability and human
-intervention points — are also settled by that sign-off. `design-doc.md`
+**The whole first outcome** is also settled by that sign-off. `design-doc.md`
 § Scope names the event log as the observability substrate and the run state
-machine as the carrier of human intervention, and §§ Event log and stream
-mechanism, Run state machine, and The approval gate propose them.
+machine as the carrier of human intervention; §§ Event log and stream mechanism,
+Run state machine, and The approval gate propose sub-results 1 and 3; and
+§§ Structure and Identity — two layers propose sub-result 2, requiring the
+`policy.decision` event to commit before the authorized invocation is issued and
+confining its insert to a `policy-writer` role.
 
-**First-outcome sub-result 2 and the cross-release evaluability outcome** are
-settled by the commissioned *Observability and evaluation* companion document,
-which is what the design's § Scope table actually defers — telemetry boundary,
-redaction, payload inlining, evaluation architecture, fixture versioning, and
-release gates. That companion does not yet exist.
+**The cross-release evaluability outcome** is settled by the commissioned
+*Observability and evaluation* companion document. That is what the design's
+§ Scope table actually defers — telemetry boundary, redaction, payload inlining,
+evaluation architecture, fixture versioning, and release gates — and it does not
+yet exist.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r11 — cross-release evaluability separated into its own outcome
-  with its own falsifier, after review found it quantified over release pairs
-  under a headline quantifying over one completed run; the first outcome and
-  each of its sub-results given falsifiers that close their own empty states;
-  "in a form that can act as instruction" defined by form — free prose versus
-  validated references and closed-vocabulary classifications — so the pair is
-  adjudicable by inspection, with the reference-selection channel recorded as a
-  named residual; settling events re-split by which artifact actually proposes
-  an answer, 2026-09-10
+- Revision: r12 — first-outcome sub-result 2 moved from the companion document
+  to the design sign-off, after review found the design proposes it (§§ Structure,
+  Identity — two layers) and the § Scope table does not defer it; that sub-result's
+  falsifier no longer passes a run that applied no policy at all — r11's note
+  claimed every first-outcome falsifier closed its empty state and this one did
+  not; the third outcome's sub-result 2 no longer falsifies on a prompt merely
+  reaching tool authority, which pre-decided the still-open boundary question and
+  contradicted the charter's own trust posture; the charter's security-pattern
+  warranty no longer restated as covering every demonstrated pattern; the one-way
+  constraint on the Accepted `scoped-context-and-evidence` recorded as held,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

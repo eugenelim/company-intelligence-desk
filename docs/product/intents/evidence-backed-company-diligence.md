@@ -6,10 +6,17 @@
 ## Outcome
 
 A user can ask what materially changed at a public company as of a specified
-date and receive a structured analysis. Four sub-results, each independently
-verifiable:
+date and receive a structured analysis.
 
-1. **At least one deterministic financial calculation is reported.**
+*Falsifying observation:* a request naming a company in the covered tier and an
+as-of date that yields no structured analysis. Producing nothing is a failure,
+not a pass.
+
+Four sub-results, each independently verifiable:
+
+1. **At least one deterministic financial calculation is reported.** Every
+   periodic filing in the covered tier carries computable figures, so unlike its
+   siblings this sub-result needs no coverage-without-finding escape.
    *Falsified by:* an analysis reporting no deterministic financial
    calculation.
 2. **Filing-language comparison is covered, and its result stated.** The result
@@ -26,7 +33,9 @@ verifiable:
 4. **No published claim lacks a resolvable link** to public evidence or to
    deterministic calculation lineage. The publication-blocking rule and both
    resolution targets are ratified in [`docs/CHARTER.md`](../../CHARTER.md)
-   principle 1, which scopes them to *material* claims; pending the
+   principle 1. Its *Applied:* rule states the block without qualification; the
+   scoping to *material* claims comes from the principle's normative sentence,
+   not from that rule. pending the
    material-claim question below, *published claim* is the standing interim
    reading. This intent narrows the evidence target to
    *public* sources — its own scope decision for the initial tier, not an owner
@@ -133,12 +142,10 @@ roles. Owner: eugenelim; settled by the slicing pass at
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r12 — sub-result 3 given the coverage-not-finding form its sibling
-  already had, so an evidence set supporting no challenging reading no longer
-  requires manufacturing one; sub-result 4's public-source narrowing reattributed
-  from the ratified constraint (which names a starting tier, not a ceiling) to
-  this intent's own scope; the reciprocal `Feeds:` edge to
-  `scoped-context-and-evidence` replaced by a one-way obligation with a named
-  settling event, 2026-09-10
+- Revision: r13 — the outcome headline given the falsifying observation it
+  lacked, so a system that produces no analysis at all is no longer unfalsified
+  by every criterion in the section; sub-result 1's absent escape grounded rather
+  than left unexplained; the material-claim scoping attributed to principle 1's
+  normative sentence rather than to its unqualified *Applied:* rule, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
