@@ -164,11 +164,15 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
   retrieved evidence, tool execution, and user-visible output.
 - Which controls belong in deterministic code and which require semantic
   guardrails, and in what order are they applied?
-- Is NVIDIA NeMo Guardrails operationally justified for the MVP, or is a
-  simpler application-owned policy layer sufficient? *`design-doc.md`
-  § Alternatives Considered rejects the detector class on cited evidence but does
-  not evaluate NeMo itself, which is a policy-flow framework as well as a
-  detector. Open.*
+- **NVIDIA NeMo Guardrails is not adopted; an application-owned policy layer is
+  sufficient.** Settled 2026-09-10.
+  Rejected in both configurations: as a detector it falls in the class
+  `design-doc.md` § Alternatives Considered rejects on cited evidence, and as a
+  policy-flow framework above an application-owned decision point it cannot
+  deliver commit-before-action, because it sits outside the transaction that
+  appends `policy.decision`. Recorded in
+  `observability-and-evaluation.md` § Alternatives considered; the durable home
+  is an ADR not yet written.
 - By what mechanism is the untrusted-content boundary held, and what does it
   cost in analytical capability? *Proposed in `design-doc.md` § Injection
   defence; open until owner sign-off.*

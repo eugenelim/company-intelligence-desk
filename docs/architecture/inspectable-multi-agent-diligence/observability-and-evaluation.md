@@ -1,22 +1,13 @@
 # Observability and evaluation — companion to the diligence design
 
 **Author(s):** eugenelim
-**Status:** Draft — revision c3, after two independent reviews
+**Status:** Draft — revision c3
 **Last updated:** 2026-09-10
 **Parent:** [`design-doc.md`](design-doc.md), whose § Scope commissions this
 document and fixes its lane.
 **Settles:** [`governed-observable-and-evaluable-operation`](../../product/intents/governed-observable-and-evaluable-operation.md)
 second outcome (cross-release evaluability), and the egress half of its § In
 scope. Its first and third outcomes are settled by owner sign-off on the parent.
-
-## Revision note
-
-c1 returned MAJOR REWRITE (four blockers); c2 returned SHIP WITH CHANGES (two
-blockers, both introduced by c2's own repairs). c3 applies both sets. Two
-retractions are kept in the body because the rejected reading is itself
-instructive: the security argument for non-blocking judgement evaluations
-(§ Three classes) and the invented carve-out asymmetry (§ Reserved). Everything
-else is stated as current design.
 
 ## TL;DR
 
@@ -46,9 +37,10 @@ a release cannot ship without recording one.
 
 The intent assigns this document "what may leave the backend during or after a
 run — the redaction rules and the split between guarded and streamable
-classes." That is broader than telemetry, and c1 covered only telemetry;
-§ What may leave the backend to a user surface closes the half that
-[`experience-and-presentation.md`](experience-and-presentation.md) depends on.
+classes." That is broader than telemetry: § What may leave the backend to a user
+surface covers the API path, which
+[`experience-and-presentation.md`](experience-and-presentation.md) depends on,
+and § What may cross the telemetry boundary covers the export path.
 
 **This document does not own** the event envelope, the policy decision point,
 the injection defence, or what the user sees.
@@ -61,12 +53,13 @@ The three per-run checks in § Per-run pre-release checks restate criteria the
 parent's § The approval gate already carries; they are not new criteria. **Any
 change to the check set, in either direction, takes the RFC route.**
 
-c2 proposed an asymmetry here — additions admitted, removals by RFC — on the
-grounds that the carve-out otherwise has no operational content. That was
-reading around ratified text: principle 3 forecloses the asymmetry in the words
-"in either direction", and the parent's own precedent was to *amend* principle 3
-rather than reinterpret it. If the asymmetry is wanted it is an RFC against
-principle 3, recorded in § Open questions.
+An asymmetry is tempting here — admitting additions, which only narrow automatic
+publication, while reserving removals — and it is foreclosed. Principle 3 says
+"in either direction", and the way to obtain the asymmetry is to amend the
+principle, as the parent did when publication was narrowed to approval of
+flagged output. Reinterpreting it instead would leave a reserved criterion
+whose reservation this document had quietly relaxed. Recorded in § Open
+questions.
 
 ## The two planes
 
@@ -193,17 +186,15 @@ applies.
 | **Structural / trajectory** | A `policy.decision` precedes every tool invocation; the step sequence is recoverable | **Yes** |
 | **Judgement** | Are the opposed readings genuinely opposed? Is the filing-language finding substantive? | **No** |
 
-**Why judgement evaluations do not block — the reliability argument.** c1 argued
-this on security grounds, claiming a model-graded gate is "a detector standing
-between an adversary and publication". That was wrong, and the review was right
-to reject it: a release gate stands between a *developer* and *shipping*,
-evaluated offline against a content-addressed fixture set that no adversary
-authored. The parent's grounded facts about detector failure measure adaptive,
-attacker-in-the-loop, per-request conditions the release gate does not
-instantiate. Spending the strongest evidence in the design on a claim it does
-not support would have weakened both.
+**Why judgement evaluations do not block — a reliability argument, not a
+security one.** The parent's grounded facts on detector failure are the
+strongest evidence in this design, and they do not apply here. They measure
+adaptive, attacker-in-the-loop, per-request conditions; a release gate stands
+between a *developer* and *shipping*, evaluated offline against a
+content-addressed fixture set no adversary authored. Borrowing that evidence for
+this decision would weaken both the decision and the evidence.
 
-The real reasons are duller and hold:
+The reasons that do hold are duller:
 
 - **Goodhart pressure.** A model-graded blocking gate becomes the development
   loop's objective. Optimising analysis prose to satisfy a grader is easier than
@@ -406,13 +397,14 @@ an override that is always exercised is a gate that has been removed while still
 appearing in the list, and a single-operator project has no second party to make
 the override meaningful.
 
-**NVIDIA NeMo Guardrails.** *Not resolved here.* The intent records it as an
-open question, and c1 answered it — deciding a policy-plane question this
-document's own § Scope disclaims, and against a configuration nobody proposed
-(NeMo replacing the PDP, rather than a flow framework sitting above an
-application-owned PDP that still writes `policy.decision`). The question **remains open in the intent**, owner `eugenelim`; the venue is an
-ADR, because the parent does not carry a NeMo section and reopening a Draft
-parent to add one is not warranted.
+**NVIDIA NeMo Guardrails.** Rejected. Considered in both configurations it
+could plausibly take. As a *detector*, it belongs to the class the parent
+rejects on cited evidence. As a *policy-flow framework above* an
+application-owned PDP, it cannot deliver the invariant the design turns on: the
+`policy.decision` event must commit **before** the authorised invocation, in the
+same transaction as the decision, with a `policy-writer` role holding no other
+insert. A flow framework sits outside that transaction, so adopting it would
+demote a transactional invariant to a convention while adding a dependency.
 
 ## Risks
 

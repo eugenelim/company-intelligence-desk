@@ -1,7 +1,7 @@
 # Experience and presentation — companion to the diligence design
 
 **Author(s):** eugenelim
-**Status:** Draft — revision c3, after two independent reviews
+**Status:** Draft — revision c3
 **Last updated:** 2026-09-10
 **Parent:** [`design-doc.md`](design-doc.md), whose § Scope commissions this
 document and names the seam it must respect: **typed artifacts are the
@@ -9,16 +9,6 @@ presentation contract**.
 **Settles:** most of
 [`multi-workspace-inspectable-experience`](../../product/intents/multi-workspace-inspectable-experience.md).
 Not all of it — see § Disposition of the intent's questions.
-
-## Revision note
-
-c1 returned MAJOR REWRITE (three blockers); c2 returned SHIP WITH CHANGES (one
-blocker, introduced at the seam with the sibling by c2's own repairs). c3
-applies both sets. c1 additionally claimed to settle the intent "in full" while
-declining to settle accessibility; § Disposition now states the per-question
-position. One retraction is kept in the body because the rejected reading is
-instructive: c1's claim that no path existed from model output to markup
-(§ Rendering model-authored prose).
 
 ## TL;DR
 
@@ -170,11 +160,13 @@ degrades visibly rather than breaking a view.
 ### Rendering model-authored prose
 
 The intent excludes "arbitrary agent-generated HTML or executable UI code
-rendered in the browser." c1 claimed there was "no path by which model output
-becomes markup" — false, because the **Report view renders a model-authored
-memo**, and a memo rendered as Markdown permits raw HTML and `javascript:` or
-`data:` URIs. The renderer registry covers typed fields and silently exempted
-the largest untrusted payload in the system.
+rendered in the browser."
+
+**A renderer registry alone does not deliver that exclusion.** The registry
+covers *typed fields*; the **Report view renders a model-authored memo**, and a
+memo rendered as Markdown permits raw HTML and `javascript:` or `data:` URIs. A
+contract written only for typed fields exempts the largest untrusted payload in
+the system by omission.
 
 The exclusion is enforced by five mechanisms, and the claim is bounded by them
 rather than asserted absolutely:
@@ -182,9 +174,9 @@ rather than asserted absolutely:
 1. **Any text the initiating human did not author** — model-authored prose and
    retrieved evidence text alike — renders as plain text, or through a
    sanitizing renderer with a closed allowlist of inline elements and **no
-   raw-HTML passthrough**. Scoping this to model output only would repeat the
-   c1 defect one payload over: charter principle 1 treats retrieved third-party
-   content as adversarial, and the Evidence view renders it.
+   raw-HTML passthrough**. The scope is deliberately wider than model output:
+   charter principle 1 treats retrieved third-party content as adversarial, and
+   the Evidence view renders filing text.
 2. **`dangerouslySetInnerHTML` is prohibited repo-wide**, enforced by lint
    rather than by review.
 3. **URL-bearing fields are scheme-allowlisted to `https:`** before becoming an

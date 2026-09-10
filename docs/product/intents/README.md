@@ -47,13 +47,19 @@ restating it.
 Named at inception as **candidates to evaluate, not decisions** — this list is
 authoritative and the delivery brief cites it rather than restating it:
 
-NVIDIA NeMo Guardrails · Langfuse · OpenTelemetry · Claude Code headless ·
+Langfuse · OpenTelemetry · Claude Code headless ·
 ECS Fargate · Application Load Balancer with server-sent events · API Gateway ·
 PostgreSQL · S3-compatible object storage · LiteLLM versus an application-owned
 Bedrock Converse adapter · PostgreSQL-backed workflow durability versus a
 dedicated queue · hosted versus self-hosted LLM operations tooling.
 
 Each belongs in an unresolved question, never in a boundary.
+
+**Settled since inception.** NVIDIA NeMo Guardrails was named here as a
+candidate and was **rejected on 2026-09-10**; the reasoning is recorded in
+[`governed-observable-and-evaluable-operation`](governed-observable-and-evaluable-operation.md)
+§ Unresolved questions. A candidate that has been decided leaves this list, so
+the list only ever shows what is still open.
 
 ## 2. Handoff shape
 
