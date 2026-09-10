@@ -1,0 +1,31 @@
+# workspace.toml
+#
+# Repository coordination index. Canonical artifacts own requirements; this
+# file records lifecycle membership, source provenance, display summaries, and
+# hard dependencies.
+#
+# Target entries are inline tables with exactly:
+#   path, kind, source, summary, needs
+#
+# Example:
+#   { path = "docs/specs/<slug>/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Example spec", needs = [] }
+#
+# Comments, summaries, list order, tracker labels, and profile hints are
+# non-semantic. They must not determine routing, dependency satisfaction,
+# processor selection, or dispatch.
+#
+# Paths are repository-relative POSIX paths. Consumers must reject absolute
+# paths, backslashes, ".." segments, and any symlink-resolved target outside the
+# repository root.
+
+[backlog]
+open = [
+  { path = "docs/product/intents/evidence-backed-company-diligence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Evidence-linked public-company change analysis as of an explicit date; awaits architect-design", needs = [] },
+  { path = "docs/product/intents/multi-workspace-inspectable-experience.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Distinct React workspace views over research, workflow, evidence, context, and policy; awaits architect-design", needs = [] },
+  { path = "docs/product/intents/portable-identity-first-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Portable containerized ADK runtime reaching Bedrock via short-lived workload identity; awaits architect-design", needs = [] },
+  { path = "docs/product/intents/scoped-context-and-evidence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Bounded versioned context packages and immutable evidence lineage; awaits architect-design", needs = [] },
+  { path = "docs/product/intents/governed-observable-and-evaluable-operation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Policy, telemetry, evaluation, and human-intervention visibility across runs; awaits architect-design", needs = [] },
+  { path = "docs/product/intents/adoptable-reference-implementation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Legible, learnable reference implementation whose patterns transfer without the domain; awaits architect-design", needs = [] },
+  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Draft MVP brief coordinating the six foundation intents; blocked on charter ratification and architect-design", needs = [] },
+]
+closed = []

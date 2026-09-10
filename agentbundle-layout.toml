@@ -1,0 +1,21 @@
+# agentbundle-layout.toml — adopter-owned. Controls where output-producing
+# packs write their durable work. Never projected by an install; edit freely.
+
+[architecture]
+# Base directory for design efforts. Each effort gets its own folder beneath
+# this: <output_dir>/<topic-slug>/. Repo-root-relative.
+#
+# NOTE: docs/architecture/ holds *current* state per docs/CONVENTIONS.md § 5a.
+# A designed-but-unbuilt effort folder placed here must carry a STATUS: PLANNED
+# marker and link to its governing decision.
+output_dir = "docs/architecture"
+
+[research]
+# desk-research output stays in the repository, not a personal vault.
+# Overrides the user-profile ~/.agentbundle/agentbundle-layout.toml [research]
+# value for this repo only; that vault default still applies elsewhere.
+#
+# Matches the convention documented in docs/CONVENTIONS.md § 5b:
+# docs/product/research/<slug>/ — committed desk-research output, distinct from
+# findings/ (governance registers) and from gitignored personal scratch.
+output_dir = "docs/product/research"
