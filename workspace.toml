@@ -20,6 +20,22 @@
 
 [backlog]
 open = [
-  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Draft MVP brief coordinating the six foundation intents; charter ratified, architecture designed, awaits sign-off", needs = [] },
 ]
 closed = []
+
+# A Ready brief cannot sit in [backlog].open: `Ready` is terminal for kind
+# "brief", so the schema reports impossible_transition. Its schema-valid home is
+# an initiative's brief_queue, which is where this initiative comes from.
+["ini-001"]
+name   = "Inspectable Diligence MVP"
+status = "active"
+
+["ini-001".brief_queue]
+draft     = []
+ready     = [
+  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Ready MVP brief coordinating the six Accepted foundation intents; non-dispatchable until a slice is cut", needs = [] },
+]
+executing = []
+shipped   = []
+withdrawn = []
+cancelled = []

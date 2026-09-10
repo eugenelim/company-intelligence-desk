@@ -3,8 +3,9 @@
 - **Slug:** `inspectable-diligence-mvp`
 - **Received:** 2026-09-09
 - **Owner:** eugenelim
-- **Status:** Draft
-- **Next processor:** `author-delivery-brief continue` — architecture has run
+- **Status:** Ready
+- **Next processor:** `author-delivery-brief continue` — slice selection; the
+  brief is Ready and carries no specs, so it is not dispatchable
 
 ## Source
 
@@ -13,6 +14,11 @@
 - Revision: b8 — the charter's two non-boundary disclaimers pointed to rather
   than reproduced, the last restatement of ratified text in the brief,
   2026-09-10
+- Review: `Findings @ b7`, whose sole blocking finding is the b8 repair above.
+  The lifecycle owner recorded that repair as a **nonmaterial** pre-seal wording
+  correction — it deletes restated text and asserts nothing new — and retained
+  the bound result rather than redispatching. Ready confirmed by eugenelim on
+  2026-09-10.
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
