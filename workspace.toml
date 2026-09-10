@@ -20,6 +20,7 @@
 
 [backlog]
 open = [
+  { path = "docs/product/intents/evidence-backed-fund-diligence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Deferred second demonstration domain: managed funds and ETFs; gated on an RFC amending the charter, not buildable", needs = [] },
 ]
 closed = []
 

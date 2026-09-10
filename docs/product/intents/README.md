@@ -104,6 +104,18 @@ other intents" — `adoptable` is included by that set, not defined there.
 | [`multi-workspace-inspectable-experience`](multi-workspace-inspectable-experience.md) | What the user sees |
 | [`adoptable-reference-implementation`](adoptable-reference-implementation.md) | Whether the result is legible and learnable as a reference |
 
+## Beyond the foundation set
+
+Not every intent in this directory is one of the six. The six are *foundation*
+intents: written before any architecture existed, and jointly the statement of
+what the MVP must achieve. Rules 1-3 above apply to them.
+
+| Intent | Why it is not a foundation intent |
+| --- | --- |
+| [`evidence-backed-fund-diligence`](evidence-backed-fund-diligence.md) | A second demonstration domain — managed funds and ETFs — recorded 2026-09-10 and **not authorized to build**. Its outcome sits outside the ratified charter, whose § Mission, § Domain and § Scope name *public-company* diligence, so it is gated on an RFC rather than on a shaping review. It carries no ratified constraint and appears in no row of § 1's table. |
+
+An intent here consumes the foundation contracts and does not redefine them.
+
 ## Status
 
 Each file's `Status:` and `Source: Revision:` lines are the single home for its
