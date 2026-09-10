@@ -1,6 +1,6 @@
 # Governed, Observable, and Evaluable Operation
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Kind:** outcome
 
 ## Outcome

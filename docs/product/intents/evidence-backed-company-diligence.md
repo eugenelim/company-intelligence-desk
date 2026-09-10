@@ -1,6 +1,6 @@
 # Evidence-Backed Company Diligence
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Kind:** outcome
 
 ## Outcome
@@ -150,9 +150,10 @@ roles. Owner: eugenelim; settled by the slicing pass at
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r15 — *covered tier* defined for the set of issuers, outside the
-  confirmed-constraints block because the ratified constraint names a tier of
-  sources rather than of companies; sub-result 1's assumption now names the
+- Revision: r15 — *covered tier* defined for the set of issuers, in prose
+  following the ratified bullet rather than as part of it, because the
+  constraint names a tier of sources rather than of companies and deriving the
+  issuer set is this intent's own inference; sub-result 1's assumption now names the
   question it is open with, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

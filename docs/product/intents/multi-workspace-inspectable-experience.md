@@ -1,6 +1,6 @@
 # Multi-Workspace Inspectable Experience
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Kind:** outcome
 
 ## Outcome

@@ -20,10 +20,6 @@
 
 [backlog]
 open = [
-  { path = "docs/product/intents/evidence-backed-company-diligence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Evidence-linked public-company change analysis as of an explicit date; architecture designed, awaits sign-off", needs = [] },
-  { path = "docs/product/intents/multi-workspace-inspectable-experience.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Rendered surfaces reaching every auditable property and support relation; awaits an experience companion", needs = [] },
-  { path = "docs/product/intents/portable-identity-first-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Portable containerized ADK runtime reaching Bedrock via short-lived workload identity; architecture designed, awaits sign-off", needs = [] },
-  { path = "docs/product/intents/governed-observable-and-evaluable-operation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Policy, telemetry, evaluation, untrusted-content boundary; boundary awaits design sign-off, rest awaits an observability companion", needs = [] },
   { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Draft MVP brief coordinating the six foundation intents; charter ratified, architecture designed, awaits sign-off", needs = [] },
 ]
 closed = []

@@ -1,6 +1,6 @@
 # Portable Identity-First Runtime
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Kind:** outcome
 
 ## Outcome
