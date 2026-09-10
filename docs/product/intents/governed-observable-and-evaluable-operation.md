@@ -30,15 +30,17 @@ holding tool authority in a form that can act as instruction.
 *Falsifying observation:* retrieved free text reaches a component that can invoke
 a tool. That is a defect regardless of whether anything downstream detected it.
 
-**2. What an agent may be persuaded to attempt is bounded by what it is
-permitted to do.** The user's prompt cannot be kept out of instruction position —
-it legitimately *is* the instruction — so the control is authority, not
-exclusion.
-*Falsifying observation:* a tool invocation succeeds whose arguments exceed the
-acting role's ceiling or the initiating user's entitlements. The authority model
-itself is owned by
-[`portable-identity-first-runtime.md`](portable-identity-first-runtime.md); this
-intent depends on it and does not define it.
+**2. Every prompt entering the system is subject to a recorded policy
+decision.** The user's prompt cannot be kept out of instruction position — it
+legitimately *is* the instruction — so this intent's control is that the entry
+is *adjudicated and attributable*, not that the content is excluded.
+*Falsifying observation:* a run proceeds from a prompt with no policy decision
+event recorded against it.
+
+What that prompt can ultimately *cause* is bounded by the delegated authority
+ceiling, which is owned by
+[`portable-identity-first-runtime.md`](portable-identity-first-runtime.md) and
+is not restated here. This intent depends on it.
 
 The charter ratifies the posture behind sub-result 1 in principle 1, and
 declines in § Scope to warrant that any demonstrated pattern is effective
@@ -91,8 +93,10 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
 - Which controls belong in deterministic code and which require semantic
   guardrails, and in what order are they applied?
 - Is NVIDIA NeMo Guardrails operationally justified for the MVP, or is a
-  simpler application-owned policy layer sufficient? *Proposed in `design-doc.md`
-  § Alternatives Considered; open until owner sign-off.*
+  simpler application-owned policy layer sufficient? *`design-doc.md`
+  § Alternatives Considered rejects the detector class on cited evidence but does
+  not evaluate NeMo itself, which is a policy-flow framework as well as a
+  detector. Open.*
 - By what mechanism is the untrusted-content boundary held, and what does it
   cost in analytical capability? *Proposed in `design-doc.md` § Injection
   defence; open until owner sign-off.*
@@ -123,17 +127,22 @@ assert).
 **Feeds:** `multi-workspace-inspectable-experience` (which run information is
 releasable to its policy and evaluation surfaces).
 
-**Next step.** Settled by the commissioned *Observability and evaluation*
-companion document, which the architecture design deferred the telemetry
-boundary, redaction rules, evaluation architecture, and fixture versioning to.
-That companion does not yet exist.
+**Next step.** Two settling events, one per outcome.
+
+The **untrusted-content boundary** is settled by owner sign-off on the
+architecture design, which proposes its mechanism.
+
+The **auditability outcome** is settled by the commissioned *Observability and
+evaluation* companion document, which the design deferred the telemetry
+boundary, redaction rules, evaluation architecture, fixture versioning, and
+release gates to. That companion does not yet exist.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r5 — untrusted-content outcome split into two sub-results with
-  distinct falsifiers, after the single falsifier was found to fire on normal
-  operation, 2026-09-10
+- Revision: r6 — sub-result 2 rehomed onto a residual this intent owns, after
+  the authority-ceiling wording proved unfalsifiable independently of
+  `portable-identity-first-runtime`, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

@@ -4,13 +4,14 @@
 - **Received:** 2026-09-09
 - **Owner:** eugenelim
 - **Status:** Draft
-- **Next processor:** `architect-design`
+- **Next processor:** `author-delivery-brief continue` — architecture has run
 
 ## Source
 
 - Mode: repo-origin — synthesized from six Draft foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b2 — constraint delta resolved, 2026-09-09
+- Revision: b3 — charter ratification and completed architecture run reflected,
+  2026-09-10
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
@@ -142,8 +143,8 @@ not restated here.
 ## Assumptions and risks
 
 - **Assumption:** the six foundation intents are a sufficient and non-conflicting
-  statement of the MVP. Three independent shaping-review passes support this;
-  they have not been ratified by promotion to `Accepted`.
+  statement of the MVP. Six independent shaping-review passes support this; none
+  has yet been promoted to `Accepted`.
 - **Risk:** the demonstration domain absorbs effort that the reference-implementation
   purpose needs. `adoptable-reference-implementation` exists to hold that line,
   but it is the least-developed of the six intents.
@@ -174,8 +175,8 @@ its outcome; this brief coordinates them.
 ## Governance references
 
 - [`RFC-0001`](../../rfc/0001-initial-project-charter.md) — initial project
-  charter. `Draft`. The charter this brief's value statement should anchor to
-  does not yet exist in ratified form.
+  charter. **Accepted 2026-09-10**; `docs/CHARTER.md` carries the ratified text
+  this brief's business-value statement anchors to.
 
 ## Spec map
 
@@ -189,14 +190,14 @@ _No slices. This brief is not dispatchable._
 A later `author-delivery-brief continue` review must resolve these before
 `Status: Ready`:
 
-1. **Charter not ratified.** RFC-0001 is `Draft`; `docs/CHARTER.md` is still a
-   seed placeholder. This brief's business-value statement has no ratified
-   charter to anchor to.
+1. ~~**Charter not ratified.**~~ **Resolved 2026-09-10** — RFC-0001 accepted and
+   `docs/CHARTER.md` ratified. The business-value statement now anchors to it.
 2. ~~**Confirmed-constraint delta.**~~ **Resolved 2026-09-09** — the owner
    ratified all three; the intents' closed set is now fourteen and this brief
    agrees with it.
-3. **Architecture unresolved.** Every architecture question in the six intents
-   is open. `architect-design` runs next.
+3. **Architecture proposed, not signed off.** `architect-design` has run and
+   produced a reviewed design at Draft; owner sign-off is outstanding, and four
+   Phase 0 spikes gate its ratification.
 4. **No offline contributor path.** The MVP requires a real Bedrock invocation;
    the fallback for contributors without AWS access is an open question in
    `portable-identity-first-runtime`.

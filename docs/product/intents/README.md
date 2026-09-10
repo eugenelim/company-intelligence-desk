@@ -1,7 +1,7 @@
 # Foundation intents
 
-Six Draft intents recording what Company Intelligence Desk must achieve, written
-before any architecture existed. Each is registered in `workspace.toml`
+Six foundation intents recording what Company Intelligence Desk must achieve,
+written before any architecture existed. Each is registered in `workspace.toml`
 `[backlog].open`, which tracks them as open work carrying `Draft` artifacts.
 
 This file states the three rules that apply to all six, so they are not restated
@@ -105,8 +105,9 @@ from the other files' `Feeds:` lines.
 
 ## Status
 
-All six are `Draft`. Each file's `Source: Revision:` line is the single home for
-its own revision — an aggregate claim here decays on every material edit.
+Each file's `Status:` and `Source: Revision:` lines are the single home for its
+own status and revision — an aggregate claim here decays on every material edit
+and on every promotion.
 
 None moves to `Accepted` without a revision-bound clean shaping review and
 explicit human confirmation. Intents stay **living until all work under them

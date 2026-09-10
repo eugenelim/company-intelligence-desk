@@ -5,10 +5,14 @@
 
 ## Outcome
 
-A user can, without reading server logs or raw model output, answer for any
-completed run: which evidence supports a given claim, which policy decisions
-were applied, what the workflow did and in what order, and where the run
-required a human.
+For every property
+[`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md)
+makes auditable from the record, and every support relation
+[`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) defines, a
+user can answer it from a rendered surface without reading server logs or raw
+model output.
+
+This intent does not define that set; it owns whether the set is *reachable*.
 
 ## Boundary
 
@@ -95,7 +99,7 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r5 — view pressure-test retargeted to the experience companion,
-  2026-09-10
+- Revision: r6 — outcome restated as a citation to the sets it renders, rather
+  than a copy of them that had already drifted, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

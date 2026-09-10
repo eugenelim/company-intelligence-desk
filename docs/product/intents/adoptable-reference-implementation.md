@@ -10,8 +10,8 @@ identify the governed-agent patterns it demonstrates, find where each one is
 implemented, and carry a pattern into their own system without copying this
 project's domain.
 
-The repository names a non-empty set of demonstrated patterns and at least one
-reader task, and each has a findable implementation site.
+The repository names a non-empty set of demonstrated patterns, each with a
+findable implementation site, and at least one reader task.
 
 **Three falsifying observations**, the first of which closes the empty state:
 
@@ -95,7 +95,7 @@ documentation obligation this intent owns.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r5 — outcome given a positive minimum so the empty state falsifies;
-  charter-duplicated exclusions replaced with a citation, 2026-09-10
+- Revision: r6 — positive minimum reworded so implementation sites attach to
+  patterns rather than reader tasks, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

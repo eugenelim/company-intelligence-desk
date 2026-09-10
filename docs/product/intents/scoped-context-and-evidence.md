@@ -10,8 +10,12 @@ reproducible, and every material output can be traced to immutable evidence, an
 explicit temporal scope, and calculation lineage.
 
 Two observations falsify this: a step that receives material not present in its
-declared scope, and a step re-run against the same declared scope that resolves
-to a different context set.
+declared scope, and a declared scope that resolves to a different *set of
+retrievable evidence* on re-resolution while its evidence snapshot is held fixed.
+
+A differing per-step *selection* on re-run is **not** a falsifier. The design is
+explicit that this is replay, not re-execution: the snapshot pins the universe of
+retrievable evidence, not which of it a step chooses.
 
 "Material" is defined by
 [`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md)'s
@@ -101,13 +105,15 @@ proposes context-service responsibilities, persistence boundaries, evidence
 lineage, temporal rules, and retrieval contracts.
 
 The retrieval model for the initial filing tier is not settled by that sign-off
-and remains open here. Owner: eugenelim.
+and remains open here. Owner: eugenelim; settled by the delivery-brief slicing
+pass at `author-delivery-brief continue`, which is where the first retrieval
+workload is scoped.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r5 — untrusted-content boundary cited as binding; projection given a
-  settling event, 2026-09-10
+- Revision: r6 — re-resolution falsifier bound to the retrievable universe after
+  the earlier wording fired on correct replay behaviour, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
