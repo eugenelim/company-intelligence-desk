@@ -1,16 +1,24 @@
 # Experience and presentation — companion to the diligence design
 
 **Author(s):** eugenelim
-**Status:** Draft — revision c2, after one independent review (MAJOR REWRITE,
-three blockers)
+**Status:** Draft — revision c3, after two independent reviews
 **Last updated:** 2026-09-10
 **Parent:** [`design-doc.md`](design-doc.md), whose § Scope commissions this
 document and names the seam it must respect: **typed artifacts are the
 presentation contract**.
 **Settles:** most of
 [`multi-workspace-inspectable-experience`](../../product/intents/multi-workspace-inspectable-experience.md).
-Not all of it — see § Disposition of the intent's questions. c1 claimed "in
-full" while declining to settle accessibility, which its own text contradicted.
+Not all of it — see § Disposition of the intent's questions.
+
+## Revision note
+
+c1 returned MAJOR REWRITE (three blockers); c2 returned SHIP WITH CHANGES (one
+blocker, introduced at the seam with the sibling by c2's own repairs). c3
+applies both sets. c1 additionally claimed to settle the intent "in full" while
+declining to settle accessibility; § Disposition now states the per-question
+position. One retraction is kept in the body because the rejected reading is
+instructive: c1's claim that no path existed from model output to markup
+(§ Rendering model-authored prose).
 
 ## TL;DR
 
@@ -18,8 +26,8 @@ Four views plus a run-initiation action, derived from a **reachability table**
 that maps every item the intent requires to the surface exposing it. Renderers
 are code registered against artifact types, and **model-authored prose is
 rendered as text through a sanitizing path** — the memo is the largest untrusted
-payload in the system and c1 exempted it by accident. A role preset rearranges
-panels and never hides data.
+payload in the system, and a renderer contract written only for typed fields
+exempts it by accident. A role preset rearranges panels and never hides data.
 
 ## Scope
 
@@ -37,6 +45,13 @@ which is `portable-identity-first-runtime`'s.
 **Ratified and not reopened:** React; a shared component system documented
 through Storybook; multiple workspace views; the browser UI and the API as
 separate deployable containers.
+
+**Excluded by the intent and not reopened:** arbitrary agent-generated HTML or
+executable UI code rendered in the browser; exposure of private model reasoning;
+a separate frontend deployment or microfrontend per workspace view. The first
+two are load-bearing enough to be argued (§ Rendering model-authored prose,
+§ What the inspection surfaces may never show); the third is simply not
+available, so it is not argued as an alternative.
 
 ## Disposition of the intent's questions
 
@@ -57,17 +72,20 @@ falsifier is an item of any set that no surface exposes. This table is the
 answer and the thing most worth attacking.
 
 **Reading note.** "`governed` § Outcome" in the intent means that intent's
-*first* outcome. Its second (cross-release evaluability) and third
-(untrusted-content boundary) are separately headed sections, and neither is a
-per-run property, so neither is in this set.
+*first* outcome. Its second outcome is expressly not a property of a completed
+run. Its third is a separately headed outcome the intent does not cite here, so
+it is outside this set **by reference rather than by per-run-ness** — the
+sibling's deletion test does treat its coverage property as recoverable from one
+run's event log. That property is nonetheless visible on the Run policy panel,
+so nothing is unreachable either way.
 
 | Required item | Source | Surface |
 | --- | --- | --- |
 | Step sequence a run took | `governed` 1st outcome, sub-result 1 | **Run** — step timeline |
-| Policy decisions and their outcomes | sub-result 2 | **Run** — policy panel |
-| Human intervention points | sub-result 3 | **Run** — timeline markers; **Approval** |
+| Policy decisions and their outcomes | `governed` 1st outcome, sub-result 2 | **Run** — policy panel |
+| Human intervention points | `governed` 1st outcome, sub-result 3 | **Run** — timeline markers; **Approval** |
 | Primary evidence, distinct from interpretation | `scoped` § In scope | **Evidence** |
-| Versioned source manifests and context packages | `scoped` § In scope | **Evidence** (manifest); **Run** — context panel per step |
+| Versioned source manifests and context packages | `scoped` § In scope | **Evidence** (manifest, with its content-addressed `snapshot_id`); **Run** — context panel per step, showing the package's content hash and `context_assembler_version` from the producer tuple |
 | No later evidence entered a historical as-of analysis | `scoped` § In scope | **Run** header — immutable `snapshot_id` with as-of date; **Evidence** — manifest pinned to that snapshot |
 | Immutable evidence a material claim resolves to | `scoped` § Outcome | **Report** — claim → evidence |
 | Explicit temporal scope | `scoped` § Outcome | **Run** header (run-level); **Report** — per-claim period, since cross-period comparison means claims legitimately carry different periods |
@@ -114,6 +132,11 @@ the ratified constraint requires the UI to be more than "only a chat interface",
 and a two-field form is the honest shape for a two-parameter request. Making it
 a view would give a modal-sized interaction a permanent home in the IA.
 
+**The approval surface is a panel on Run**, present only while the run is in
+`awaiting_approval` or `expired`. It is not a view because it exists for a
+minority of runs and has no meaning away from the run it gates. § Reachability
+cites it as **Approval**, and this is where it lives.
+
 **Demoted to panels:** Overview (a run header, not a destination); Context and
 Policy (per-step, meaningless away from the step that produced them);
 Evaluations (this run's check outcomes; the *trend* belongs to cross-release
@@ -156,9 +179,12 @@ the largest untrusted payload in the system.
 The exclusion is enforced by five mechanisms, and the claim is bounded by them
 rather than asserted absolutely:
 
-1. **Model-authored prose renders as plain text**, or through a sanitizing
-   renderer with a closed allowlist of inline elements and **no raw-HTML
-   passthrough**.
+1. **Any text the initiating human did not author** — model-authored prose and
+   retrieved evidence text alike — renders as plain text, or through a
+   sanitizing renderer with a closed allowlist of inline elements and **no
+   raw-HTML passthrough**. Scoping this to model output only would repeat the
+   c1 defect one payload over: charter principle 1 treats retrieved third-party
+   content as adversarial, and the Evidence view renders it.
 2. **`dangerouslySetInnerHTML` is prohibited repo-wide**, enforced by lint
    rather than by review.
 3. **URL-bearing fields are scheme-allowlisted to `https:`** before becoming an
@@ -170,8 +196,10 @@ rather than asserted absolutely:
    HTML download is stored XSS.
 
 Agent output is data passed to reviewed renderers. With these five in place
-there is no path from model output to executing code in the browser; without
-them the claim was decoration.
+there is no path from untrusted text to executing code in the browser — **a
+construction under these five mechanisms, not a guarantee against a determined
+adaptive attacker.** The charter § Scope declines that warranty and this
+document does not extend it. Without the five, the claim was decoration.
 
 **Prose is fetched, not streamed.** The event stream carries only inlinable
 forms — typed scalars, closed-vocabulary classifications, bounded identifiers,
@@ -228,6 +256,15 @@ answers, without the approver reading logs:
 - the actions: **publish**, **return for revision**, **cancel the run**, or
   leave pending. Cancel is available because the parent's state table permits
   `any non-terminal → cancelled`.
+
+**The approval surface reads guarded content under the sibling's adjudication
+carve-out** — [`observability-and-evaluation.md`](observability-and-evaluation.md)
+§ What may leave the backend to a user surface. Adjudication is not publication:
+the flagged claim, its evidence and its lineage are served so the decision can be
+made, and the read is itself recorded as an event. Without that carve-out the
+guarded class would withhold precisely the content the approver must see, and
+charter principle 3's "flagged output is held for a named human" could not be
+executed.
 
 The approver principal and the flag state are recorded as events by the backend;
 the UI displays them and records nothing itself. `require_distinct_approver`
@@ -348,6 +385,11 @@ alternative.*
 5. **Visual representation of evidence, context, and policy decisions is
    unsettled** — the intent's question is open, and naming a panel is not
    designing one.
+6. **The intent's § Next step overclaims this companion.** It says the companion
+   "is what settles this intent", without qualification, which § Disposition now
+   contradicts. The intent needs a one-line amendment to "settles all but the
+   visual-representation question" — carried in the sign-off packet, not fixed
+   here, because amending an Accepted intent is a material edit.
 
 ## Open questions
 
