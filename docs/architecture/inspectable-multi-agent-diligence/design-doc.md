@@ -545,9 +545,25 @@ entitlements at run start.
 closed enumerations, string prefixes, numeric ranges, and set membership — and are
 a **conjunction of independent per-argument predicates**. No disjunction and no
 cross-argument relation is expressible; that closure property is what makes
-per-attribute structural containment *sound* as well as decidable, since
+per-attribute structural containment decidable and set-theoretically sound, since
 disjunction would let a structural check authorize calls outside the parent's
-ceiling. `initiating_user.entitlements` is expressed in the same fragment, which
+ceiling.
+
+**Set-level soundness is not semantic safety, and the gap is in the prefix
+constructor.** Containment proves a value lies inside the declared ceiling. It
+does not prove the value means what the ceiling's author intended, because a
+*prefix* predicate over an argument the callee **interprets** admits an
+attacker-chosen suffix: a `https://www.sec.gov` prefix matches
+`https://www.sec.gov.attacker.example/`, and a path prefix matches a traversal
+beyond its root. Both pass containment and both report sound. This bites
+directly — the SEC egress allowlist is hostname-based and tool arguments carry
+URLs and content-addressed locators.
+
+The fragment must therefore either **exclude prefix constraints on any argument
+whose consumer parses it**, or constrain such arguments *after canonicalisation
+against the interpretation the callee performs*. This is unresolved and is a
+Phase 0 deliverable: the containment property test must include an
+interpreted-argument case, not only a well-typed unauthorised call. `initiating_user.entitlements` is expressed in the same fragment, which
 the base case requires — it is itself a `⊆` check. A role version in use by an
 in-flight run is immutable; `policy-author` writes create new versions that bind
 only at the next spawn, so a recorded containment proof cannot go stale
@@ -800,6 +816,10 @@ document's shape; these are what remain, and none is hidden in a review file.
 3. **The event-append privilege model and the containment algorithm are stated as
    invariants and unproven.** Their correctness is a Phase 0 test deliverable. A
    failure there is an architecture-affecting result, not an implementation bug.
+   Specifically known and unresolved: the fragment's **prefix constructor is
+   set-sound but not semantically safe** on arguments the callee interprets —
+   see *Decidability*. Until that is closed, the authorization ceiling is
+   narrower than it appears for URL, path, and locator arguments.
 4. **The security posture rests on `[moderate]`, self-evaluated evidence** with no
    disinterested replication, no unlimited-budget adaptive test, and no benchmark
    for long-document financial filings — this system's exact workload class.

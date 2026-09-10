@@ -80,8 +80,15 @@ instead:
   slowest-to-amend document. Routed back to that intent.
 - **The decidable fragment admits string prefixes**, so an argument the callee
   *interprets* — a URL, a path — accepts an attacker-chosen suffix while passing
-  containment as sound. Architecture-level; unapplied. Recorded in the design
-  doc's follow-on work.
+  containment as sound. Architecture-level, so not applied to the charter.
+  Recorded in the design doc's *Decidability* section, which now distinguishes
+  set-level soundness from semantic safety, and in its *Known at ship* item 3;
+  the Phase 0 containment property test must include an interpreted-argument
+  case.
+
+  A round-3 review found this routing claim was previously **false** — it was
+  recorded as routed while the design doc still asserted unqualified soundness.
+  Corrected 2026-09-09. A routing claim is only true once the destination says so.
 
 ## Process finding worth keeping
 

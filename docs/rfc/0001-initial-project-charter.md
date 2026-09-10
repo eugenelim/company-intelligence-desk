@@ -28,7 +28,9 @@
 - **Recommended outcome:** accept
 - **Change if accepted:** two file edits, listed under *Follow-on artifacts*.
 - **Affected surface:** `docs/CHARTER.md` and `AGENTS.md`, both read by every
-  agent session and every new contributor.
+  agent session and every new contributor; and `docs/CONVENTIONS.md` § 1, which
+  describes the charter's shape and would otherwise describe a charter this repo
+  no longer has.
 - **Stakes:** reversible by a later RFC, but a charter relied on for months costs
   trust to rewrite. Costly, not one-way.
 - **Review focus:** does the "does not do" list let you *reject* a concrete
@@ -61,8 +63,8 @@ project is for*, and none of the six intents is what a contributor opens first.
 and refuses to do, and the principles that break ties.
 
 **What the charter deliberately leaves to other documents.** The intents carry a
-ratified constraint set covering runtime, host, model access, UI framework,
-evidence tier, and deployment process. The charter does not restate any of them.
+closed ratified constraint set, indexed in their README and worded normatively in
+each owning intent. The charter does not restate any of them.
 A charter is amended more slowly than an intent, so a second copy would drift
 from the first, and the intents' README already declares its set closed. The
 charter therefore states purpose and points at the intents for commitments.
@@ -129,8 +131,6 @@ What this project does:
   planning, or synthesis adds value.
 - Preserves human authority where verification flags output, and records every
   human intervention.
-- Uses explicit application-owned contracts so infrastructure, model, policy,
-  storage, and observability implementations can be replaced where practical.
 - Retains an inspection record of what ran, on what evidence, and under whose
   authority.
 - Serves as both a useful demonstration application and an engineering
@@ -147,10 +147,7 @@ What this project does **not** do:
 - It does not warrant that the security patterns it demonstrates are effective
   against a determined adaptive attacker. Their evidence base and its limits
   are recorded in the architecture documentation.
-- It does not redistribute private, paid, licensed, or restricted research
-  data.
-- It does not make core application behavior inseparable from one cloud, model
-  provider, policy engine, or observability product.
+- It does not redistribute private, licensed, or paid research data.
 
 Two disclaimers, which are not scope boundaries: model-generated analysis is
 not guaranteed complete or correct, and nothing here removes human
@@ -160,6 +157,14 @@ accountability for consequential conclusions.
 delivery commitments are ratified in `product/intents/`; check there before
 assuming a direction is open. If the project is being asked to do something on
 neither list, that is a signal to refine this section rather than drift.
+
+**What the system is today.** It is built for a single operator. Any workspace or
+grouping it exposes is an organizational scope with no isolation behind it: every
+authenticated principal can read every run and its evidence. Supporting a second
+principal requires isolation work that does not exist. Whether a workspace
+*should* become a hard boundary is an open question owned by
+`product/intents/portable-identity-first-runtime.md`, and this charter does not
+answer it — but the current state is a fact an adopter must not have to infer.
 
 ## Principles
 
@@ -196,9 +201,10 @@ criteria that select output for automatic publication are themselves reserved:
 any change to them, in either direction, takes the route this charter takes.
 
 *Applied:* flagged output is held for a named human. Whether that human must
-differ from the requester is configurable and recorded; it defaults to
-permitting self-approval, which any deployment with more than one principal
-must change.
+differ from the requester is configurable and recorded, and defaults to
+permitting self-approval. Changing that setting is necessary for a
+multi-principal deployment and nowhere near sufficient — see *What the system
+is today*.
 
 ### 4. Inspectability over magic
 
@@ -213,12 +219,14 @@ alone, without re-running it.
 
 Ambient workload identity is the default: components use bounded identities and
 short-lived credentials, and receive only the permissions and network access
-their responsibility requires. A static credential is admitted only where its
-owner and rotation procedure are recorded before the credential is created.
+their responsibility requires. Where a ratified constraint forbids a static
+credential outright, that prohibition stands; where none does, a static
+credential is admitted only with its owner and rotation procedure recorded
+before it is issued into any environment holding real data.
 
-No runtime or agent identity may create or widen its own authority, and no
-delegation amplifies it: authority is bounded by the human who initiated the
-work and by whatever delegated it.
+No runtime or agent identity may create or widen authority — its own or
+another's. Within a run, delegated agent and tool authority never amplifies: it
+is bounded by the human who initiated the work and by whatever delegated it.
 
 *Applied:* the internet-facing component holds no model-invocation permission
 at all.
@@ -294,9 +302,21 @@ option — the project already has boundaries, and no document states its purpos
   clauses, principle 4's and 5's and 7's examples, and the security-pattern
   fitness exclusion. If that design changes materially before owner sign-off,
   each must be re-derived rather than assumed.
+- **Known at ship — principle 5's non-amplification binds delegated authority,
+  not workload identity.** Within a run, an agent's authority is bounded by the
+  initiating human. The components themselves are not: the worker holds model
+  invocation and broad database writes that no operator requesting a run holds.
+  The clause is true of layer 2 and says nothing about layer 1, and a reader
+  should not take it at full strength.
+- **Known at ship — "silence is not permission" is scoped to technology and
+  delivery, and undecided *security posture* falls outside it.** Tenancy is the
+  worked example: it is neither a technology nor a delivery commitment, so the
+  clause does not redirect a reader to it. *What the system is today* carries
+  that specific fact; another undecided security posture would not be covered.
 - **What would make this wrong:** if the stated purpose conflicts with what the
-  project does. Because the charter asserts no technology, such a conflict could
-  only arise at the level of purpose, which is where a charter should win.
+  project does. The charter asserts one shape commitment — principle 6's
+  adapter boundary — so a conflict could arise there as well as at the level of
+  purpose. Everywhere else, purpose is the level a charter should win at.
 
 ## Evidence
 
@@ -342,6 +362,13 @@ option — the project already has boundaries, and no document states its purpos
 - **`docs/CHARTER.md`** — replace the placeholder with the text under *Proposal*.
 - **`AGENTS.md` § Project overview** — replace `<project-name>` and the
   one-line-description placeholder.
+- **`docs/CONVENTIONS.md` § 1** — the proposal departs from § 1's stated charter
+  shape in two ways this RFC authorizes: it adds a `## Domain` section to the
+  Mission/Scope/Principles enumeration (see D2), and principles 3 and 5 carry
+  normative bodies rather than a single elaboration, because a reserved-change
+  rule and a least-privilege invariant do not compress into one sentence. § 1
+  must be amended to describe the charter that exists, or a later reader is told
+  the repo has a charter shape it does not.
 
 No ADR follows. A charter records what the project believes; the architecture
 decisions it enables are captured once that design is signed off.
