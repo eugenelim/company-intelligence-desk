@@ -1,10 +1,18 @@
 # RFC-0001: Initial Project Charter — Company Intelligence Desk
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Author:** eugenelim
 - **Approver:** eugenelim. This repository has a single maintainer, so
   self-approval is the available route.
 - **Date opened:** 2026-09-09
+- **Date closed:** 2026-09-10
+- **Lifecycle note:** `CONVENTIONS.md` § 3 defines `Draft → Open → Final Comment
+  Period → Accepted`. With one maintainer there is no second owner to circulate
+  to, so Open and the comment period were traversed without elapsed time. The
+  scrutiny they exist to provide came instead from three rounds of the
+  pre-handoff gate — adversarial, security, and fresh-reader review, thirty-one
+  findings — recorded in [`0001-notes/review-record.md`](0001-notes/review-record.md).
+  This is a departure from the stated lifecycle and is recorded as one.
 - **Decision weight:** standard — the middle of `light | standard | heavy`. It
   sets how much verification this RFC owes before circulation, not who approves
   it.

@@ -240,11 +240,18 @@ accepted decisions are normal PRs regardless of pathname.
 
 - **Mission.** One sentence. What the project is, in language anyone
   could understand.
+- **Domain.** Optional. Add it only when a project has two domains a reader
+  would otherwise conflate — the domain it is *about* and the domain it
+  *demonstrates through*. Authorized for this repository by RFC-0001.
 - **Scope.** What the project does, and — equally important — what it
   doesn't. The "doesn't" list is what tells contributors and agents when
   a request is out of bounds.
 - **Principles.** Five to seven values that resolve ties. Each principle
-  has a one-sentence elaboration with a concrete example.
+  has a one-sentence elaboration with a concrete example. A principle may
+  carry a short normative body where the rule genuinely does not compress
+  into one sentence — a reserved-change rule or a least-privilege invariant,
+  for instance. Prefer the single sentence; the body is the exception, not
+  the shape. Also authorized by RFC-0001.
 
 **What does NOT go here:**
 

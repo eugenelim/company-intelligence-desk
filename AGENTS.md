@@ -6,7 +6,14 @@
 
 ## Project overview
 
-This is <project-name>—<one-line description of what it does and for whom>.
+This is Company Intelligence Desk — an inspectable reference implementation of a
+governed multi-agent application, for engineers evaluating how to build one. It
+is demonstrated through evidence-backed public-company diligence.
+
+Purpose, scope, and the principles that resolve ties are in
+[`docs/CHARTER.md`](docs/CHARTER.md). Technology and delivery commitments are
+ratified in [`docs/product/intents/`](docs/product/intents/) — the charter does
+not restate them, and its silence on a direction is not permission.
 
 Link the repository's existing architecture or design source here when one exists. Do not relocate it to match a pack convention.
 
