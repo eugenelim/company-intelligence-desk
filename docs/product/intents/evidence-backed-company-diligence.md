@@ -5,8 +5,8 @@
 
 ## Outcome
 
-A user can ask what materially changed at a public company as of a specified
-date and receive a structured analysis.
+A user can ask what materially changed at a public company in the covered tier
+as of a specified date and receive a structured analysis.
 
 *Falsifying observation:* a request naming a company in the covered tier and an
 as-of date that yields no structured analysis. Producing nothing is a failure,
@@ -14,9 +14,10 @@ not a pass.
 
 Four sub-results, each independently verifiable:
 
-1. **At least one deterministic financial calculation is reported.** Every
-   periodic filing in the covered tier carries computable figures, so unlike its
-   siblings this sub-result needs no coverage-without-finding escape.
+1. **At least one deterministic financial calculation is reported.** Assumed for the
+   initial tier, and open with the source-tier question below: every periodic
+   filing in it carries computable figures. On that assumption, and unlike its
+   siblings, this sub-result needs no coverage-without-finding escape.
    *Falsified by:* an analysis reporting no deterministic financial
    calculation.
 2. **Filing-language comparison is covered, and its result stated.** The result
@@ -35,13 +36,14 @@ Four sub-results, each independently verifiable:
    resolution targets are ratified in [`docs/CHARTER.md`](../../CHARTER.md)
    principle 1. Its *Applied:* rule states the block without qualification; the
    scoping to *material* claims comes from the principle's normative sentence,
-   not from that rule. pending the
-   material-claim question below, *published claim* is the standing interim
-   reading. This intent narrows the evidence target to
+   not from that rule. Pending the material-claim question below,
+   *material claim* is read as any claim published in a user-facing artifact;
+   that is the standing interim reading, matched in
+   [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § Outcome. This intent narrows the evidence target to
    *public* sources — its own scope decision for the initial tier, not an owner
    ratification: the confirmed constraint says evidence *begins with* official
-   public sources, which is a starting point rather than a ceiling. *Falsified by:* a published claim with no resolvable
-   link.
+   public sources, which is a starting point rather than a ceiling. *Falsified by:* a published claim with no link
+   resolving to public evidence or to deterministic calculation lineage.
 
 Coverage is required; a *finding* is not. A company whose filing language did
 not materially change, and a first-time filer with no prior period, must both
@@ -142,10 +144,11 @@ roles. Owner: eugenelim; settled by the slicing pass at
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r13 — the outcome headline given the falsifying observation it
-  lacked, so a system that produces no analysis at all is no longer unfalsified
-  by every criterion in the section; sub-result 1's absent escape grounded rather
-  than left unexplained; the material-claim scoping attributed to principle 1's
-  normative sentence rather than to its unqualified *Applied:* rule, 2026-09-10
+- Revision: r14 — sub-result 4's falsifier no longer passes a claim linked to
+  something that is neither public evidence nor calculation lineage; the interim
+  material-claim reading repaired from a broken sentence and now names what it is
+  a reading of; sub-result 1's universal labelled as an assumption open with the
+  source-tier question; the headline's company set aligned with its falsifier's,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

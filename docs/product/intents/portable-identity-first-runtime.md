@@ -8,8 +8,13 @@
 The application runs anywhere a container runs, and neither a deployed component
 nor the default branch's current tree holds a long-lived model credential.
 
-Four independently verifiable sub-results. Each falsifier quantifies over the
-same set as its headline and closes its own empty state:
+Four independently verifiable sub-results, each falsifier quantifying over the
+same set as its headline. Sub-result 1's falsifier closes its empty state;
+2–4 are prohibitions, vacuously true of an empty system and given force by
+sub-result 1's positive requirement. **Recorded gap:** "anywhere a container
+runs" is broader than the conjunction of sub-results 1 and 4, which test a
+documented local path and provider-specific coupling outside the seam set;
+running on an arbitrary third host is not directly falsifiable here.
 
 1. A contributor can run the whole application locally in containers without
    cloud access, with substitution confined to the seam set named under
@@ -146,10 +151,10 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r14 — sub-result 4's unreachable disjunct deleted (the seam set is
-  named and closed in this same file); sub-result 2's least-privilege clause
-  attributed to charter principle 5 rather than presented as decomposition; the
-  Fargate question's second citation retargeted to the section carrying the
-  compute profile, 2026-09-10
+- Revision: r15 — the preamble's claim that every falsifier closes its empty
+  state corrected: only sub-result 1's does, and 2-4 are prohibitions vacuously
+  true of an empty system, given force by sub-result 1; the headline's
+  portability claim recorded as a gap, being broader than the sub-results that
+  test it, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

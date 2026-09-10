@@ -6,7 +6,10 @@
 ## Outcome
 
 A completed run can be audited after the fact from recorded evidence alone,
-without re-running it and without access to private model reasoning.
+without re-running it — ratified in [`docs/CHARTER.md`](../../CHARTER.md)
+principle 4 and cited rather than restated, so a charter revision cannot diverge
+from it silently. What this intent adds is the extension *without access to
+private model reasoning*, and the decomposition below.
 
 *Falsifying observation:* a completed run whose audit requires re-running it or
 requires access to private model reasoning, or for which no recorded evidence
@@ -22,8 +25,9 @@ verifiable and each quantified over one completed run:
    *Falsified by:* a policy decision applied to a completed run with no recorded
    decision event, or a recorded decision event with no recorded outcome, or a
    completed run for which the third outcome's coverage property required a
-   decision and no decision event is recorded. A run that applied no policy at
-   all does not pass this by vacancy.
+   decision and no decision event is recorded. A run that reached tool
+   authority and recorded no decision does not pass this by vacancy; a run that
+   invoked no tool is outside the set.
 3. Points where a human intervened, or was required to, are identifiable.
    *Falsified by:* a completed run in which a human intervened, or was required
    to, that no recorded point identifies.
@@ -34,7 +38,11 @@ consumes that contract to decide what a release check may assert.
 
 ## Second outcome — cross-release evaluability
 
-Change in quality between two releases is measurable against versioned fixtures.
+Change in quality between two releases is measurable against versioned
+fixtures. Comparability across releases is ratified in
+[`docs/CHARTER.md`](../../CHARTER.md) principle 7 and cited rather than
+restated; what this intent adds is the requirement that the fixtures be
+versioned.
 
 *Falsifying observation:* two releases for which no versioned fixture set yields
 a comparable quality measurement — including the case where no fixture set is
@@ -57,13 +65,16 @@ human authored arrives at one identified surface, and everything else is outside
 it by construction.
 
 *In a form that can act as instruction* is decided by form, not by reading for
-intent: **free prose is such a form; a validated reference and a
-closed-vocabulary classification are not.** Without that split the sub-result is
+intent, against a **closed** set of admitted forms: a validated reference, a
+closed-vocabulary classification, and a typed scalar. Every other form — free
+prose foremost — is forbidden. The set is closed so that an untrusted payload
+which is neither prose nor an admitted form cannot escape the falsifier below. Without that split the sub-result is
 not adjudicable by inspection, and the pair below would be either trivially
 falsified or unfalsifiable depending on which reading a reader assumed.
 
 *Falsifying observation:* content not authored by the initiating human reaches a
-component holding tool authority as free prose. That is a defect regardless of
+component holding tool authority in any form other than a validated reference, a
+closed-vocabulary classification, or a typed scalar. That is a defect regardless of
 whether anything downstream detected it.
 
 **Named residual.** Drawing the line at form leaves a channel open: a component
@@ -88,10 +99,11 @@ charter's trust posture treats the user's own prompt as instruction bounded by
 entitlements rather than as content to screen. The control here is coverage
 before effect.
 
-This is a coverage property, not a logging one: a policy plane that recorded
-`allow` unconditionally would satisfy first-outcome sub-result 2, which asserts
-only that decisions are *recorded*, and would still fail this one if any prompt
-reached tool authority unadjudicated.
+This is a coverage property, not a logging one: a policy plane that faithfully
+recorded every decision it made, but adjudicated only some prompts, would
+satisfy first-outcome sub-result 2 — which asserts only that decisions are
+*recorded* — and would still fail this one if any tool invocation were traceable
+to a prompt no prior decision event covers.
 
 What an adjudicated prompt can ultimately *cause* is separately bounded — that is
 blast radius, not adjudication or exclusion — by the delegated authority
@@ -179,7 +191,7 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
 
 **Depends on:** `portable-identity-first-runtime` (execution topology and
 identity boundaries determine where policy can be enforced; and the agent
-authority ceiling that third-outcome sub-result 2 rests on),
+authority ceiling that bounds what an adjudicated prompt can cause),
 `scoped-context-and-evidence` (what an evidence-backed release check can
 assert).
 
@@ -221,16 +233,13 @@ yet exist.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r12 — first-outcome sub-result 2 moved from the companion document
-  to the design sign-off, after review found the design proposes it (§§ Structure,
-  Identity — two layers) and the § Scope table does not defer it; that sub-result's
-  falsifier no longer passes a run that applied no policy at all — r11's note
-  claimed every first-outcome falsifier closed its empty state and this one did
-  not; the third outcome's sub-result 2 no longer falsifies on a prompt merely
-  reaching tool authority, which pre-decided the still-open boundary question and
-  contradicted the charter's own trust posture; the charter's security-pattern
-  warranty no longer restated as covering every demonstrated pattern; the one-way
-  constraint on the Accepted `scoped-context-and-evidence` recorded as held,
+- Revision: r13 — the discriminating paragraph no longer asserts the disjunct
+  r12 deleted from its own falsifier, and its example now actually separates the
+  two sub-results it exists to distinguish; the admitted-form set closed to
+  validated reference, closed-vocabulary classification and typed scalar, so a
+  payload that is neither prose nor an admitted form can no longer escape the
+  falsifier; the vacancy sentence narrowed to what its falsifier bites on;
+  principles 4 and 7 cited as ratified origin rather than restated by hand,
   2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

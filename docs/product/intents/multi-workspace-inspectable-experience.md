@@ -60,7 +60,8 @@ or how run events are carried and survive restart (see
 ### Excluded
 
 - Arbitrary agent-generated HTML or executable UI code rendered in the browser.
-- Exposure of private model reasoning.
+- Exposure of private model reasoning, excluded by
+  [`docs/CHARTER.md`](../../CHARTER.md) principle 4.
 - A separate frontend deployment or microfrontend for every workspace view.
 
 ## Owner
@@ -109,10 +110,8 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r12 — the reachable set qualified by `governed`'s redaction rules,
-  after review found an item that intent makes auditable but withholds from
-  release would otherwise falsify this outcome; § In scope given the bullet
-  covering the per-run sets, which read narrower than the outcome it bounds,
-  2026-09-10
+- Revision: r13 — the private-model-reasoning exclusion cited to charter
+  principle 4 rather than restated by hand, matching how every other
+  externally-owned bound in this file is handled, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
