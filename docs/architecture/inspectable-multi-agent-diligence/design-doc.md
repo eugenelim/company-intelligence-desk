@@ -1,11 +1,10 @@
 # Company Intelligence Desk — inspectable multi-agent diligence
 
 **Author(s):** eugenelim
-**Status:** Draft — revision r6, after four independent architecture reviews and
-one evidence survey
+**Status:** Draft — revision r6
 **Last updated:** 2026-09-09
-**Reviewers:** independent architecture review — four rounds complete, converged;
-remaining gaps recorded under *Known at ship*. Owner sign-off outstanding.
+**Sign-off:** outstanding. Open gaps are recorded under *Known at ship*; the
+Phase 0 spikes in *Rollout* gate ratification.
 **Evidence:** [`prompt-injection-defence-survey.md`](../../product/research/prompt-injection-defence-survey.md)
 
 > **Scope:** execution topology, data ownership, identity and authorization,
@@ -100,8 +99,9 @@ session storage requires updates.
 ranked attribute.** A design that is correct but unteachable does not satisfy the
 project's purpose: the charter commits the project to serve as an engineering
 reference, and `adoptable-reference-implementation` owns that outcome. It is
-therefore not traded against the four below — it gates them. An earlier revision
-ranked it fifth and called it tradeable; the owner ruled otherwise on 2026-09-10.
+therefore not traded against the four below — it gates them. Legibility is not a
+fifth ranked attribute, and treating it as one would let it lose a trade it must
+never lose.
 
 The four attributes below *are* ranked, by business-importance ×
 architectural-risk. The ordering is load-bearing — it is the stated reason two
@@ -671,18 +671,16 @@ interleave, so the snapshot pins the *universe* of retrievable evidence, not the
 
 ### Charter amendments — applied
 
-Two RFC-0001 principles overclaimed relative to this design. **Both were amended
-and the charter was ratified on 2026-09-10**, so this section records what
-happened rather than what is owed:
+This design required two charter amendments. **Both are ratified**, so the
+charter and this design now agree:
 
 - **Principle 7** — the heading now reads *"Auditable replay and evaluation by
   construction"*. The body was already accurate.
 - **Principle 3** — *publication* narrowed to *approval of flagged output*;
   a run passing every check publishes automatically.
 
-A third amendment followed from the owner's ruling on legibility: it is a
-satisfaction condition gating the ranked attributes above, not a fifth tradeable
-one.
+A third amendment records that legibility is a satisfaction condition gating the
+ranked attributes above, not a fifth tradeable one.
 
 ### Capacity
 
@@ -756,8 +754,8 @@ stateful connection without adding a capability; and API Gateway WebSocket's har
 
 ### Detection-based injection defence
 
-A guardrail component at the tool-result boundary — this design's own earlier
-direction, and what most comparable systems do. **Rejected because** every
+A guardrail component at the tool-result boundary — what most comparable systems
+do, and the intuitive answer. **Rejected because** every
 detection approach *evaluated* in the literature has lost under adaptive attack;
 most of the open-source ecosystem is archived; two of the best-known models
 contain no injection detection at all; vendor accuracy does not replicate; and the
@@ -808,8 +806,8 @@ competitors. Cheap local checks are retained as a layer.
 ## Known at ship
 
 This design is proposed for ratification **with these five gaps open and
-recorded**, not resolved. Four independent review rounds converged on the
-document's shape; these are what remain, and none is hidden in a review file.
+recorded**, not resolved. Each is a known limit of the design as it stands, not
+a task list; none is hidden elsewhere.
 
 1. **The quarantine guarantee is narrower than it first reads.** It is *"no
    attacker-authored free text reaches a planning agent"* — **not** *"no
@@ -843,8 +841,8 @@ writers**; and the quarantine split — whether references-plus-classifications
 preserve enough analytical quality on a real filing, which is the closest
 available proxy for the missing financial-filing benchmark.
 
-Phase 0 also carries two **executable privilege tests**, which are how the
-demoted mechanism questions are settled rather than by further prose review: a
+Phase 0 also carries two **executable privilege tests**, because these two
+invariants are settled by running them rather than by argument: a
 `worker`-role session attempting `INSERT INTO events (type='policy.decision')`
 and being refused, and a concurrent append/claim deadlock-ordering test.
 
@@ -871,14 +869,16 @@ inspection history.
 - **Does references-only quarantine preserve analytical quality on a real
   filing?** *Falsified if* closed-vocabulary classification loses distinctions the
   diligence output depends on.
-- ~~Who owns the Fargate vCPU quota increase?~~ **Resolved** — owner
-  `eugenelim`, request **16 vCPU On-Demand Fargate**, submit **before Phase 0
-  concludes** so the grant runs in parallel with the spikes rather than after
-  them.
-- ~~Who owns rotation of the ingress OIDC client secret?~~ **Resolved** — owner
-  `eugenelim`; the rotation procedure is defined at Phase 2, when a real
-  deployment holds the secret. Recorded rather than deferred silently.
-- ~~What is the offline contributor path?~~ **Resolved** — recorded-fixture
-  replay mode; see *Local development*.
 - **Does an ALB truncate an in-flight SSE response at client-keepalive expiry?**
   Answered by test; changes operational tuning, not architecture.
+
+### Settled
+
+- **The Fargate vCPU quota increase** is owned by `eugenelim`: request **16 vCPU
+  On-Demand Fargate**, submitted **before Phase 0 concludes**, so the grant runs
+  in parallel with the spikes rather than after them.
+- **Rotation of the ingress OIDC client secret** is owned by `eugenelim`. The
+  procedure is defined at Phase 2, when a real deployment first holds the
+  secret.
+- **The offline contributor path** is recorded-fixture replay mode; see
+  *Local development*.
