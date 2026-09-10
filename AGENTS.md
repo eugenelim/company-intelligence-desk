@@ -15,7 +15,11 @@ Purpose, scope, and the principles that resolve ties are in
 ratified in [`docs/product/intents/`](docs/product/intents/) — the charter does
 not restate them, and its silence on a direction is not permission.
 
-Link the repository's existing architecture or design source here when one exists. Do not relocate it to match a pack convention.
+The architecture is
+[`docs/architecture/inspectable-multi-agent-diligence/`](docs/architecture/inspectable-multi-agent-diligence/README.md)
+— a Draft design awaiting owner sign-off, with two companions covering
+observability/evaluation and experience/presentation. Nothing in it is built
+yet; that folder carries a `STATUS: PLANNED` marker.
 
 ## Rule lookups
 
