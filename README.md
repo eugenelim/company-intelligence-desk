@@ -1,73 +1,64 @@
 # Company Intelligence Desk
 
-An inspectable reference implementation of a **governed multi-agent
-application**, demonstrated through evidence-backed public-company diligence.
+A reference **design** for a governed multi-agent application, worked through
+public-company diligence. **No implementation exists yet** — what is here is the
+charter, the architecture, and the record of how each decision was reached.
 
-The diligence is the demonstration, not the point. The point is that every part
-of how an answer was produced is open to inspection: the workflow, the evidence,
-the context each step received, the policies applied, the verification, and
-where a human retained authority.
-
-Most published references are one of two things — a toy demonstration that skips
-governance, or a production system whose internals nobody outside the team can
-see. This is an attempt at the third thing.
-
-## Status: designed, not built
-
-**There is no implementation yet.** This repository currently contains the
-charter, the intents, the architecture, and the reasoning that produced them.
-The architecture is a Draft awaiting owner sign-off, and it ships with five
-recorded gaps rather than pretending to have none.
-
-That means the patterns below are **specified, not demonstrated**. If you came
-looking for code that embodies them, it does not exist yet, and this README
-would rather tell you that than let you find out three files in.
-
-What the repository *does* offer today is a complete decision trail: how each
-control was chosen, what evidence it rests on, what it does not cover, and who
-decided.
+For an engineer deciding how to build an agent system that has to survive
+review: where the untrusted-content boundary goes, what an agent is allowed to
+do with a tool, and how anyone proves afterwards what actually happened.
 
 ## The patterns this project is a reference for
 
-| Pattern | Problem it addresses | Specified in |
-| --- | --- | --- |
-| **Quarantine boundary** | Untrusted content reaching a component that holds tool authority. Only validated references, closed-vocabulary classifications and typed scalars cross; free prose never does | [`runtime-architecture.md`](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md) § Injection defence |
-| **Argument-value authorization** | A well-typed but unauthorised tool call. Authorization decides on argument *values*, not just tool names | Same file, § Structure |
-| **Commit-before-action** | An action taking effect while its decision record is lost. The policy decision must commit before the invocation is issued; a failed append is a denial, not a retry | Same file, § Structure and § Identity — two layers |
-| **Delegated authority ceiling** | An agent amplifying the authority of the human who invoked it | Same file, § Authentication and authorization |
-| **Claim–commit–work with lease fencing** | A worker resumed after host loss double-acting, or a zombie worker writing after its lease expired | Same file, § Step execution: claim, commit, work |
-| **Append-only event log with a resumable stream** | Reconstructing what a long-running agent workflow actually did, after the fact, without re-running it | Same file, § Event log and stream mechanism |
-| **Application-owned orchestration** | An agent framework owning your control flow, so its limits become your architecture's limits | Same file, § Ownership split |
-| **Two-plane observability** | Telemetry quietly becoming the system of record for an audit claim | [`observability-and-evaluation.md`](docs/architecture/inspectable-multi-agent-diligence/observability-and-evaluation.md) § The two planes |
-| **Typed-artifact rendering** | Model output becoming markup, and an injection becoming code execution in a browser | [`experience-and-presentation.md`](docs/architecture/inspectable-multi-agent-diligence/experience-and-presentation.md) § The presentation contract |
-| **Content-addressed evidence snapshot** | Later evidence silently entering a historical as-of analysis | [`runtime-architecture.md`](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md) § Context, evidence, and reproducibility |
+Each is specified in detail and **none is built**. The invariants below are
+design commitments whose proof is a Phase 0 deliverable, not measured results —
+each links to the section that specifies it, and every one has recorded limits
+in [§ Known at ship](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#known-at-ship).
 
-Each is meant to be liftable into a system that has nothing to do with company
-diligence. Where a pattern is specific to this domain, that is called out where
-it is specified.
+| Pattern | The failure it addresses | Specified in |
+| --- | --- | --- |
+| **Quarantine boundary** | Untrusted content reaching a component that holds tool authority. Free prose does not cross; validated references, closed-vocabulary labels and typed scalars do. Reference *selection* stays an attacker-influenced channel, and is recorded as unmitigated | [§ Injection defence](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#injection-defence) |
+| **Argument-value authorization** | A well-typed but *unauthorised* tool call — the case a schema check passes and a permission check misses | [§ Structure](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#structure) |
+| **Commit-before-action** | An action taking effect while the record of the decision that allowed it is lost | [§ Identity — two layers](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#identity--two-layers) |
+| **Delegated authority ceiling** | An agent doing something the human who invoked it could not have done directly | [§ Authentication and authorization](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#authentication-and-authorization) |
+| **Claim–commit–work with lease fencing** | A worker the platform killed mid-run acting twice, or a zombie worker writing after its lease expired | [§ Step execution](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#step-execution-claim-commit-work) |
+| **Append-only event log with a resumable stream** | A run whose history can only be recovered by re-running it — which you cannot do against as-of-dated evidence | [§ Event log](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#event-log-and-stream-mechanism) |
+| **Application-owned orchestration** | An agent framework owning your control flow, so its limits quietly become your architecture's limits | [§ Ownership split](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#ownership-split) |
+| **Two-plane observability** | Telemetry quietly becoming the system of record for a claim you later have to defend | [§ The two planes](docs/architecture/inspectable-multi-agent-diligence/observability-and-evaluation.md#the-two-planes) |
+| **Typed-artifact rendering** | Model output becoming markup, and an injection becoming code execution in a browser | [§ The presentation contract](docs/architecture/inspectable-multi-agent-diligence/experience-and-presentation.md#the-presentation-contract) |
+| **Content-addressed evidence snapshot** | Evidence published after the fact silently entering a historical as-of analysis | [§ Context, evidence, and reproducibility](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#context-evidence-and-reproducibility) |
+
+Each is meant to be liftable into a system with nothing to do with company
+diligence.
 
 ## Things you can do here today
 
-Each of these can be completed end to end from this repository alone.
-
 **Decide whether detection-based injection defence is right for your system.**
-Start at [`prompt-injection-defence-survey.md`](docs/product/research/prompt-injection-defence-survey.md),
+Start at the [evidence survey](docs/product/research/prompt-injection-defence-survey.md),
 then read § Four grounded facts and § Alternatives Considered → *Detection-based
-injection defence* in the architecture. You will find cited attack-success
-figures, the reason the structural alternative was chosen instead, and — in
-§ Known at ship — the residual that choice does **not** close. That last part is
-the one most write-ups omit.
+injection defence*. In-band detection "collapsed from near-zero to **>90%
+success** under adaptive attacks"; six production guardrails, including Azure
+Prompt Shield and Meta Prompt Guard, were evaded at **up to 100%**. Then read
+§ Known at ship — the architecture's list of open gaps — for the residual the
+structural alternative does *not* close.
 
-**Trace a ratified constraint from decision to consequence.** Pick any row in
-[`docs/product/intents/README.md`](docs/product/intents/README.md) § 1, follow it
-to the intent that owns its normative wording, then to where the architecture
-satisfies it. The constraint appears in exactly one place; everything else cites
-it. That discipline is deliberate, and the repository's history shows what it
-costs when it lapses.
+**Trace a ratified constraint from decision to consequence.** A ratified
+constraint is one the project owner fixed, which the architecture may satisfy
+but not reverse. Pick any row in
+[the constraint index](docs/product/intents/README.md), follow it to the
+document that owns its exact wording, then to where the architecture satisfies
+it. Each constraint appears in exactly one place; everything else cites it.
 
-**See how a claim's confidence is graded and bounded.** The security posture
-rests on `[moderate]`, self-evaluated evidence, and the architecture says so in
-its own § Known at ship rather than in a footnote.
+## Status: designed, not built
+
+The architecture is a Draft awaiting owner sign-off **and four Phase 0 spikes
+that could change it**. It ships with five recorded gaps, and its security
+posture rests on moderate, self-assessed confidence rather than independent
+replication — stated in the architecture rather than left for a reader to find.
+
+No ADRs have been written yet, and three edits to the architecture are
+outstanding. So the decision record is real but not finished: it covers how each
+control was chosen, what evidence it rests on, and what it does not cover.
 
 ## How this repository is organised
 
@@ -77,32 +68,31 @@ docs/
   CONVENTIONS.md      how work is done here
   rfc/                proposals that change the charter or governance
   product/
-    intents/          what the system must achieve, and who ratified what
+    intents/          what the system must achieve, and who fixed what
     briefs/           delivery coordination
     research/         evidence, with per-finding confidence ratings
   architecture/
     inspectable-multi-agent-diligence/   the design and its two companions
 ```
 
-Start with [`docs/architecture/inspectable-multi-agent-diligence/README.md`](docs/architecture/inspectable-multi-agent-diligence/README.md),
+Start with the
+[architecture README](docs/architecture/inspectable-multi-agent-diligence/README.md),
 which gives a reading order.
 
 The `.claude/`, `.agents/` and `.codex/` directories are installed agent tooling
 from [agent-ready-repo](https://github.com/eugenelim/agent-ready-repo). They are
-vendored, not part of what this project demonstrates. They are the large majority
-of the file count and none of the interesting content.
+vendored, are most of the file count, and are none of the interesting content.
 
 ## How decisions are made here
 
-Intents record *what must be true* before a solution is chosen, and are accepted
-only after independent review. The charter records *why*, and changing its
-mission, scope, or principles takes an RFC. Architecture proposes *how*, and does
-not get to reverse a ratified constraint.
+An **intent** records what must be true before any solution is chosen, and is
+accepted only after independent review; the charter records why, and changing
+its mission or principles takes an RFC.
 
-Two conventions do most of the work:
+Two rules do most of the work:
 
-- **A ratified constraint has exactly one normative home.** Everything else
-  cites it. A hand-copy drifts, and a drifted copy of an owner's commitment is
+- **A fixed constraint has exactly one normative home.** Everything else cites
+  it. A hand-copy drifts, and a drifted copy of an owner's commitment is
   indistinguishable from an author's preference.
 - **Every outcome carries a falsifying observation.** If nothing could show the
   outcome was not met, it is not an outcome — it is a wish.
@@ -110,10 +100,10 @@ Two conventions do most of the work:
 ## Licence
 
 Licensed under either [Apache License 2.0](LICENSE-APACHE) or
-[MIT](LICENSE-MIT), **at your option**. Contributions are dual-licensed under
-the same terms unless you state otherwise.
+[MIT](LICENSE-MIT), **at your option**. The Apache arm carries an express patent
+grant; the MIT arm keeps the material usable by GPLv2 projects, which Apache 2.0
+alone would not.
 
-Dual licensing is deliberate for a project whose value is patterns being carried
-into other systems: the Apache arm carries an express patent grant, which is
-what most corporate legal review looks for, and the MIT arm keeps the material
-usable by GPLv2 projects, which Apache 2.0 alone would not.
+**Contributions are not being accepted yet** — the process is undecided. If that
+changes, contributions will be dual-licensed under the same terms unless stated
+otherwise.
