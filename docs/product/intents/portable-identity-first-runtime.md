@@ -10,8 +10,11 @@ nor the default branch's current tree holds a long-lived model credential.
 
 Four independently verifiable sub-results, each falsifier quantifying over the
 same set as its headline. Sub-result 1's falsifier closes its empty state;
-2–4 are prohibitions, vacuously true of an empty system and given force by
-sub-result 1's positive requirement. **Recorded gap:** "anywhere a container
+2–4 are prohibitions, vacuously true of an empty system. Sub-results 3 and 4
+are given force by sub-result 1's positive requirement; sub-result 2 is not —
+sub-result 1 requires only a *local* path and entails no deployed component — so
+its force comes from the confirmed constraint that a production deployment
+exists. **Recorded gap:** "anywhere a container
 runs" is broader than the conjunction of sub-results 1 and 4, which test a
 documented local path and provider-specific coupling outside the seam set;
 running on an arbitrary third host is not directly falsifiable here.
@@ -151,10 +154,8 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r15 — the preamble's claim that every falsifier closes its empty
-  state corrected: only sub-result 1's does, and 2-4 are prohibitions vacuously
-  true of an empty system, given force by sub-result 1; the headline's
-  portability claim recorded as a gap, being broader than the sub-results that
-  test it, 2026-09-10
+- Revision: r16 — the preamble's account of what gives each prohibition force
+  corrected: sub-result 1 entails no deployed component, so sub-result 2 rests on
+  the ratified production-deployment constraint instead, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

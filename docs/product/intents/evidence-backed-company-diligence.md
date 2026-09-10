@@ -15,7 +15,8 @@ not a pass.
 Four sub-results, each independently verifiable:
 
 1. **At least one deterministic financial calculation is reported.** Assumed for the
-   initial tier, and open with the source-tier question below: every periodic
+   initial tier, and open with "What is the minimum viable
+   public-source hierarchy?" below: every periodic
    filing in it carries computable figures. On that assumption, and unlike its
    siblings, this sub-result needs no coverage-without-finding escape.
    *Falsified by:* an analysis reporting no deterministic financial
@@ -61,6 +62,11 @@ in [`README.md`](README.md).
 
 - Evidence begins with official public sources, with domestic SEC periodic
   filings as the initial source tier.
+
+**Covered tier**, as § Outcome uses it, means the set of issuers filing in that
+source tier. The ratified constraint names a tier of *sources*; deriving the
+corresponding set of *companies* from it is this intent's own definition, not
+part of what the owner ratified.
 
 ### In scope
 
@@ -144,11 +150,9 @@ roles. Owner: eugenelim; settled by the slicing pass at
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r14 — sub-result 4's falsifier no longer passes a claim linked to
-  something that is neither public evidence nor calculation lineage; the interim
-  material-claim reading repaired from a broken sentence and now names what it is
-  a reading of; sub-result 1's universal labelled as an assumption open with the
-  source-tier question; the headline's company set aligned with its falsifier's,
-  2026-09-10
+- Revision: r15 — *covered tier* defined for the set of issuers, outside the
+  confirmed-constraints block because the ratified constraint names a tier of
+  sources rather than of companies; sub-result 1's assumption now names the
+  question it is open with, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

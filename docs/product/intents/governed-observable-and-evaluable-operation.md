@@ -6,10 +6,12 @@
 ## Outcome
 
 A completed run can be audited after the fact from recorded evidence alone,
-without re-running it — ratified in [`docs/CHARTER.md`](../../CHARTER.md)
-principle 4 and cited rather than restated, so a charter revision cannot diverge
-from it silently. What this intent adds is the extension *without access to
-private model reasoning*, and the decomposition below.
+without re-running it and without access to private model reasoning. Both bounds
+are ratified in [`docs/CHARTER.md`](../../CHARTER.md) principle 4 — the
+audit-from-record property in its *Applied:* rule, the private-reasoning bound in
+its normative sentence — and are cited rather than restated, so a charter
+revision cannot diverge from them silently. What this intent adds is the
+decomposition below.
 
 *Falsifying observation:* a completed run whose audit requires re-running it or
 requires access to private model reasoning, or for which no recorded evidence
@@ -24,10 +26,9 @@ verifiable and each quantified over one completed run:
 2. The policy decisions applied to that run, and their outcomes, are recorded.
    *Falsified by:* a policy decision applied to a completed run with no recorded
    decision event, or a recorded decision event with no recorded outcome, or a
-   completed run for which the third outcome's coverage property required a
-   decision and no decision event is recorded. A run that reached tool
-   authority and recorded no decision does not pass this by vacancy; a run that
-   invoked no tool is outside the set.
+   completed run that invoked a tool with no recorded decision event at all.
+   A run that invoked a tool and recorded no decision does not pass this by
+   vacancy; a run that invoked no tool is outside the set.
 3. Points where a human intervened, or was required to, are identifiable.
    *Falsified by:* a completed run in which a human intervened, or was required
    to, that no recorded point identifies.
@@ -39,10 +40,10 @@ consumes that contract to decide what a release check may assert.
 ## Second outcome — cross-release evaluability
 
 Change in quality between two releases is measurable against versioned
-fixtures. Comparability across releases is ratified in
-[`docs/CHARTER.md`](../../CHARTER.md) principle 7 and cited rather than
-restated; what this intent adds is the requirement that the fixtures be
-versioned.
+fixtures. [`docs/CHARTER.md`](../../CHARTER.md) principle 7 ratifies
+comparability between *run* pairs and requires quality regressions to be
+visible; what this intent adds is the extension to *release* pairs and the
+requirement that the fixtures be versioned.
 
 *Falsifying observation:* two releases for which no versioned fixture set yields
 a comparable quality measurement — including the case where no fixture set is
@@ -191,7 +192,7 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
 
 **Depends on:** `portable-identity-first-runtime` (execution topology and
 identity boundaries determine where policy can be enforced; and the agent
-authority ceiling that bounds what an adjudicated prompt can cause),
+delegated authority ceiling that bounds what an adjudicated prompt can cause),
 `scoped-context-and-evidence` (what an evidence-backed release check can
 assert).
 
@@ -233,13 +234,13 @@ yet exist.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r13 — the discriminating paragraph no longer asserts the disjunct
-  r12 deleted from its own falsifier, and its example now actually separates the
-  two sub-results it exists to distinguish; the admitted-form set closed to
-  validated reference, closed-vocabulary classification and typed scalar, so a
-  payload that is neither prose nor an admitted form can no longer escape the
-  falsifier; the vacancy sentence narrowed to what its falsifier bites on;
-  principles 4 and 7 cited as ratified origin rather than restated by hand,
+- Revision: r14 — first-outcome sub-result 2's third disjunct weakened after
+  verification found it made that sub-result and third-outcome sub-result 2
+  coincide, defeating the paragraph that exists to separate them; its vacancy
+  sentence no longer places a run that reached tool authority both inside and
+  outside the set; principle 4 now cited for the private-reasoning bound it
+  already carries rather than claimed as this intent's addition; principle 7
+  cited for run-pair comparability with release pairs stated as the extension,
   2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
