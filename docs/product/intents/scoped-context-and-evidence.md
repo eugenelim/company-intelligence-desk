@@ -1,6 +1,6 @@
 # Scoped Context and Evidence
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Kind:** outcome
 
 ## Outcome

@@ -24,16 +24,18 @@ consumes that contract to decide what a release check may assert.
 
 Two threats, two sub-results, because they do not share a defence.
 
-**1. Retrieved content is not placed in instruction position by construction.**
-Content the system retrieved — filings, tool results — does not reach a component
-holding tool authority in a form that can act as instruction.
-*Falsifying observation:* retrieved free text reaches a component that can invoke
-a tool. That is a defect regardless of whether anything downstream detected it.
+**1. Content not authored by the initiating human is not placed in instruction
+position by construction.** That is retrieved filings, tool results, and
+inter-agent messages — none reaches a component holding tool authority in a form
+that can act as instruction.
+*Falsifying observation:* such content reaches a component that can invoke a
+tool, as free text. That is a defect regardless of whether anything downstream
+detected it.
 
 **2. Every user-authored prompt is adjudicated by a recorded policy decision
-before it reaches a component holding tool authority.** "Prompt" here means
-user-authored input only — retrieved content is sub-result 1's surface, and
-inter-agent messages are the authority ceiling's. The user's prompt cannot be
+before it reaches a component holding tool authority or causes a tool
+invocation.** "Prompt" here means user-authored input only; everything the
+initiating human did not author is sub-result 1's surface. The user's prompt cannot be
 kept out of instruction position, since it legitimately *is* the instruction, so
 this intent's control is *coverage before effect*, not exclusion of content.
 *Falsifying observation:* a user-authored prompt observed at a component holding
@@ -45,7 +47,8 @@ This is a coverage property, not a logging one: a policy plane that recorded
 only that decisions are *recorded*, and would still fail this one if any prompt
 reached tool authority unadjudicated.
 
-What that prompt can ultimately *cause* is bounded by the delegated authority
+What an adjudicated prompt can ultimately *cause* is separately bounded — that is
+blast radius, not adjudication or exclusion — by the delegated authority
 ceiling, which is owned by
 [`portable-identity-first-runtime.md`](portable-identity-first-runtime.md) and
 is not restated here. This intent depends on it.
@@ -149,7 +152,8 @@ release gates to. That companion does not yet exist.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r8 — sub-result 2's headline and falsifier reconciled to one
-  boundary, and "prompt" scoped to user-authored input, 2026-09-10
+- Revision: r9 — sub-result 1 widened to all content the initiating human did
+  not author, closing the inter-agent gap; sub-result 2's headline carries the
+  union its falsifier tests, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

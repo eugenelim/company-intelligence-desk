@@ -16,12 +16,14 @@ verifiable:
    explicit statement that no comparable prior period exists.
    *Falsified by:* an analysis that is silent on filing-language comparison.
 3. **Both a supporting and a challenging reading of the same evidence are
-   presented.** *Falsified by:* fewer than two readings presented, or two
-   readings drawn from different evidence sets.
+   presented.** *Falsified by:* fewer than two readings presented, two readings
+   that do not stand in supporting-versus-challenging opposition, or two readings
+   drawn from different evidence sets.
 4. **No published claim lacks a resolvable link** to public evidence or to
-   deterministic calculation lineage. The publication-blocking rule is ratified
-   in [`docs/CHARTER.md`](../../CHARTER.md) principle 1; this intent adds the
-   resolution targets. *Falsified by:* one unresolvable claim.
+   deterministic calculation lineage. The publication-blocking rule and both
+   resolution targets are ratified in [`docs/CHARTER.md`](../../CHARTER.md)
+   principle 1; this intent narrows the evidence target to *public* sources, per
+   its confirmed source tier. *Falsified by:* one unresolvable claim.
 
 Coverage is required; a *finding* is not. A company whose filing language did
 not materially change, and a first-time filer with no prior period, must both
@@ -112,8 +114,8 @@ roles. Owner: eugenelim; settled by the slicing pass at
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r8 — sub-result 3's falsifier closed against the zero-readings
-  state; sub-result 4 cited to its ratified origin in charter principle 1,
-  2026-09-10
+- Revision: r9 — sub-result 3's falsifier restored the opposition test the
+  zero-state fix had dropped; sub-result 4's stated delta corrected to the one
+  it actually makes, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

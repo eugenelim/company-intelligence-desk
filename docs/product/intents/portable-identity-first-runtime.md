@@ -11,16 +11,17 @@ anything in the repository holds a long-lived model credential.
 Three independently verifiable sub-results:
 
 1. A contributor can run the whole application locally in containers without
-   cloud access, with substitution confined to the provider adapters named under
-   Excluded.
+   cloud access, with substitution confined to the provider-adapter seam
+   identified under Excluded.
 2. Any production component that holds model access obtains it through
    short-lived workload credentials scoped to that component; a component whose
    responsibility does not require model access holds none.
-3. No repository artifact — source, fixture, compose file, or example
-   environment — contains a long-lived model credential.
-   *Falsified by:* one such credential present in the default branch's current
-   tree. History is out of scope for this sub-result: a credential committed and
-   later rotated out is a rotation incident, not a standing violation.
+3. No artifact in the default branch's current tree — source, fixture, compose
+   file, or example environment — contains a long-lived model credential.
+   *Falsified by:* one such credential present in that tree.
+   Neither history nor non-default branches are in scope here: a credential
+   committed and later rotated out is a rotation incident, and an unmerged branch
+   has not yet made a claim about the repository.
 
 ## Boundary
 
@@ -126,8 +127,7 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r9 — sub-result 3's falsifier scoped to the current tree so it
-  agrees with the outcome it decomposes; sub-result 1's substitution bounded to
-  the provider adapters, 2026-09-10
+- Revision: r10 — sub-result 3's headline carries the same scope as its
+  falsifier, with both narrowings justified in one clause, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

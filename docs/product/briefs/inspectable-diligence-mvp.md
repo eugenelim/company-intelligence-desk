@@ -143,8 +143,9 @@ not restated here.
 ## Assumptions and risks
 
 - **Assumption:** the six foundation intents are a sufficient and non-conflicting
-  statement of the MVP. Six independent shaping-review passes support this; none
-  has yet been promoted to `Accepted`.
+  statement of the MVP. Six independent shaping-review passes support this;
+  `adoptable-reference-implementation` and `scoped-context-and-evidence` are
+  `Accepted`, the rest remain `Draft`.
 - **Risk:** the demonstration domain absorbs effort that the reference-implementation
   purpose needs. `adoptable-reference-implementation` exists to hold that line,
   but it is the least-developed of the six intents.

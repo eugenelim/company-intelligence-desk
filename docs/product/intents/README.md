@@ -1,8 +1,9 @@
 # Foundation intents
 
-Six foundation intents recording what Company Intelligence Desk must achieve,
-written before any architecture existed. Each is registered in `workspace.toml`
-`[backlog].open`, which tracks them as open work carrying `Draft` artifacts.
+Foundation intents recording what Company Intelligence Desk must achieve,
+written before any architecture existed. Those still in shaping are registered in
+`workspace.toml` `[backlog].open`, which tracks open work carrying `Draft`
+artifacts; see § Status.
 
 This file states the three rules that apply to all six, so they are not restated
 six times and cannot drift apart.
@@ -89,9 +90,9 @@ multi-workspace-inspectable-experience   settle last of the five
 
 **Every intent feeds [`adoptable-reference-implementation`](adoptable-reference-implementation.md)
 by construction.** It is the reader-facing consequence of the other five and
-carries no outgoing edge. This is that edge's definitional home: where an
-intent's `Feeds:` line names `adoptable`, it does so as a member of a larger
-set, never as the definition of this edge.
+carries no outgoing edge. This is that edge's definitional home. No intent's
+`Feeds:` line restates it; where one is set-valued — `portable`'s "all five
+other intents" — `adoptable` is included by that set, not defined there.
 
 ## The six intents
 

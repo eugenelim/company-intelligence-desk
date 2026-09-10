@@ -9,17 +9,20 @@ For any completed run, a user can reach from a rendered surface — without
 reading server logs or raw model output — the **per-run** properties
 [`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md)
 § Outcome makes auditable (its sub-results 1, 2 and 4: the sequence of steps,
-the policy decisions and their outcomes, and where a human intervened), and the
-renderable artifacts `scoped-context-and-evidence` governs: evidence records,
-citations, context packages, and source manifests.
+the policy decisions and their outcomes, and where a human intervened), together
+with the artifact classes
+[`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) makes
+versioned and inspectable, and the evidence, temporal scope, and calculation
+lineage its Outcome requires a material output to resolve to.
 
-*Falsifying observation:* one of those properties or artifact classes that no
-rendered surface exposes for a completed run.
+*Falsifying observation:* one of those properties, artifact classes, or
+resolution targets that no rendered surface exposes for a completed run.
 
 **Cross-release quality comparison — `governed` sub-result 3 — is deliberately
-outside this outcome.** It is not a per-run property, this intent's scope names
-no surface for it, and which views exist at all is deferred to the delivery
-brief. This intent does not define what is auditable; it owns whether the
+outside this outcome.** It is not a per-run property, and which views exist at
+all is deferred to the delivery brief. Whether a surface for it exists remains
+open under the information-architecture question below; this outcome does not
+decide it, and does not leave that governed sub-result permanently unrendered. This intent does not define what is auditable; it owns whether the
 per-run set is *reachable*.
 
 ## Boundary
@@ -106,8 +109,8 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r8 — quantifier scoped to per-run properties, excluding
-  cross-release comparison it has no surface for; second citation bound to
-  renderable artifact classes rather than a mixed section, 2026-09-10
+- Revision: r9 — second citation restated as a criterion after the enumeration
+  proved already incomplete; the cross-release exclusion's reach determined,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
