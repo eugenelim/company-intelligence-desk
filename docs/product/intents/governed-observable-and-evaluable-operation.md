@@ -8,19 +8,41 @@
 A completed run can be audited after the fact from recorded evidence alone,
 without re-running it and without access to private model reasoning.
 
-That single result decomposes into four sub-results, each independently
-verifiable:
+*Falsifying observation:* a completed run whose audit requires re-running it or
+requires access to private model reasoning, or for which no recorded evidence
+exists at all. Recording nothing is a failure, not a pass.
+
+That single result decomposes into three sub-results, each independently
+verifiable and each quantified over one completed run:
 
 1. The sequence of steps a run took is recoverable.
+   *Falsified by:* a completed run for which no recorded step sequence exists,
+   or whose recorded sequence omits a step the run took.
 2. The policy decisions applied to that run, and their outcomes, are recorded.
-3. Change in quality between releases is measurable against versioned fixtures.
-4. Points where a human intervened, or was required to, are identifiable.
+   *Falsified by:* a policy decision applied to a completed run with no recorded
+   decision event, or a recorded decision event with no recorded outcome.
+3. Points where a human intervened, or was required to, are identifiable.
+   *Falsified by:* a completed run in which a human intervened, or was required
+   to, that no recorded point identifies.
 
 Whether a claim was *supported* is a separate property, owned by
 [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md). This intent
 consumes that contract to decide what a release check may assert.
 
-## Second outcome — the untrusted-content boundary
+## Second outcome — cross-release evaluability
+
+Change in quality between two releases is measurable against versioned fixtures.
+
+*Falsifying observation:* two releases for which no versioned fixture set yields
+a comparable quality measurement — including the case where no fixture set is
+versioned at all.
+
+Stated as its own outcome because it is **not a property of a completed run**:
+it quantifies over release pairs, so it cannot be a sub-result of an outcome
+whose set is one run. Before a second release exists this outcome is not yet
+testable; it is not thereby satisfied.
+
+## Third outcome — the untrusted-content boundary
 
 Two threats, two sub-results, because they do not share a defence.
 
@@ -30,9 +52,24 @@ retrieved filings, tool results, and inter-agent messages. The set is determined
 by provenance at the entry point, not by inspecting content: what the initiating
 human authored arrives at one identified surface, and everything else is outside
 it by construction.
+
+*In a form that can act as instruction* is decided by form, not by reading for
+intent: **free prose is such a form; a validated reference and a
+closed-vocabulary classification are not.** Without that split the sub-result is
+not adjudicable by inspection, and the pair below would be either trivially
+falsified or unfalsifiable depending on which reading a reader assumed.
+
 *Falsifying observation:* content not authored by the initiating human reaches a
-component holding tool authority in a form that can act as instruction. That is a
-defect regardless of whether anything downstream detected it.
+component holding tool authority as free prose. That is a defect regardless of
+whether anything downstream detected it.
+
+**Named residual.** Drawing the line at form leaves a channel open: a component
+that handles untrusted content still *chooses* which references to pass on and in
+what order, and that choice carries influence even when every item crossing the
+boundary is a validated reference. This outcome does not close that channel and
+does not claim to. `design-doc.md` § Known at ship records the same residual for
+its proposed mechanism, unmitigated and unmeasured; that document is a proposal,
+not a settled answer.
 
 **2. Every user-authored prompt is adjudicated by a recorded policy decision
 before it reaches a component holding tool authority or causes a tool
@@ -135,28 +172,44 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
 
 **Depends on:** `portable-identity-first-runtime` (execution topology and
 identity boundaries determine where policy can be enforced; and the agent
-authority ceiling that sub-result 2 rests on),
+authority ceiling that third-outcome sub-result 2 rests on),
 `scoped-context-and-evidence` (what an evidence-backed release check can
 assert).
 
 **Feeds:** `multi-workspace-inspectable-experience` (which run information is
 releasable to its policy and evaluation surfaces).
 
-**Next step.** Two settling events, one per outcome.
+**Next step.** Three settling events, split by which artifact proposes an
+answer rather than by outcome — the design doc proposes answers for some
+first-outcome sub-results and defers others.
 
 The **untrusted-content boundary** is settled by owner sign-off on the
 architecture design, which proposes its mechanism.
 
-The **auditability outcome** is settled by the commissioned *Observability and
-evaluation* companion document, which the design's § Scope table defers its
-concerns to. That companion does not yet exist.
+**First-outcome sub-results 1 and 3** — step recoverability and human
+intervention points — are also settled by that sign-off. `design-doc.md`
+§ Scope names the event log as the observability substrate and the run state
+machine as the carrier of human intervention, and §§ Event log and stream
+mechanism, Run state machine, and The approval gate propose them.
+
+**First-outcome sub-result 2 and the cross-release evaluability outcome** are
+settled by the commissioned *Observability and evaluation* companion document,
+which is what the design's § Scope table actually defers — telemetry boundary,
+redaction, payload inlining, evaluation architecture, fixture versioning, and
+release gates. That companion does not yet exist.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r10 — sub-result 1's falsifier restated to quote its headline's
-  predicate verbatim; charter citation scoped to what principle 1 actually
-  covers, 2026-09-10
+- Revision: r11 — cross-release evaluability separated into its own outcome
+  with its own falsifier, after review found it quantified over release pairs
+  under a headline quantifying over one completed run; the first outcome and
+  each of its sub-results given falsifiers that close their own empty states;
+  "in a form that can act as instruction" defined by form — free prose versus
+  validated references and closed-vocabulary classifications — so the pair is
+  adjudicable by inspection, with the reference-selection channel recorded as a
+  named residual; settling events re-split by which artifact actually proposes
+  an answer, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

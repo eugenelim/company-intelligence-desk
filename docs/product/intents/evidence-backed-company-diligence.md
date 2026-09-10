@@ -16,16 +16,22 @@ verifiable:
    may be a described change, an explicit finding of no material change, or an
    explicit statement that no comparable prior period exists.
    *Falsified by:* an analysis that is silent on filing-language comparison.
-3. **Both a supporting and a challenging reading of the same evidence are
-   presented.** *Falsified by:* no pair of presented readings standing in
-   supporting-versus-challenging opposition on a single evidence set.
+3. **Opposed readings of the same evidence set are covered, and the result
+   stated.** The result may be a presented supporting-and-challenging pair, or
+   an explicit statement that the evidence set supports no challenging reading,
+   with its reason.
+   *Falsified by:* an analysis that is silent on opposed readings — neither
+   presenting a pair standing in supporting-versus-challenging opposition on a
+   single evidence set, nor stating that the evidence supports none.
 4. **No published claim lacks a resolvable link** to public evidence or to
    deterministic calculation lineage. The publication-blocking rule and both
    resolution targets are ratified in [`docs/CHARTER.md`](../../CHARTER.md)
    principle 1, which scopes them to *material* claims; pending the
    material-claim question below, *published claim* is the standing interim
-   reading. This intent narrows the evidence target to *public* sources, per its
-   confirmed source tier. *Falsified by:* a published claim with no resolvable
+   reading. This intent narrows the evidence target to
+   *public* sources — its own scope decision for the initial tier, not an owner
+   ratification: the confirmed constraint says evidence *begins with* official
+   public sources, which is a starting point rather than a ceiling. *Falsified by:* a published claim with no resolvable
    link.
 
 Coverage is required; a *finding* is not. A company whose filing language did
@@ -96,8 +102,17 @@ eugenelim — decides domain scope for the diligence surface.
 `portable-identity-first-runtime` (execution topology).
 
 **Feeds:** `multi-workspace-inspectable-experience` (the domain artifacts its
-surfaces present), and `scoped-context-and-evidence`, whose traceability
-guarantee rests on the material-claim definition this intent owns.
+surfaces present).
+
+**Outstanding obligation to `scoped-context-and-evidence`** — not a settle-order
+edge, and deliberately not a `Feeds:` entry, because asserting one in both
+directions would contradict README § 3's ordering of scoped before this intent.
+That intent was accepted on a labelled interim reading standing in for the
+material-claim definition owned here. Discharging it is a documentation act, not
+a design or slicing product: this intent states the definition, and
+`scoped-context-and-evidence` replaces its interim reading with a citation to
+it. Owner: eugenelim; settled when the material-claim question below is answered
+and both files are updated in the same change.
 
 **Next step.** `architect-design` has run: `design-doc.md` proposes the system
 responsibilities, the deterministic-versus-agentic split, the source pipeline,
@@ -118,7 +133,12 @@ roles. Owner: eugenelim; settled by the slicing pass at
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r11 — sub-result 1's falsifier restated to quote its headline
-  rather than paraphrase it in unrelated vocabulary, 2026-09-10
+- Revision: r12 — sub-result 3 given the coverage-not-finding form its sibling
+  already had, so an evidence set supporting no challenging reading no longer
+  requires manufacturing one; sub-result 4's public-source narrowing reattributed
+  from the ratified constraint (which names a starting tier, not a ceiling) to
+  this intent's own scope; the reciprocal `Feeds:` edge to
+  `scoped-context-and-evidence` replaced by a one-way obligation with a named
+  settling event, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

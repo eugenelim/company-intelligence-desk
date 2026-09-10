@@ -10,18 +10,22 @@ reading server logs or raw model output — the **per-run** properties
 [`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md)
 § Outcome makes auditable, together with what
 [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § In scope
-makes versioned and inspectable, and whatever its Outcome requires a material
-output to resolve to.
+makes versioned and inspectable, whatever its Outcome requires a material
+output to resolve to, and the two user-facing deliverables
+[`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md)
+§ In scope commits to.
 
-*Falsifying observation:* a per-run property, or an item of either kind above,
-that no rendered surface exposes for a completed run.
+*Falsifying observation:* an item of any of the four sets above that no rendered
+surface exposes for a completed run.
 
-**Cross-release quality comparison — `governed` sub-result 3 — is deliberately
-outside this outcome.** It is not a per-run property. Which views exist at all is
-open under the information-architecture question below and owned here; which of
-them land in the MVP is the delivery brief's slicing decision. This outcome
-decides neither. This intent does not define what is auditable; it owns whether the
-per-run set is *reachable*.
+**Cross-release quality comparison is deliberately outside this outcome, because
+it is not a per-run property.** That is the criterion, not a pointer: the
+exclusion holds however the intent that owns cross-release evaluability is
+numbered or structured. Which views exist at all is open under the
+information-architecture question below and owned here; which of them land in
+the MVP is the delivery brief's slicing decision. This outcome decides neither.
+This intent does not define what is auditable; it owns whether the per-run set
+is *reachable*.
 
 ## Boundary
 
@@ -65,10 +69,6 @@ eugenelim — decides experience scope and the presentation contract.
 
 - What is the primary workspace information architecture, and which views exist
   at all?
-- What is the smallest set of views that makes a run inspectable at all? The
-  MVP-versus-later split is a slicing decision owned by
-  [`inspectable-diligence-mvp`](../briefs/inspectable-diligence-mvp.md) and taken
-  at `author-delivery-brief continue`, not here.
 - How do analyst, builder, and operator role presets differ?
 - How are evidence, context, and policy decisions represented visually?
 - What accessibility, responsive, and browser-support requirements apply?
@@ -107,8 +107,13 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r10 — copied sub-result index and residual enumerations replaced by
-  the criteria that select them; view-set ownership separated from the brief's
-  slicing decision, 2026-09-10
+- Revision: r11 — the `governed` sub-result index r10's note claimed to have
+  removed, but did not, replaced by the criterion that selects it, so this
+  boundary no longer decays when that intent is renumbered; the diligence
+  deliverables added to the reachable set by citation, after review found a
+  surface exposing lineage and policy but never the memo could satisfy the
+  outcome; falsifier's "either kind" corrected to the four sets the headline
+  now names; the smallest-view-set question deleted as owned by the delivery
+  brief, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

@@ -8,29 +8,34 @@
 The application runs anywhere a container runs, and neither a deployed component
 nor the default branch's current tree holds a long-lived model credential.
 
-Three independently verifiable sub-results:
+Four independently verifiable sub-results. Each falsifier quantifies over the
+same set as its headline and closes its own empty state:
 
 1. A contributor can run the whole application locally in containers without
-   cloud access, with substitution confined to the provider-adapter seam
-   identified under Excluded.
-   *Falsified by:* a documented local path that cannot run the whole application
-   in containers without cloud access, or that requires substituting a component
-   outside the provider-adapter seam.
-2. Any production component that holds model access obtains it through
-   short-lived workload credentials scoped to that component; a component whose
+   cloud access, with substitution confined to the seam set named under
+   Excluded.
+   *Falsified by:* no documented local path existing at all, or a documented
+   local path that cannot run the whole application in containers without cloud
+   access, or one that requires substituting a component outside the named seam
+   set. Documenting no path is a failure, not a pass.
+2. Any deployed component that holds model access obtains it through short-lived
+   workload credentials scoped to that component; a component whose
    responsibility does not require model access holds none.
-   *Falsified by:* a production component holding model access other than
-   through short-lived workload credentials scoped to that component, or a
-   production component holding model access its responsibility does not
-   require.
+   *Falsified by:* a deployed component holding model access other than through
+   short-lived workload credentials scoped to that component, or a deployed
+   component holding model access its responsibility does not require.
 3. No artifact in the default branch's current tree contains a long-lived model
-   credential — source, fixtures, compose files, example environments, CI
-   workflows and manifests alike.
+   credential.
    *Falsified by:* an artifact in the default branch's current tree containing a
    long-lived model credential.
    Neither history nor non-default branches are in scope: a credential committed
    and later rotated out is a rotation incident, and an unmerged branch has not
    yet made a claim about the repository.
+4. No component requires a cloud-provider-specific service from outside the seam
+   set named under Excluded.
+   *Falsified by:* a component that requires a provider-specific service and
+   sits outside that seam set, or the absence of a named seam set, which leaves
+   the claim untestable.
 
 ## Boundary
 
@@ -78,8 +83,12 @@ or what the user sees (see [`multi-workspace-inspectable-experience.md`](multi-w
 ### Excluded
 
 - Domain logic — analysis, evidence handling, workflow orchestration — that
-  cannot run against a non-AWS substitute. Provider adapters are the permitted
-  coupling point.
+  cannot run against a non-AWS substitute.
+
+**The seam set** — the permitted coupling points, which sub-results 1 and 4
+quantify against — is exactly two: the **model-provider adapter** and the
+**external-source fetch adapter**. Naming the set closes it; a third coupling
+point is a change to this intent, not an implementation detail.
 
 ## Owner
 
@@ -90,8 +99,8 @@ eugenelim — decides runtime, deployment, and identity scope.
 - What is the minimum justified AWS deployment profile? *Proposed in
   `design-doc.md` § Capacity; open until owner sign-off.*
 - Is ECS Fargate the appropriate runtime boundary, or is another compute shape
-  better justified? *Proposed in `design-doc.md` § Capacity; open until owner
-  sign-off.*
+  better justified? *Argued in `design-doc.md` § Alternatives Considered, with
+  the shape in § Structure; open until owner sign-off.*
 - What task and IAM-role separation is required between components?
 - What bounds an agent role's authority at the tool-call layer, and how is
   containment within the initiating principal's entitlements enforced?
@@ -136,8 +145,13 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r12 — sub-results 1 and 2 given the explicit falsifiers their
-  sibling already carried, so falsifier coverage across the list is uniform,
-  2026-09-10
+- Revision: r13 — r12's two new falsifiers re-derived against their headlines
+  after review found both defective: sub-result 1's could not fire when no local
+  path is documented, and sub-result 2's quantified over *production* components
+  under a headline quantifying over *deployed* ones. Sub-result 4 added so the
+  headline's portability claim has a falsifier; the seam set sub-results 1 and 4
+  cite is now named and closed under Excluded; sub-result 3's enumeration
+  dropped as it narrowed a universal; the Fargate question retargeted to the
+  section that argues it, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
