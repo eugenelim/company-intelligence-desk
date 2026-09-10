@@ -8,13 +8,17 @@
 The application runs anywhere a container runs, and no deployed component or
 anything in the repository holds a long-lived model credential.
 
-Two independently verifiable sub-results:
+Three independently verifiable sub-results:
 
 1. A contributor can run the whole application locally in containers without
    cloud access, with only its external boundaries replaced.
 2. Any production component that holds model access obtains it through
    short-lived workload credentials scoped to that component; a component whose
    responsibility does not require model access holds none.
+3. No repository artifact — source, fixture, compose file, or example
+   environment — contains a long-lived model credential.
+   *Falsified by:* one such credential present at any commit reachable from the
+   default branch.
 
 ## Boundary
 
@@ -50,7 +54,9 @@ this intent is bound by it and does not restate it.
 - End-user authentication and authorization, and the isolation semantics of a
   workspace as a tenancy boundary.
 - The delegated authority ceiling of an agent role, and its containment within
-  the initiating principal's entitlements.
+  the initiating principal's entitlements — non-amplification is ratified in
+  [`docs/CHARTER.md`](../../CHARTER.md) principle 5; this intent owns how it is
+  bounded and enforced.
 - Transport and durability of run events, including survival across restart.
 
 This intent owns **how run events are carried**. It does not own what may leave
@@ -78,8 +84,7 @@ eugenelim — decides runtime, deployment, and identity scope.
 - What bounds an agent role's authority at the tool-call layer, and how is
   containment within the initiating principal's entitlements enforced?
   *Proposed in `design-doc.md` § Identity — two layers; open until owner
-  sign-off.* *Proposed
-  in `design-doc.md` § Identity — two layers; open until owner sign-off.*
+  sign-off.*
 - Should the Bedrock integration use an existing provider adapter or an
   application-owned Converse adapter? *Proposed in `design-doc.md` § The
   model-provider seam, pending a Phase 0 spike; open until owner sign-off.*
@@ -119,8 +124,7 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r7 — gained the delegated-authority ceiling it already owned in
-  practice; model-access sub-result requantified after r6 obliged every
-  component to hold it, 2026-09-10
+- Revision: r8 — repository half of the credential outcome given its own
+  sub-result and falsifier; duplicated citation removed, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

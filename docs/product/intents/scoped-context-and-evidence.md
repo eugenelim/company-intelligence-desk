@@ -13,9 +13,9 @@ Two observations falsify this: a step that receives material not present in its
 declared scope, and a declared scope that resolves to a different *set of
 retrievable evidence* on re-resolution while its evidence snapshot is held fixed.
 
-A differing per-step *selection* on re-run is **not** a falsifier. The design is
-explicit that this is replay, not re-execution: the snapshot pins the universe of
-retrievable evidence, not which of it a step chooses.
+A differing per-step *selection* on re-run is **not** a falsifier. This intent
+scopes reproducibility to replay, not re-execution: the snapshot pins the
+universe of retrievable evidence, not which of it a step chooses.
 
 "Material" is defined by
 [`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md)'s
@@ -68,7 +68,7 @@ eugenelim — decides the context and evidence contract.
   agent, company, task, and as-of date. This list is a starting point, not a
   settled tuple.
 - Which data should be immutable versus versioned? *Proposed in `design-doc.md`
-  r6 § Context, evidence, and reproducibility; open until owner sign-off.*
+  § Context, evidence, and reproducibility; open until owner sign-off.*
 - How does the context model relate to the chosen runtime's native session and
   memory primitives? *Proposed in `design-doc.md` § Ownership split — the
   context service is an application capability, not ADK's SessionService; open
@@ -113,7 +113,7 @@ workload is scoped.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r6 — re-resolution falsifier bound to the retrievable universe after
-  the earlier wording fired on correct replay behaviour, 2026-09-10
+- Revision: r7 — replay scoping stated as this intent's own position rather than
+  sourced to an unratified design; revision pin removed, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

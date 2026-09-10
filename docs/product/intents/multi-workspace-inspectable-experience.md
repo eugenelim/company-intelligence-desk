@@ -5,14 +5,17 @@
 
 ## Outcome
 
-For every property
+For every sub-result in
 [`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md)
-makes auditable from the record, and every support relation
-[`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) defines, a
-user can answer it from a rendered surface without reading server logs or raw
+§ Outcome, and the evidence and citation contract in
+[`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § In scope, a
+user can reach it from a rendered surface without reading server logs or raw
 model output.
 
-This intent does not define that set; it owns whether the set is *reachable*.
+*Falsifying observation:* an item in either cited set that no rendered surface
+exposes, such that reaching it requires reading server logs or raw model output.
+
+This intent does not define those sets; it owns whether they are *reachable*.
 
 ## Boundary
 
@@ -74,8 +77,7 @@ before they can be presented), `governed-observable-and-evaluable-operation`
 (event transport), `evidence-backed-company-diligence` (the domain artifacts
 being presented).
 
-**Feeds:** `adoptable-reference-implementation` by construction (README § 3);
-no other outgoing edge.
+**Feeds:** nothing beyond the by-construction edge recorded in README § 3.
 
 This intent is the most downstream of the six — its presentation contracts
 cannot be settled before the four it depends on.
@@ -99,7 +101,7 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r6 — outcome restated as a citation to the sets it renders, rather
-  than a copy of them that had already drifted, 2026-09-10
+- Revision: r7 — outcome given a falsifying observation and its citations bound
+  to named sections, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

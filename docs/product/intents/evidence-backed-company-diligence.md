@@ -6,7 +6,6 @@
 ## Outcome
 
 A user can ask what materially changed at a public company as of a specified
-A user can ask what materially changed at a public company as of a specified
 date and receive a structured analysis. Four sub-results, each independently
 verifiable:
 

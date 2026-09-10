@@ -30,12 +30,17 @@ holding tool authority in a form that can act as instruction.
 *Falsifying observation:* retrieved free text reaches a component that can invoke
 a tool. That is a defect regardless of whether anything downstream detected it.
 
-**2. Every prompt entering the system is subject to a recorded policy
-decision.** The user's prompt cannot be kept out of instruction position — it
-legitimately *is* the instruction — so this intent's control is that the entry
-is *adjudicated and attributable*, not that the content is excluded.
-*Falsifying observation:* a run proceeds from a prompt with no policy decision
-event recorded against it.
+**2. No prompt reaches a component holding tool authority before a policy
+decision has been evaluated and recorded against it.** The user's prompt cannot
+be kept out of instruction position — it legitimately *is* the instruction — so
+this intent's control is *coverage before effect*, not exclusion of content.
+*Falsifying observation:* a tool invocation traceable to a prompt for which no
+prior decision event exists.
+
+This is a coverage property, not a logging one: a policy plane that recorded
+`allow` unconditionally would satisfy first-outcome sub-result 2, which asserts
+only that decisions are *recorded*, and would still fail this one if any prompt
+reached tool authority unadjudicated.
 
 What that prompt can ultimately *cause* is bounded by the delegated authority
 ceiling, which is owned by
@@ -141,8 +146,8 @@ release gates to. That companion does not yet exist.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r6 — sub-result 2 rehomed onto a residual this intent owns, after
-  the authority-ceiling wording proved unfalsifiable independently of
-  `portable-identity-first-runtime`, 2026-09-10
+- Revision: r7 — sub-result 2 sharpened from a logging property to
+  coverage-before-effect, which an unconditional-allow policy plane fails,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
