@@ -10,13 +10,14 @@
 
 - Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b5 — the hand-transcribed constraint block replaced by a citation to
-  the index that owns it, after review found the copy had dropped *open-source*,
-  hedged ratified *portable* contracts into "should minimize", scoped a
-  constraint to a named pack, and mis-stated its own count; the filing-language
-  scope item restated in the coverage-not-finding form its Accepted intent
-  ratifies; the untrusted-content boundary added to scope and traceability;
-  two wrong-owner attributions corrected, 2026-09-10
+- Revision: b6 — constraint block replaced by a citation to
+  [`../intents/README.md`](../intents/README.md) § 1; filing-language scope item
+  restated in the coverage-not-finding form its Accepted intent ratifies;
+  untrusted-content boundary added to scope and traceability; two wrong-owner
+  attributions corrected; charter-owned non-goals cited rather than restated,
+  with the charter's two non-boundary disclaimers no longer listed as
+  boundaries; the Ready-gaps section carried forward as open items it does not
+  own, rather than as a self-imposed gate it cannot meet, 2026-09-10
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
@@ -86,19 +87,23 @@ A user can analyse one public company as of an explicit date, and then:
   `governed-observable-and-evaluable-operation`'s third outcome
 - observable execution and a minimal evaluation receipt
 
-**Non-goals:**
+**Non-goals — this slice:**
 
-- Investment advice, autonomous trading, portfolio management, and buy/sell or
-  price-target output.
-- Any guarantee that model-generated analysis is complete or correct.
-- Removing human accountability for consequential conclusions.
+- Multi-company and portfolio-level analysis.
 - Unrestricted browsing, shell execution, or infrastructure control for
   production agents.
-- Redistribution of private, paid, licensed, or restricted research data.
-- Becoming a universal agent platform.
 - Core behaviour inseparable from one cloud, model provider, policy engine, or
   observability product.
-- Multi-company or portfolio-level analysis in this slice.
+- Becoming a universal agent platform.
+
+Investment advice, autonomous trading, portfolio management, buy/sell and
+price-target output, redistribution of private or licensed research data, and
+becoming a framework, library or extractable SDK are excluded by
+[`docs/CHARTER.md`](../../CHARTER.md) § Scope and are not restated here.
+
+Two further limits are **not** scope boundaries, and the charter says so in the
+same section: model-generated analysis is not guaranteed complete or correct,
+and nothing here removes human accountability for consequential conclusions.
 
 ## Appetite
 
@@ -115,21 +120,14 @@ Cutting the slice is not authorized by this brief. It happens at
 
 ### Confirmed constraints
 
-Fourteen constraints are ratified. The normative wording of each lives in its
-owning intent's `### Confirmed constraints` block and nowhere else;
-[`../intents/README.md`](../intents/README.md) § 1 indexes them and names the
-owner. This brief cites that index rather than transcribing it — a hand-copy
-drifts, and a drifted copy of an owner ratification is indistinguishable from an
-author preference, which is what § 1 exists to prevent.
+The constraints ratified by the project owner are indexed in
+[`../intents/README.md`](../intents/README.md) § 1, which names each one's owning
+intent. The normative wording lives in that intent's `### Confirmed constraints`
+block and nowhere else.
 
-The handles, for orientation only — **not the constraints themselves**:
-
-containerization · UI / API container separation · agent runtime · production
-runtime host · model access and credential posture · AWS service justification
-bar · UI framework · shared component system and its documentation · multiple
-workspace views · context service as an explicit capability · open-source
-reference implementation with portable contracts · production-agent privilege
-floor · deployment tooling implements, does not decide · evidence source tier.
+This brief cites the index rather than transcribing it. A hand-copy drifts, and
+a drifted copy of an owner ratification is indistinguishable from an author
+preference — which is what § 1 exists to prevent.
 
 ### Candidate technologies — not ratified decisions
 
@@ -145,8 +143,8 @@ not restated here.
   work under them ships.
 - **Risk:** the demonstration domain absorbs effort that the reference-implementation
   purpose needs. `adoptable-reference-implementation` exists to hold that line,
-  and it carries seven open questions — including which patterns this is a
-  reference *for*, which its own outcome calls the first task.
+  but its own first open question — which patterns this project is a reference
+  *for* — is unanswered, and its outcome calls naming them the first task.
 - **Risk:** the confirmed-constraint set fixes enough of the stack that
   `architect-design` has less room than the candidate list implies. If
   architecture finds a confirmed constraint unworkable, that is an owner
@@ -184,25 +182,21 @@ after `architect-design`, and only on a second explicit human confirmation. -->
 
 _No slices. This brief is not dispatchable._
 
-## Ready gaps
+## Open items carried forward
 
-A later `author-delivery-brief continue` review must resolve these before
-`Status: Ready`:
+Open, and **not owned by this brief**. None gates `Status: Ready`; each must be
+resolved before a slice depending on it is cut at `author-delivery-brief
+continue`.
 
-1. ~~**Charter not ratified.**~~ **Resolved 2026-09-10** — RFC-0001 accepted and
-   `docs/CHARTER.md` ratified. The business-value statement now anchors to it.
-2. ~~**Confirmed-constraint delta.**~~ **Resolved 2026-09-09** — the owner
-   ratified all three; the closed set is fourteen, and this brief now cites the
-   index that owns it rather than transcribing it.
-3. **Architecture proposed, not signed off.** `architect-design` has run and
-   produced a reviewed design at Draft; owner sign-off is outstanding, and four
-   Phase 0 spikes gate its ratification.
-4. **No offline contributor path — proposed, not settled.** The MVP requires a
+1. **Architecture proposed, not signed off.** `architect-design` has run and
+   produced a reviewed design at Draft; owner sign-off is outstanding, and
+   Phase 0 gates its ratification.
+2. **No offline contributor path — proposed, not settled.** The MVP requires a
    real Bedrock invocation. `design-doc.md` § Local development proposes
    recorded-fixture replay, substituting exactly the model adapter and the fetch
    adapter, which is the seam set `portable-identity-first-runtime` § Excluded
    names and closes. That intent's question stays open until owner sign-off.
-5. **Success metrics absent.** No measure of whether the reference
+3. **Success metrics absent.** No measure of whether the reference
    implementation actually teaches anyone anything. Owned by
    `adoptable-reference-implementation`'s second open question — "What must a
    reader be able to do after reading, and how would we know they can?"
