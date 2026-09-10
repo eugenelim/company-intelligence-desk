@@ -13,9 +13,11 @@ Two observations falsify this: a step that receives material not present in its
 declared scope, and a declared scope that resolves to a different *set of
 retrievable evidence* on re-resolution while its evidence snapshot is held fixed.
 
-A differing per-step *selection* on re-run is **not** a falsifier. This intent
-scopes reproducibility to replay, not re-execution: the snapshot pins the
-universe of retrievable evidence, not which of it a step chooses.
+A differing per-step *selection* on re-run is **not** a falsifier. Reproducibility
+meaning replay rather than re-execution is ratified in
+[`docs/CHARTER.md`](../../CHARTER.md) principle 7; what this intent adds is the
+refinement that the snapshot pins the *universe of retrievable evidence*, not
+which of it a step chooses.
 
 "Material" is defined by
 [`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md)'s
@@ -113,7 +115,7 @@ workload is scoped.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r7 — replay scoping stated as this intent's own position rather than
-  sourced to an unratified design; revision pin removed, 2026-09-10
+- Revision: r8 — replay scoping cited to its ratified origin in charter
+  principle 7, keeping only this intent's refinement, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

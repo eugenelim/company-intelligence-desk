@@ -30,12 +30,15 @@ holding tool authority in a form that can act as instruction.
 *Falsifying observation:* retrieved free text reaches a component that can invoke
 a tool. That is a defect regardless of whether anything downstream detected it.
 
-**2. No prompt reaches a component holding tool authority before a policy
-decision has been evaluated and recorded against it.** The user's prompt cannot
-be kept out of instruction position — it legitimately *is* the instruction — so
+**2. Every user-authored prompt is adjudicated by a recorded policy decision
+before it reaches a component holding tool authority.** "Prompt" here means
+user-authored input only — retrieved content is sub-result 1's surface, and
+inter-agent messages are the authority ceiling's. The user's prompt cannot be
+kept out of instruction position, since it legitimately *is* the instruction, so
 this intent's control is *coverage before effect*, not exclusion of content.
-*Falsifying observation:* a tool invocation traceable to a prompt for which no
-prior decision event exists.
+*Falsifying observation:* a user-authored prompt observed at a component holding
+tool authority, or a tool invocation traceable to one, with no prior decision
+event.
 
 This is a coverage property, not a logging one: a policy plane that recorded
 `allow` unconditionally would satisfy first-outcome sub-result 2, which asserts
@@ -146,8 +149,7 @@ release gates to. That companion does not yet exist.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r7 — sub-result 2 sharpened from a logging property to
-  coverage-before-effect, which an unconditional-allow policy plane fails,
-  2026-09-10
+- Revision: r8 — sub-result 2's headline and falsifier reconciled to one
+  boundary, and "prompt" scoped to user-authored input, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

@@ -89,8 +89,9 @@ multi-workspace-inspectable-experience   settle last of the five
 
 **Every intent feeds [`adoptable-reference-implementation`](adoptable-reference-implementation.md)
 by construction.** It is the reader-facing consequence of the other five and
-carries no outgoing edge. This is that edge's single home; no intent's `Feeds:`
-line restates it.
+carries no outgoing edge. This is that edge's definitional home: where an
+intent's `Feeds:` line names `adoptable`, it does so as a member of a larger
+set, never as the definition of this edge.
 
 ## The six intents
 

@@ -5,17 +5,22 @@
 
 ## Outcome
 
-For every sub-result in
+For any completed run, a user can reach from a rendered surface — without
+reading server logs or raw model output — the **per-run** properties
 [`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md)
-§ Outcome, and the evidence and citation contract in
-[`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § In scope, a
-user can reach it from a rendered surface without reading server logs or raw
-model output.
+§ Outcome makes auditable (its sub-results 1, 2 and 4: the sequence of steps,
+the policy decisions and their outcomes, and where a human intervened), and the
+renderable artifacts `scoped-context-and-evidence` governs: evidence records,
+citations, context packages, and source manifests.
 
-*Falsifying observation:* an item in either cited set that no rendered surface
-exposes, such that reaching it requires reading server logs or raw model output.
+*Falsifying observation:* one of those properties or artifact classes that no
+rendered surface exposes for a completed run.
 
-This intent does not define those sets; it owns whether they are *reachable*.
+**Cross-release quality comparison — `governed` sub-result 3 — is deliberately
+outside this outcome.** It is not a per-run property, this intent's scope names
+no surface for it, and which views exist at all is deferred to the delivery
+brief. This intent does not define what is auditable; it owns whether the
+per-run set is *reachable*.
 
 ## Boundary
 
@@ -101,7 +106,8 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r7 — outcome given a falsifying observation and its citations bound
-  to named sections, 2026-09-10
+- Revision: r8 — quantifier scoped to per-run properties, excluding
+  cross-release comparison it has no surface for; second citation bound to
+  renderable artifact classes rather than a mixed section, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
