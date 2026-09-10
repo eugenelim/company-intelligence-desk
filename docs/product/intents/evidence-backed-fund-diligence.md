@@ -87,11 +87,37 @@ eugenelim — decides whether this domain is pursued at all, and by what route.
   [`adoptable-reference-implementation.md`](adoptable-reference-implementation.md)'s
   concern, not this intent's to settle. This question is prior to all others
   below: a *no* here ends the intent.
-- Which SEC forms constitute the fund source tier? N-PORT, N-CSR, N-CEN and
-  485BPOS prospectus amendments are the working assumption, **unverified** —
-  no source has been checked, and the list must be confirmed before anything
-  ratifies on it. The ratified company constraint names "domestic SEC periodic
-  filings", which fund filings may already satisfy without amendment.
+- **The fund source tier is settled** as of 2026-09-10, against SEC primary
+  sources; see
+  [`fund-source-tier-fact-check.md`](../research/fund-source-tier-fact-check.md).
+  The set is `N-PORT` (holdings), `N-CSR`/`N-CSRS` (shareholder reports),
+  `N-CEN` (annual census), and the registration family `N-1A` with `485APOS`,
+  `485BPOS`, `497` and `497K`. `N-MFP` and `N-CR` apply to money market funds
+  only; `N-23c-3` is closed-end interval funds and is out of scope.
+- **The ratified constraint does not already cover funds — an earlier assumption
+  here was wrong.** "Domestic SEC periodic filings" reaches `N-CSR`, which the
+  SEC expressly designated an Exchange Act periodic report on the same statutory
+  hook as `10-K`/`10-Q`. It is ambiguous for `N-PORT` and `N-CEN`, filed under
+  Investment Company Act § 30. It does **not** reach `485BPOS` or `497`, which
+  are registration statements rather than reports — and that is exactly where a
+  fund's fees, objective and strategy language live, which is what phase 1
+  analyses. So this intent requires **two** ratification acts, not one: the
+  charter amendment named in § Projection, and an amendment to the evidence
+  source tier owned by
+  [`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md).
+- How should the source tier be worded, given that the SEC has designated
+  `N-CSR` a periodic report and has said nothing either way about `N-PORT` and
+  `N-CEN`? The wording must decide it; the source will not.
+- **Phase 2 has a currency problem no filing solves.** Under Rule 6c-11 an ETF
+  posts daily holdings **on its website**, which is not an SEC filing at all. An
+  EDGAR-only pipeline sees ETF holdings only at the `N-PORT` lag — public
+  quarterly, roughly 60 days in arrears. If look-through must be current,
+  website disclosure is a second source, and it is retrieved third-party content
+  that [`docs/CHARTER.md`](../../CHARTER.md) principle 1 treats as adversarial
+  input. Is a 60-day-stale look-through useful enough to avoid that?
+- Does phase 1 watch `497`/`497K` as well as `485BPOS`? Fees and strategy change
+  intra-year through prospectus supplements; watching only the annual update
+  would miss them, which would falsify sub-result 1 while appearing to pass.
 - Must the charter amendment be drafted wide enough for phase 2 at the time it
   is written, so look-through does not require a second RFC?
 - Does phase 2 require amending
@@ -113,7 +139,9 @@ consumes unchanged — evidence and citation, context scoping, runtime and
 identity, policy and observability, presentation, and the legibility bar.
 
 **Next step.** An RFC amending [`docs/CHARTER.md`](../../CHARTER.md) § Mission,
-§ Domain and § Scope. `CONVENTIONS.md` § 1 reserves charter mission and scope to
+§ Domain and § Scope, **and** the evidence source tier owned by
+[`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md) —
+two acts, for the reason recorded in the unresolved questions above. `CONVENTIONS.md` § 1 reserves charter mission and scope to
 the RFC route, and the charter's own header states that changes to it go through
 an RFC. Until that RFC is `Accepted`, this intent is not buildable and no spec
 may be cut against it.
@@ -125,10 +153,13 @@ is an owner decision on the first unresolved question above, then an RFC.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r1 — created to record the fund and ETF direction without reopening
-  the ratified charter, the six Accepted intents, or the Ready delivery brief;
-  two phases separated because only the second engages the portfolio-level
-  exclusion, 2026-09-10
+- Revision: r2 — the source-tier question closed against SEC primary sources,
+  and the assumption that the ratified constraint might already cover funds
+  corrected: it does not reach the registration family where fund fees and
+  strategy live, so this intent needs two ratification acts rather than one.
+  Rule 6c-11's off-EDGAR daily ETF disclosure recorded as a currency problem for
+  phase 2, and prospectus supplements as a coverage risk for phase 1,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination. The direction is authorized to be
   *recorded*; it is not authorized to be built.
