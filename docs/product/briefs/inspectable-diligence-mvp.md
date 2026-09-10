@@ -8,10 +8,15 @@
 
 ## Source
 
-- Mode: repo-origin — synthesized from six Draft foundation intents in this
+- Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b3 — charter ratification and completed architecture run reflected,
-  2026-09-10
+- Revision: b5 — the hand-transcribed constraint block replaced by a citation to
+  the index that owns it, after review found the copy had dropped *open-source*,
+  hedged ratified *portable* contracts into "should minimize", scoped a
+  constraint to a named pack, and mis-stated its own count; the filing-language
+  scope item restated in the coverage-not-finding form its Accepted intent
+  ratifies; the untrusted-content boundary added to scope and traceability;
+  two wrong-owner attributions corrected, 2026-09-10
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
@@ -65,7 +70,9 @@ A user can analyse one public company as of an explicit date, and then:
 - official public sources, beginning with SEC filings
 - one current 10-Q or 10-K plus relevant prior-period evidence
 - at least one deterministic financial calculation
-- at least one filing-language change finding
+- filing-language comparison covered and its result stated, in the
+  coverage-not-finding form `evidence-backed-company-diligence` sub-result 2
+  ratifies
 - positive and skeptical interpretations over the same evidence package
 - claim-level provenance
 - evidence verification before publication
@@ -74,6 +81,9 @@ A user can analyse one public company as of an explicit date, and then:
 - a real ADK-to-Bedrock invocation using workload identity in the deployed path
 - a scoped context package
 - a guarded user-visible result
+- the untrusted-content boundary, and adjudication of every user-authored prompt
+  by a recorded policy decision before it causes a tool invocation, per
+  `governed-observable-and-evaluable-operation`'s third outcome
 - observable execution and a minimal evaluation receipt
 
 **Non-goals:**
@@ -105,34 +115,21 @@ Cutting the slice is not authorized by this brief. It happens at
 
 ### Confirmed constraints
 
-Ratified by the project owner. Architecture chooses how to satisfy these; it
-does not get to reverse them.
+Fourteen constraints are ratified. The normative wording of each lives in its
+owning intent's `### Confirmed constraints` block and nowhere else;
+[`../intents/README.md`](../intents/README.md) § 1 indexes them and names the
+owner. This brief cites that index rather than transcribing it — a hand-copy
+drifts, and a drifted copy of an owner ratification is indistinguishable from an
+author preference, which is what § 1 exists to prevent.
 
-- The system is containerized.
-- The React UI is a separate deployable container from the API.
-- The React UI supports multiple workspace views.
-- Storybook is used for the shared React component system and executable UI
-  scenarios.
-- The production agent runtime uses Google ADK.
-- The production ADK runtime is deployed on AWS.
-- Bedrock access uses AWS workload identity without a static model API key.
-- A context service is an explicit application capability.
-- Public-company evidence is initially based on official public sources,
-  beginning with SEC filings.
-- Application-owned contracts should minimize unnecessary provider coupling.
-- AWS services are introduced only where justified.
-- The installed `iac-terraform` pack will implement reviewed deployment
-  decisions later; it does not choose them now.
-- Production agents must not receive unrestricted shell, network, or
-  infrastructure access.
+The handles, for orientation only — **not the constraints themselves**:
 
-All thirteen are ratified. Three of them — the SEC-filings source tier, the
-deployment-tooling sequencing boundary, and the production-agent privilege floor
-— were initially absent from the intents' closed set; the owner ratified them on
-2026-09-09, taking that set to **fourteen** (the fourteenth, portable
-application-owned contracts, is ratified in the intents but expressed here as
-"minimize unnecessary provider coupling"). The authoritative record is
-[`../intents/README.md`](../intents/README.md) § 1.
+containerization · UI / API container separation · agent runtime · production
+runtime host · model access and credential posture · AWS service justification
+bar · UI framework · shared component system and its documentation · multiple
+workspace views · context service as an explicit capability · open-source
+reference implementation with portable contracts · production-agent privilege
+floor · deployment tooling implements, does not decide · evidence source tier.
 
 ### Candidate technologies — not ratified decisions
 
@@ -143,34 +140,35 @@ not restated here.
 ## Assumptions and risks
 
 - **Assumption:** the six foundation intents are a sufficient and non-conflicting
-  statement of the MVP. Six independent shaping-review passes support this;
-  `adoptable-reference-implementation` and `scoped-context-and-evidence` are
-  `Accepted`, the rest remain `Draft`.
+  statement of the MVP. **All six are now `Accepted`**, each bound to a clean
+  independent shaping review at a named revision. They remain living until the
+  work under them ships.
 - **Risk:** the demonstration domain absorbs effort that the reference-implementation
   purpose needs. `adoptable-reference-implementation` exists to hold that line,
-  but it is the least-developed of the six intents.
+  and it carries seven open questions — including which patterns this is a
+  reference *for*, which its own outcome calls the first task.
 - **Risk:** the confirmed-constraint set fixes enough of the stack that
   `architect-design` has less room than the candidate list implies. If
   architecture finds a confirmed constraint unworkable, that is an owner
   decision, not an architecture decision.
-- **Risk:** "a real ADK-to-Bedrock invocation using workload identity in the
-  deployed path" makes the walking skeleton depend on live AWS. Contributors
-  without AWS access need a defined alternative before this is buildable.
-- **Risk:** the repository is not under version control. No inception artifact
-  is currently recoverable if lost.
+- **Risk:** two companion documents the architecture commissioned — *Observability
+  and evaluation* and *Experience and presentation* — do not exist. They settle
+  `governed-observable-and-evaluable-operation`'s cross-release outcome and
+  `multi-workspace-inspectable-experience` entirely, so any slice depending on
+  either is unbuildable until they are written.
 
 ## Traceability — foundation intents
 
-This brief synthesizes six Draft intents. Each remains the normative owner of
-its outcome; this brief coordinates them.
+This brief synthesizes six intents, all `Accepted`. Each remains the normative
+owner of its outcome; this brief coordinates them.
 
 | Intent | Contributes to this brief |
 | --- | --- |
-| [`portable-identity-first-runtime`](../intents/portable-identity-first-runtime.md) | Containerization, ADK-on-AWS, Bedrock workload identity, event transport, tenancy |
-| [`scoped-context-and-evidence`](../intents/scoped-context-and-evidence.md) | Scoped context package, claim-level provenance, evidence verification |
-| [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) | Company + as-of date, SEC filings, deterministic calculation, filing-change finding, dual interpretation |
-| [`governed-observable-and-evaluable-operation`](../intents/governed-observable-and-evaluable-operation.md) | Guarded result, observable execution, evaluation receipt, policy outcomes |
-| [`multi-workspace-inspectable-experience`](../intents/multi-workspace-inspectable-experience.md) | Multi-view React experience, separate API boundary, inspection surfaces |
+| [`portable-identity-first-runtime`](../intents/portable-identity-first-runtime.md) | Containerization, the separate API boundary, ADK-on-AWS, Bedrock workload identity, event transport, tenancy |
+| [`scoped-context-and-evidence`](../intents/scoped-context-and-evidence.md) | Scoped context package, claim-level provenance, the evidence and citation contract |
+| [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) | Company + as-of date, SEC filings, deterministic calculation, filing-language comparison, opposed readings |
+| [`governed-observable-and-evaluable-operation`](../intents/governed-observable-and-evaluable-operation.md) | Guarded result, observable execution, evaluation receipt, policy outcomes, the untrusted-content boundary |
+| [`multi-workspace-inspectable-experience`](../intents/multi-workspace-inspectable-experience.md) | Multi-view React experience, inspection surfaces |
 | [`adoptable-reference-implementation`](../intents/adoptable-reference-implementation.md) | The legibility bar the whole slice is judged against |
 
 ## Governance references
@@ -194,14 +192,17 @@ A later `author-delivery-brief continue` review must resolve these before
 1. ~~**Charter not ratified.**~~ **Resolved 2026-09-10** — RFC-0001 accepted and
    `docs/CHARTER.md` ratified. The business-value statement now anchors to it.
 2. ~~**Confirmed-constraint delta.**~~ **Resolved 2026-09-09** — the owner
-   ratified all three; the intents' closed set is now fourteen and this brief
-   agrees with it.
+   ratified all three; the closed set is fourteen, and this brief now cites the
+   index that owns it rather than transcribing it.
 3. **Architecture proposed, not signed off.** `architect-design` has run and
    produced a reviewed design at Draft; owner sign-off is outstanding, and four
    Phase 0 spikes gate its ratification.
-4. **No offline contributor path.** The MVP requires a real Bedrock invocation;
-   the fallback for contributors without AWS access is an open question in
-   `portable-identity-first-runtime`.
+4. **No offline contributor path — proposed, not settled.** The MVP requires a
+   real Bedrock invocation. `design-doc.md` § Local development proposes
+   recorded-fixture replay, substituting exactly the model adapter and the fetch
+   adapter, which is the seam set `portable-identity-first-runtime` § Excluded
+   names and closes. That intent's question stays open until owner sign-off.
 5. **Success metrics absent.** No measure of whether the reference
    implementation actually teaches anyone anything. Owned by
-   `adoptable-reference-implementation`'s first open question.
+   `adoptable-reference-implementation`'s second open question — "What must a
+   reader be able to do after reading, and how would we know they can?"
