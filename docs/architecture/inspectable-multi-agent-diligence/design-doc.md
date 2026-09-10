@@ -96,8 +96,16 @@ session storage requires updates.
 
 ### Quality attributes, ranked
 
-By business-importance × architectural-risk. Load-bearing — this ordering is the
-stated reason two alternatives are rejected.
+**Legibility as a reference implementation is a satisfaction condition, not a
+ranked attribute.** A design that is correct but unteachable does not satisfy the
+project's purpose: the charter commits the project to serve as an engineering
+reference, and `adoptable-reference-implementation` owns that outcome. It is
+therefore not traded against the four below — it gates them. An earlier revision
+ranked it fifth and called it tradeable; the owner ruled otherwise on 2026-09-10.
+
+The four attributes below *are* ranked, by business-importance ×
+architectural-risk. The ordering is load-bearing — it is the stated reason two
+alternatives are rejected.
 
 1. **Inspectability / auditability** — it *is* the product; not retrofittable.
 2. **Security of the untrusted-content and agent-authority boundaries** — no
@@ -105,8 +113,6 @@ stated reason two alternatives are rejected.
 3. **Run durability** — tens of minutes, multi-agent, no-notice host replacement,
    at-least-once tool semantics.
 4. **Portability through explicit contracts** — ratified; cheap at a seam.
-5. **Legibility as a reference implementation** — constrains cleverness; trades
-   against 1–4.
 
 ### Goals
 

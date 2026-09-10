@@ -52,7 +52,10 @@ eugenelim — decides experience scope and the presentation contract.
 
 - What is the primary workspace information architecture, and which views exist
   at all?
-- Which views are MVP views and which are later extensions?
+- What is the smallest set of views that makes a run inspectable at all? The
+  MVP-versus-later split is a slicing decision owned by
+  [`inspectable-diligence-mvp`](../briefs/inspectable-diligence-mvp.md) and taken
+  at `author-delivery-brief continue`, not here.
 - How do analyst, builder, and operator role presets differ?
 - How are evidence, context, and policy decisions represented visually?
 - What accessibility, responsive, and browser-support requirements apply?
@@ -67,14 +70,19 @@ before they can be presented), `governed-observable-and-evaluable-operation`
 (event transport), `evidence-backed-company-diligence` (the domain artifacts
 being presented).
 
-**Feeds:** nothing downstream.
+**Feeds:** `adoptable-reference-implementation` by construction (README § 3);
+no other outgoing edge.
 
 This intent is the most downstream of the six — its presentation contracts
 cannot be settled before the four it depends on.
 
-Use `architect-design` to define the UI/API boundary, workspace shell,
-presentation contracts, state ownership, and Storybook's role in testing and
-documentation.
+**Next step.** `architect-design` has run and **deferred this intent's surface
+entirely**: `design-doc.md` r6 § Scope hands the UI/API presentation contract,
+workspace information architecture, Storybook's role, and the approval UI to a
+commissioned *Experience and presentation* companion document, naming the seams
+it must respect — the event log as observability substrate, the run state
+machine as intervention carrier, typed artifacts as the presentation contract.
+That companion does not yet exist and is what settles this intent.
 
 Inception context, not a decision: the workspace views anticipated during
 inception were Overview, Research, Workflow, Evidence, Context, Compare,
@@ -87,6 +95,7 @@ to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r3 — post-shaping-review revision, 2026-09-09
+- Revision: r4 — Feeds corrected against the authoritative edge set; slicing
+  question routed to the delivery brief, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

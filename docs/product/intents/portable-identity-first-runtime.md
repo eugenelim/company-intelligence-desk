@@ -26,14 +26,14 @@ in [`README.md`](README.md).
 - The browser UI and the API are separate deployable containers.
 - The agent runtime uses Google ADK.
 - The production deployment runs the ADK runtime on AWS.
-- Production model access uses Amazon Bedrock through workload identity — for
-  example an ECS task IAM role — without a static model API key.
+- Production model access uses Amazon Bedrock through workload identity,
+  without a static model API key.
 - AWS-specific services are introduced only where they have a clear operational
   or security justification.
 - Production agents hold no unrestricted shell, network, or infrastructure
   access.
-- Deployment tooling — the installed `iac-terraform` pack — implements reviewed
-  deployment decisions; it does not make them.
+- Deployment tooling implements reviewed deployment decisions; it does not make
+  them.
 
 Portable application-owned contracts are a ratified constraint owned by
 [`adoptable-reference-implementation.md`](adoptable-reference-implementation.md);
@@ -66,22 +66,29 @@ eugenelim — decides runtime, deployment, and identity scope.
 
 ## Unresolved questions
 
-- What is the minimum justified AWS deployment profile?
+- What is the minimum justified AWS deployment profile? *Proposed in
+  `design-doc.md` r6 § Capacity; open until owner sign-off.*
 - Is ECS Fargate the appropriate runtime boundary, or is another compute shape
-  better justified?
-- What task and IAM-role separation is required between components?
+  better justified? *Proposed in `design-doc.md` r6 § Capacity; open until owner
+  sign-off.*
+- What task and IAM-role separation is required between components? *Proposed
+  in `design-doc.md` r6 § Identity — two layers; open until owner sign-off.*
 - Should the Bedrock integration use an existing provider adapter or an
-  application-owned Converse adapter?
+  application-owned Converse adapter? *Proposed in `design-doc.md` r6 § The
+  model-provider seam, pending a Phase 0 spike; open until owner sign-off.*
 - How should local production-parity development authenticate to AWS?
-- ~~What offline or fixture-backed mode should contributors without AWS access
-  use?~~ **Resolved 2026-09-09** — recorded-fixture replay: `BaseLlm` and fetch
-  adapters replaying recorded responses keyed by content hash, with everything
-  else running for real. Specified in the architecture design.
-- What end-user authentication and authorization model applies, and is a
-  workspace a hard isolation boundary or an organizational convenience? If the
-  initial deployment is single-tenant and single-operator, say so explicitly
-  rather than leaving it unstated.
+- How should a contributor without cloud access run the system? *Resolved as an
+  outcome: the whole system must run with only its external boundaries replaced.
+  Mechanism is a design matter — proposed in `design-doc.md` r6 § Local
+  development; open until owner sign-off.*
+- Should a workspace become a hard isolation boundary? `docs/CHARTER.md`
+  § *What the system is today* records the current state — single operator, no
+  isolation — and delegates this question here. *Proposed answer for the
+  end-user authentication and authorization model in `design-doc.md` r6
+  § Authentication and authorization; open until owner sign-off.*
 - What transport and durability mechanisms are required for long-running runs?
+  *Proposed in `design-doc.md` r6 § Event log and stream mechanism; open until
+  owner sign-off.*
 - Should Claude Code headless be used as a development or repository-automation
   harness at all, and if so where does it add value without creating drift from
   the production runtime?
@@ -96,15 +103,19 @@ constrain the context service, the diligence workflow's execution, the policy
 plane, the event transport the UI consumes, and the deployment story a reader
 reproduces.
 
-Use `architect-design` to decide container boundaries, execution topology,
-identity boundaries, Bedrock integration, local-development modes, run-event
-transport and durability, the end-user authorization model, and the minimum AWS
-service set.
+**Next step.** `architect-design` has run: `design-doc.md` r6 proposes container
+boundaries, execution topology, identity boundaries, Bedrock integration,
+local-development modes, run-event transport and durability, the end-user
+authorization model, and the minimum AWS service set. It awaits owner sign-off,
+and four Phase 0 spikes gate its ratification. This intent is settled by that
+sign-off, not by another architecture run.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r5 — offline path resolved, 2026-09-09
+- Revision: r6 — inception candidate removed from the ratified block; offline
+  resolution reduced to an outcome; tenancy question narrowed against the
+  ratified charter, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

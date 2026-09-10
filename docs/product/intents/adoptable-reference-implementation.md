@@ -10,10 +10,20 @@ identify the governed-agent patterns it demonstrates, find where each one is
 implemented, and carry a pattern into their own system without copying this
 project's domain.
 
-The project is meant to be two things at once: a useful demonstration
-application, and a reference for teams building other governed agentic systems.
-The failing state this guards against is a working application that nobody can
-learn from — patterns legible only to the people who wrote it.
+**Falsifying observation:** the repository demonstrates a pattern with no
+findable implementation site — a reader can be told the pattern exists but
+cannot get from the claim to the code that embodies it. A second: a named reader
+task the repository claims to support cannot be completed end to end from the
+repository alone.
+
+The pattern list itself is open — naming it is this intent's first task — but
+the *form* of the failing state does not depend on which patterns are chosen.
+
+**Legibility is a satisfaction condition, not a tradeable attribute.** A design
+that is correct but unteachable does not satisfy the project's purpose. The
+owner ruled on this on 2026-09-10, and `design-doc.md` was corrected to match:
+an earlier revision ranked legibility fifth among quality attributes and called
+it tradeable.
 
 ## Boundary
 
@@ -71,20 +81,17 @@ cannot be named before the architecture that would be taught exists.
 **Feeds:** nothing. This intent is the reader-facing consequence of the other
 five, and its obligations are discharged by them collectively.
 
-This intent's role in the architecture run is a constraint on the others: a
-design that is correct but unteachable does not satisfy the project's stated
-purpose. Carry it as a review lens over the other five rather than as a separate
-design surface.
-
-Use `architect-design` to establish which architectural decisions are
-load-bearing for the reference claim, and where the boundary between reusable
-pattern and domain demonstration falls.
+**Next step.** `architect-design` has run. Its result is not a design surface
+for this intent — as intended, this intent acts as a **review lens over the
+other five**, and that role continues through owner sign-off and into the two
+commissioned companion documents. What remains genuinely open here is naming the
+patterns, which no architecture run settles.
 
 ## Source
 
 - Mode: chat-direct
-- Locator: none — derived in-session from the inception mission statement and
-  from an independent shaping review that found no intent owned this outcome
-- Revision: r3 — post-shaping-review revision, 2026-09-09
-- Authority: user-authorized; the sixth intent was explicitly approved in-session
-  after the shaping review surfaced the gap
+- Locator: none — content supplied inline in-session; no external locator
+- Revision: r4 — outcome given a falsifying observation; legibility stated as a
+  satisfaction condition per owner ruling, 2026-09-10
+- Authority: user-authorized inception input; authority explicitly transferred
+  in-session to this repository destination

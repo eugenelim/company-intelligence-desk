@@ -1,9 +1,8 @@
 # Foundation intents
 
 Six Draft intents recording what Company Intelligence Desk must achieve, written
-before any architecture exists. Each is registered in `workspace.toml`
+before any architecture existed. Each is registered in `workspace.toml`
 `[backlog].open`, which tracks them as open work carrying `Draft` artifacts.
-They hand off to `architect-design`.
 
 This file states the three rules that apply to all six, so they are not restated
 six times and cannot drift apart.
@@ -52,9 +51,15 @@ object storage. Each belongs in an unresolved question, never in a boundary.
 
 ## 2. Handoff shape
 
-**One `architect-design` run consumes all six intents together.** Six
-independent runs would produce six incompatible answers to the seams these
-intents deliberately share.
+**One `architect-design` run consumed all six intents together**, on 2026-09-09
+— six independent runs would have produced six incompatible answers to the seams
+these intents deliberately share. That run produced
+[`inspectable-multi-agent-diligence`](../../architecture/inspectable-multi-agent-diligence/design-doc.md)
+r6, which awaits owner sign-off and defers two concerns to companion documents
+that do not yet exist.
+
+Each intent's `Projection` names its own next step. None of them is another
+architecture run.
 
 ## 3. Settle order
 
@@ -90,12 +95,17 @@ from the other files' `Feeds:` lines.
 | [`portable-identity-first-runtime`](portable-identity-first-runtime.md) | Execution topology, identity, and how run events are carried and survive restart |
 | [`scoped-context-and-evidence`](scoped-context-and-evidence.md) | The context model and the evidence/citation contract |
 | [`evidence-backed-company-diligence`](evidence-backed-company-diligence.md) | The diligence domain and its user-facing deliverables |
-| [`governed-observable-and-evaluable-operation`](governed-observable-and-evaluable-operation.md) | Policy, telemetry, evaluation, and what may leave the backend |
+| [`governed-observable-and-evaluable-operation`](governed-observable-and-evaluable-operation.md) | Policy, telemetry, evaluation, what may leave the backend, and the untrusted-content boundary |
 | [`multi-workspace-inspectable-experience`](multi-workspace-inspectable-experience.md) | What the user sees |
 | [`adoptable-reference-implementation`](adoptable-reference-implementation.md) | Whether the result is legible and learnable as a reference |
 
 ## Status
 
-All six are `Draft` at revision `r3`, after three independent shaping-review
-passes. None may move to `Accepted` without a revision-bound clean review and
-explicit human confirmation.
+All six are `Draft`. Each file's `Source: Revision:` line is the single home for
+its own revision — an aggregate claim here decays on every material edit.
+
+None moves to `Accepted` without a revision-bound clean shaping review and
+explicit human confirmation. Intents stay **living until all work under them
+ships**: when a downstream artifact answers an open question, the intent records
+the resolution in place and names where the answer lives. `Accepted` ratifies the
+outcome and boundary; questions and projection keep tracking reality.

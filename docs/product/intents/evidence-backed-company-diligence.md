@@ -6,8 +6,15 @@
 ## Outcome
 
 A user can ask what materially changed at a public company as of a specified
-date and receive a structured analysis in which no published claim lacks a
-resolvable link to public evidence or to deterministic calculation lineage.
+date and receive a structured analysis that reports at least one deterministic
+financial calculation, at least one filing-language change, and both a
+supporting and a challenging reading of the same evidence — in which no
+published claim lacks a resolvable link to public evidence or to deterministic
+calculation lineage.
+
+The two halves constrain each other deliberately. The refusal alone is satisfied
+by publishing nothing; the positive requirement alone is satisfied by publishing
+anything.
 
 The result is a research aid, not an assurance product.
 
@@ -39,12 +46,13 @@ This intent consumes that contract and does not define it.
 
 ### Excluded
 
-- Investment advice, trading actions, portfolio construction, and price
-  targets.
 - Real-time or intraday market data and price series.
 - Foreign private issuers and private companies.
-- Redistribution of private, licensed, or paid research data.
 - Multi-company and portfolio-level analysis.
+
+Investment advice, trading actions, price targets, and redistribution of
+restricted research data are excluded by [`docs/CHARTER.md`](../../CHARTER.md)
+§ Scope and are not restated here.
 
 ## Owner
 
@@ -59,7 +67,11 @@ eugenelim — decides domain scope for the diligence surface.
   resolved here and cited there.
 - Which financial calculations belong in the initial demonstration?
 - What is the minimum viable public-source hierarchy?
-- How should amended or restated filings be represented?
+- How should a restatement be surfaced to a reader comparing periods? This is
+  the domain half and remains open here.
+- How are amended filings represented in storage? *Proposed in `design-doc.md`
+  r6 § Context, evidence, and reproducibility — an amendment creates a new
+  snapshot historical runs never see; open until owner sign-off.*
 
 ## Projection
 
@@ -69,10 +81,11 @@ eugenelim — decides domain scope for the diligence surface.
 **Feeds:** `multi-workspace-inspectable-experience` (the domain artifacts its
 surfaces present).
 
-Use `architect-design` to determine the system responsibilities, deterministic
-versus agentic boundaries, agent patterns, source pipeline, and publication
-workflow — including where the "no unsupported published claim" property is
-enforced.
+**Next step.** `architect-design` has run: `design-doc.md` r6 proposes the system
+responsibilities, the deterministic-versus-agentic split, the source pipeline,
+and where the no-unsupported-claim property is enforced. It awaits owner
+sign-off. Slicing this outcome into buildable work happens at
+`author-delivery-brief continue`, not in another architecture run.
 
 The candidate agent roles named during inception — research coordinator,
 filing-change analyst, fundamentals analyst, positive-case analyst,
@@ -84,6 +97,7 @@ agent, a tool, a workflow node, or a deterministic service.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r4 — constraint set ratified to 14, 2026-09-09
+- Revision: r5 — outcome given a positive requirement; charter-duplicated
+  exclusions replaced with a citation, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
