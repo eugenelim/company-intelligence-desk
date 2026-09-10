@@ -11,9 +11,9 @@
 
 - Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b8 — the charter's two non-boundary disclaimers pointed to rather
-  than reproduced, the last restatement of ratified text in the brief,
-  2026-09-10
+- Revision: b9 — the confirmed four-slice delivery shape recorded, with zero
+  specs materialized and the Spec map left empty and authoritative; the two
+  companion-blocked areas recorded as not cuttable, 2026-09-10
 - Review: `Findings @ b7`, whose sole blocking finding is the b8 repair above.
   The lifecycle owner recorded that repair as a **nonmaterial** pre-seal wording
   correction — it deletes restated text and asserts nothing new — and retained
@@ -179,12 +179,55 @@ owner of its outcome; this brief coordinates them.
   charter. **Accepted 2026-09-10**; `docs/CHARTER.md` carries the ratified text
   this brief's business-value statement anchors to.
 
+## Delivery shape — confirmed cut, zero specs
+
+Confirmed by eugenelim on 2026-09-10. **This is not the Spec map.** No spec
+exists for any slice below, nothing here affects delivery rollups, and the brief
+stays `Ready` and non-dispatchable. Specs are cut only on a further explicit
+confirmation, per slice.
+
+Each slice is a vertical through real wiring. Component and layer work — "build
+the API", "build the context service" — is deliberately absent: separable is not
+the same as independently shippable, and neither produces an outcome testable
+against an intent.
+
+| # | Slice | Acceptance rests on |
+| --- | --- | --- |
+| 1 | **Walking skeleton.** Start a run; one ADK step against a real provider via workload identity; append events; stream to a browser; kill the worker mid-run; attempt a well-typed unauthorised tool call. | `design-doc.md` § Rollout Phase 1's stated exit criteria — reacquisition within 150 s, refusal observed, p99 page threshold calibrated. Not user-facing, which § Appetite authorises. |
+| 2 | **First published analysis, typed scalars only.** One company, one as-of date, at least one deterministic financial calculation, memo plus evidence manifest. | [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) sub-results 1 and 4. |
+| 3 | **Filing-language comparison covered, and its result stated.** | That intent's sub-result 2, in its coverage-not-finding form. |
+| 4 | **Opposed readings covered, and the result stated.** | That intent's sub-result 3. |
+
+**The ordering is a teaching decision, not a convenience.** It escalates
+untrusted-content difficulty rather than deferring it. Slice 2 handles only
+*typed scalars* — one of the three forms
+[`governed-observable-and-evaluable-operation`](../intents/governed-observable-and-evaluable-operation.md)'s
+third outcome admits across the quarantine boundary — so no free prose reaches a
+component holding tool authority. Slice 3 is the first slice where filing prose
+must cross, which is where references and closed-vocabulary classifications have
+to work. The project's central pattern is therefore demonstrated in two steps
+rather than assumed in one.
+
+### Not cuttable yet
+
+Both are in this brief's § Scope and neither can be specified, because the
+artifact that settles each does not exist:
+
+- **The multi-view workspace experience** — workspace information architecture,
+  the UI/API presentation contract, Storybook's role, and the approval UI are
+  deferred by `design-doc.md` § Scope to the commissioned *Experience and
+  presentation* companion. Slice 1's browser stream is buildable only because
+  the design specifies the event envelope itself.
+- **The evaluation receipt and release gates** — telemetry boundary, redaction,
+  payload inlining, evaluation architecture and fixture versioning are deferred
+  to the commissioned *Observability and evaluation* companion.
+
 ## Spec map
 
-<!-- Empty by construction. Slices are cut at `author-delivery-brief continue`,
-after `architect-design`, and only on a second explicit human confirmation. -->
+<!-- Authoritative for delivery rollups. Only confirmed specs enter here. The
+delivery shape above records a confirmed cut, not materialized slices. -->
 
-_No slices. This brief is not dispatchable._
+_No specs. This brief is not dispatchable._
 
 ## Open items carried forward
 
