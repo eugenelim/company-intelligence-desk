@@ -14,11 +14,11 @@
 - Revision: b9 — the confirmed four-slice delivery shape recorded, with zero
   specs materialized and the Spec map left empty and authoritative; the two
   companion-blocked areas recorded as not cuttable, 2026-09-10
-- Review: `Findings @ b7`, whose sole blocking finding is the b8 repair above.
-  The lifecycle owner recorded that repair as a **nonmaterial** pre-seal wording
-  correction — it deletes restated text and asserts nothing new — and retained
-  the bound result rather than redispatching. Ready confirmed by eugenelim on
-  2026-09-10.
+- Review: `Findings @ b7`. Its sole blocking finding was repaired at b8, which
+  replaced a reproduction of the charter's two non-boundary disclaimers with a
+  pointer to them. The lifecycle owner recorded that repair as **nonmaterial** —
+  it deletes restated text and asserts nothing new — and retained the bound
+  result rather than redispatching. Ready confirmed by eugenelim on 2026-09-10.
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
