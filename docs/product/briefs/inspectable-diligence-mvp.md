@@ -10,7 +10,7 @@
 
 - Mode: repo-origin — synthesized from six Draft foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b1 — first draft, 2026-09-09
+- Revision: b2 — constraint delta resolved, 2026-09-09
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
@@ -125,11 +125,13 @@ does not get to reverse them.
 - Production agents must not receive unrestricted shell, network, or
   infrastructure access.
 
-Three of these are broader than the closed set of eleven recorded in
-[`../intents/README.md`](../intents/README.md) § 1 — the SEC-filings source
-tier, the `iac-terraform` sequencing boundary, and the production-agent
-privilege floor. See *Ready gaps* below; that delta is unresolved, not settled
-by this brief.
+All thirteen are ratified. Three of them — the SEC-filings source tier, the
+deployment-tooling sequencing boundary, and the production-agent privilege floor
+— were initially absent from the intents' closed set; the owner ratified them on
+2026-09-09, taking that set to **fourteen** (the fourteenth, portable
+application-owned contracts, is ratified in the intents but expressed here as
+"minimize unnecessary provider coupling"). The authoritative record is
+[`../intents/README.md`](../intents/README.md) § 1.
 
 ### Candidate technologies — not ratified decisions
 
@@ -195,10 +197,9 @@ A later `author-delivery-brief continue` review must resolve these before
 1. **Charter not ratified.** RFC-0001 is `Draft`; `docs/CHARTER.md` is still a
    seed placeholder. This brief's business-value statement has no ratified
    charter to anchor to.
-2. **Confirmed-constraint delta.** Three constraints here are absent from the
-   closed set of eleven in `../intents/README.md` § 1. Either the intents' closed
-   set is stale, or these three are brief-level scope rather than ratified
-   constraints. An owner decides; this brief does not.
+2. ~~**Confirmed-constraint delta.**~~ **Resolved 2026-09-09** — the owner
+   ratified all three; the intents' closed set is now fourteen and this brief
+   agrees with it.
 3. **Architecture unresolved.** Every architecture question in the six intents
    is open. `architect-design` runs next.
 4. **No offline contributor path.** The MVP requires a real Bedrock invocation;

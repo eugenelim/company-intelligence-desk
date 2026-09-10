@@ -38,6 +38,9 @@ table as the constraint.
 | Multiple workspace views | [`multi-workspace-inspectable-experience`](multi-workspace-inspectable-experience.md) |
 | Context service as an explicit capability | [`scoped-context-and-evidence`](scoped-context-and-evidence.md) |
 | Open-source reference implementation with portable contracts | [`adoptable-reference-implementation`](adoptable-reference-implementation.md) |
+| Production-agent privilege floor | [`portable-identity-first-runtime`](portable-identity-first-runtime.md) |
+| Deployment tooling implements, does not decide | [`portable-identity-first-runtime`](portable-identity-first-runtime.md) |
+| Evidence source tier | [`evidence-backed-company-diligence`](evidence-backed-company-diligence.md) |
 
 An intent subject to a constraint it does not own cites the owner rather than
 restating it.

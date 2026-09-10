@@ -14,14 +14,16 @@ The result is a research aid, not an assurance product.
 ## Boundary
 
 Ratification rules, the candidate list, and the settle order are stated once
-in [`README.md`](README.md). This intent carries no ratified constraint of its
-own; its scope below is ordinary design surface.
+in [`README.md`](README.md).
+
+### Confirmed constraints
+
+- Evidence begins with official public sources, with domestic SEC periodic
+  filings as the initial source tier.
 
 ### In scope
 
 - One company and one analysis at a time.
-- Official public evidence, with domestic SEC periodic filings as the initial
-  source tier.
 - Comparison of a current reporting period against prior periods.
 - Filing-language change analysis.
 - Deterministic financial calculations.
@@ -82,6 +84,6 @@ agent, a tool, a workflow node, or a deterministic service.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r3 — post-shaping-review revision, 2026-09-09
+- Revision: r4 — constraint set ratified to 14, 2026-09-09
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

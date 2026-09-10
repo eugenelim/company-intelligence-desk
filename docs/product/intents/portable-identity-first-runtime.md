@@ -30,6 +30,10 @@ in [`README.md`](README.md).
   example an ECS task IAM role — without a static model API key.
 - AWS-specific services are introduced only where they have a clear operational
   or security justification.
+- Production agents hold no unrestricted shell, network, or infrastructure
+  access.
+- Deployment tooling — the installed `iac-terraform` pack — implements reviewed
+  deployment decisions; it does not make them.
 
 Portable application-owned contracts are a ratified constraint owned by
 [`adoptable-reference-implementation.md`](adoptable-reference-implementation.md);
@@ -55,8 +59,6 @@ or what the user sees (see [`multi-workspace-inspectable-experience.md`](multi-w
 - Domain logic — analysis, evidence handling, workflow orchestration — that
   cannot run against a non-AWS substitute. Provider adapters are the permitted
   coupling point.
-- Unrestricted network, shell, or infrastructure privileges for production
-  agents.
 
 ## Owner
 
@@ -101,6 +103,6 @@ service set.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r3 — post-shaping-review revision, 2026-09-09
+- Revision: r4 — constraint set ratified to 14, 2026-09-09
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination
