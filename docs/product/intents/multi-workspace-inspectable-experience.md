@@ -92,7 +92,7 @@ This intent is the most downstream of the six — its presentation contracts
 cannot be settled before the four it depends on.
 
 **Next step.** `architect-design` has run and **deferred this intent's surface
-entirely**: `design-doc.md` § Scope hands the UI/API presentation contract,
+entirely**: `runtime-architecture.md` § Scope hands the UI/API presentation contract,
 workspace information architecture, Storybook's role, and the approval UI to a
 commissioned *Experience and presentation* companion document, naming the seams
 it must respect — the event log as observability substrate, the run state

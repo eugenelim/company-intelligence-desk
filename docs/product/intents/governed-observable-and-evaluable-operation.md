@@ -82,7 +82,7 @@ whether anything downstream detected it.
 that handles untrusted content still *chooses* which references to pass on and in
 what order, and that choice carries influence even when every item crossing the
 boundary is a validated reference. This outcome does not close that channel and
-does not claim to. `design-doc.md` § Known at ship records the same residual for
+does not claim to. `runtime-architecture.md` § Known at ship records the same residual for
 its proposed mechanism, unmitigated and unmeasured; that document is a proposal,
 not a settled answer.
 
@@ -167,14 +167,14 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
 - **NVIDIA NeMo Guardrails is not adopted; an application-owned policy layer is
   sufficient.** Settled 2026-09-10.
   Rejected in both configurations: as a detector it falls in the class
-  `design-doc.md` § Alternatives Considered rejects on cited evidence, and as a
+  `runtime-architecture.md` § Alternatives Considered rejects on cited evidence, and as a
   policy-flow framework above an application-owned decision point it cannot
   deliver commit-before-action, because it sits outside the transaction that
   appends `policy.decision`. Recorded in
   `observability-and-evaluation.md` § Alternatives considered; the durable home
   is an ADR not yet written.
 - By what mechanism is the untrusted-content boundary held, and what does it
-  cost in analytical capability? *Proposed in `design-doc.md` § Injection
+  cost in analytical capability? *Proposed in `runtime-architecture.md` § Injection
   defence; open until owner sign-off.*
 - Should Langfuse be the observability and evaluation plane, and if so should it
   be hosted, self-hosted, or optional? It is an inception candidate, not a
@@ -220,7 +220,7 @@ most of the first outcome and defers the rest.
 The **untrusted-content boundary** is settled by owner sign-off on the
 architecture design, which proposes its mechanism.
 
-**The whole first outcome** is also settled by that sign-off. `design-doc.md`
+**The whole first outcome** is also settled by that sign-off. `runtime-architecture.md`
 § Scope names the event log as the observability substrate and the run state
 machine as the carrier of human intervention; §§ Event log and stream mechanism,
 Run state machine, and The approval gate propose sub-results 1 and 3; and

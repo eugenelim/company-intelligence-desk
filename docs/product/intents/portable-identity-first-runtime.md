@@ -106,28 +106,28 @@ eugenelim — decides runtime, deployment, and identity scope.
 ## Unresolved questions
 
 - What is the minimum justified AWS deployment profile? *Proposed in
-  `design-doc.md` § Capacity; open until owner sign-off.*
+  `runtime-architecture.md` § Capacity; open until owner sign-off.*
 - Is ECS Fargate the appropriate runtime boundary, or is another compute shape
-  better justified? *Argued in `design-doc.md` § Alternatives Considered, with
+  better justified? *Argued in `runtime-architecture.md` § Alternatives Considered, with
   the compute profile in § Capacity; open until owner sign-off.*
 - What task and IAM-role separation is required between components?
 - What bounds an agent role's authority at the tool-call layer, and how is
   containment within the initiating principal's entitlements enforced?
-  *Proposed in `design-doc.md` § Identity — two layers; open until owner
+  *Proposed in `runtime-architecture.md` § Identity — two layers; open until owner
   sign-off.*
 - Should the Bedrock integration use an existing provider adapter or an
-  application-owned Converse adapter? *Proposed in `design-doc.md` § The
+  application-owned Converse adapter? *Proposed in `runtime-architecture.md` § The
   model-provider seam, pending a Phase 0 spike; open until owner sign-off.*
 - How should local production-parity development authenticate to AWS?
 - By what mechanism does a contributor without cloud access run the system?
-  *Proposed in `design-doc.md` § Local development; open until owner sign-off.*
+  *Proposed in `runtime-architecture.md` § Local development; open until owner sign-off.*
 - Should a workspace become a hard isolation boundary? `docs/CHARTER.md`
   § *What the system is today* records the current state — single operator, no
   isolation — and delegates this question here. *Proposed answer for the
-  end-user authentication and authorization model in `design-doc.md`
+  end-user authentication and authorization model in `runtime-architecture.md`
   § Authentication and authorization; open until owner sign-off.*
 - What transport and durability mechanisms are required for long-running runs?
-  *Proposed in `design-doc.md` § Event log and stream mechanism; open until
+  *Proposed in `runtime-architecture.md` § Event log and stream mechanism; open until
   owner sign-off.*
 - Should Claude Code headless be used as a development or repository-automation
   harness at all, and if so where does it add value without creating drift from
@@ -143,11 +143,11 @@ constrain the context service, the diligence workflow's execution, the policy
 plane, the event transport the UI consumes, and the deployment story a reader
 reproduces.
 
-**Next step.** `architect-design` has run: `design-doc.md` proposes container
+**Next step.** `architect-design` has run: `runtime-architecture.md` proposes container
 boundaries, execution topology, identity boundaries, Bedrock integration,
 local-development modes, run-event transport and durability, the end-user
 authorization model, and the minimum AWS service set. It awaits owner sign-off,
-and the Phase 0 spikes named in `design-doc.md` § Rollout gate its ratification. This intent is settled by that
+and the Phase 0 spikes named in `runtime-architecture.md` § Rollout gate its ratification. This intent is settled by that
 sign-off, not by another architecture run.
 
 ## Source

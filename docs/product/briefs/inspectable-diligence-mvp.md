@@ -193,7 +193,7 @@ against an intent.
 
 | # | Slice | Acceptance rests on |
 | --- | --- | --- |
-| 1 | **Walking skeleton.** Start a run; one ADK step against a real provider via workload identity; append events; stream to a browser; kill the worker mid-run; attempt a well-typed unauthorised tool call. | `design-doc.md` § Rollout Phase 1's stated exit criteria — reacquisition within 150 s, refusal observed, p99 page threshold calibrated. Not user-facing, which § Appetite authorises. |
+| 1 | **Walking skeleton.** Start a run; one ADK step against a real provider via workload identity; append events; stream to a browser; kill the worker mid-run; attempt a well-typed unauthorised tool call. | `runtime-architecture.md` § Rollout Phase 1's stated exit criteria — reacquisition within 150 s, refusal observed, p99 page threshold calibrated. Not user-facing, which § Appetite authorises. |
 | 2 | **First published analysis, typed scalars only.** One company, one as-of date, at least one deterministic financial calculation, memo plus evidence manifest. | [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) sub-results 1 and 4. |
 | 3 | **Filing-language comparison covered, and its result stated.** | That intent's sub-result 2, in its coverage-not-finding form. |
 | 4 | **Opposed readings covered, and the result stated.** | That intent's sub-result 3. |
@@ -215,7 +215,7 @@ artifact that settles each does not exist:
 
 - **The multi-view workspace experience** — workspace information architecture,
   the UI/API presentation contract, Storybook's role, and the approval UI are
-  deferred by `design-doc.md` § Scope to the commissioned *Experience and
+  deferred by `runtime-architecture.md` § Scope to the commissioned *Experience and
   presentation* companion. Slice 1's browser stream is buildable only because
   the design specifies the event envelope itself.
 - **The evaluation receipt and release gates** — telemetry boundary, redaction,
@@ -239,7 +239,7 @@ continue`.
    produced a reviewed design at Draft; owner sign-off is outstanding, and
    Phase 0 gates its ratification.
 2. **No offline contributor path — proposed, not settled.** The MVP requires a
-   real Bedrock invocation. `design-doc.md` § Local development proposes
+   real Bedrock invocation. `runtime-architecture.md` § Local development proposes
    recorded-fixture replay, substituting exactly the model adapter and the fetch
    adapter, which is the seam set `portable-identity-first-runtime` § Excluded
    names and closes. That intent's question stays open until owner sign-off.

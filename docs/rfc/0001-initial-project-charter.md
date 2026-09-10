@@ -26,7 +26,7 @@
   — their [`README`](../product/intents/README.md), the Draft delivery brief
   [`inspectable-diligence-mvp`](../product/briefs/inspectable-diligence-mvp.md),
   and the Draft architecture design
-  [`inspectable-multi-agent-diligence`](../architecture/inspectable-multi-agent-diligence/design-doc.md)
+  [`inspectable-multi-agent-diligence`](../architecture/inspectable-multi-agent-diligence/runtime-architecture.md)
 - **Notes:** [`0001-notes/review-record.md`](0001-notes/review-record.md) — the
   independent reviews this RFC relies on
 
@@ -265,7 +265,7 @@ returns the same result.
 - **Decision history** lives in [`adr/`](adr/).
 - **Current product state** lives in [`product/`](product/).
 - **Current architecture state** lives in [`architecture/`](architecture/).
-- **Conventions for how we work** live in [`CONVENTIONS.md`](CONVENTIONS.md).
+- **Conventions for how we work** live in [`CONVENTIONS.md`](../CONVENTIONS.md).
 - **Governance** — roles, decision-making, voting — would live in a
   `GOVERNANCE.md` if the project ever needs one. It does not exist; most small
   projects never need it, and governance ceremony a project does not need
@@ -342,7 +342,7 @@ option — the project already has boundaries, and no document states its purpos
   wording of each constraint lives in its owning intent's `### Confirmed
   constraints` block, which is where this RFC's claims about specific
   constraints should be checked.
-- **[The architecture design](../architecture/inspectable-multi-agent-diligence/design-doc.md)**
+- **[The architecture design](../architecture/inspectable-multi-agent-diligence/runtime-architecture.md)**
   — its *Charter amendments required before ratification* section is the sole
   source of the two principle amendments, stating that principle 7's heading
   should read *auditable replay* and that principle 3 should narrow
@@ -380,3 +380,17 @@ option — the project already has boundaries, and no document states its purpos
 
 No ADR follows. A charter records what the project believes; the architecture
 decisions it enables are captured once that design is signed off.
+
+## Errata
+
+Append-only. A later entry supersedes an earlier one by being later.
+
+- **2026-09-10 — design-doc renamed.** The architecture design this RFC links to
+  was renamed from `design-doc.md` to `runtime-architecture.md`, and two
+  companion documents were added beside it. The links in *Follow-on artifacts*
+  and above were updated to resolve; no argument, decision, or scope in this RFC
+  changed. See
+  [`docs/architecture/inspectable-multi-agent-diligence/README.md`](../architecture/inspectable-multi-agent-diligence/README.md).
+- **2026-09-10 — broken link corrected.** The *Conventions for how we work*
+  link pointed at `CONVENTIONS.md` relative to `docs/rfc/`, which does not
+  resolve; it now points at `../CONVENTIONS.md`. No argument changed.

@@ -64,7 +64,7 @@ the list only ever shows what is still open.
 ## 2. Handoff shape
 
 One `architect-design` run consumed all six intents together, producing
-[`inspectable-multi-agent-diligence`](../../architecture/inspectable-multi-agent-diligence/design-doc.md).
+[`inspectable-multi-agent-diligence`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md).
 That document is the single home for its own status; this file does not restate
 it.
 

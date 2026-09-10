@@ -110,7 +110,7 @@ eugenelim — decides domain scope for the diligence surface.
 - What is the minimum viable public-source hierarchy?
 - How should a restatement be surfaced to a reader comparing periods? This is
   the domain question; its storage counterpart is the next bullet.
-- How are amended filings represented in storage? *Proposed in `design-doc.md`
+- How are amended filings represented in storage? *Proposed in `runtime-architecture.md`
   § Context, evidence, and reproducibility; open until owner sign-off.*
 
 ## Projection
@@ -131,7 +131,7 @@ a design or slicing product: this intent states the definition, and
 it. Owner: eugenelim; settled when the material-claim question below is answered
 and both files are updated in the same change.
 
-**Next step.** `architect-design` has run: `design-doc.md` proposes the system
+**Next step.** `architect-design` has run: `runtime-architecture.md` proposes the system
 responsibilities, the deterministic-versus-agentic split, the source pipeline,
 and where the no-unsupported-claim property is enforced. It awaits owner
 sign-off. Slicing this outcome into buildable work happens at

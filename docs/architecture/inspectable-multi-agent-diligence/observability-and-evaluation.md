@@ -3,7 +3,7 @@
 **Author(s):** eugenelim
 **Status:** Draft — revision c3
 **Last updated:** 2026-09-10
-**Parent:** [`design-doc.md`](design-doc.md), whose § Scope commissions this
+**Parent:** [`runtime-architecture.md`](runtime-architecture.md), whose § Scope commissions this
 document and fixes its lane.
 **Settles:** [`governed-observable-and-evaluable-operation`](../../product/intents/governed-observable-and-evaluable-operation.md)
 second outcome (cross-release evaluability), and the egress half of its § In
@@ -70,8 +70,9 @@ That exclusion is the whole design of this section.
 claim in the intent's first outcome is answered from this plane plus the
 evidence store, and from nothing else.
 
-**Plane 2 — telemetry.** OpenTelemetry spans, metrics and logs over OTLP. Lossy
-by construction: sampled, subject to backpressure, safe to drop.
+**Plane 2 — telemetry.** OpenTelemetry spans, metrics and logs over OTLP,
+following the GenAI semantic conventions (§ Instrumentation standard). Lossy by
+construction: sampled, subject to backpressure, safe to drop.
 
 | Plane | Carries |
 | --- | --- |
@@ -85,6 +86,47 @@ split that has eroded while still passing its own check.
 
 A signal may appear in both only when the telemetry copy is a *measure* and the
 event-log copy is the *fact*: duration in telemetry, completion in the log.
+
+## Instrumentation standard
+
+**OpenTelemetry, using the GenAI semantic conventions** — the `gen_ai.*`
+namespace. Grounded in
+[`otel-genai-conventions-fact-check.md`](../../product/research/otel-genai-conventions-fact-check.md),
+2026-09-10; the conventions move quickly, so that date matters.
+
+Emit the conventions' own names rather than inventing a private schema:
+`gen_ai.operation.name` and `gen_ai.provider.name` on every operation;
+`gen_ai.request.model` and `gen_ai.response.model`;
+`gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; `gen_ai.tool.name`
+and `gen_ai.tool.call.id` on tool execution; `error.type` on failure. Agent work
+uses `invoke_agent` in its **INTERNAL** flavour, because the agents run
+in-process under an application-owned orchestrator rather than as a remote agent
+service, with `invoke_workflow` for a coordinated multi-agent run and
+`execute_tool` for tool calls. Evaluation results use `gen_ai.evaluation.name`,
+`.score.value`, `.score.label` and `.explanation`.
+
+**Three properties of the standard shape how it is adopted.**
+
+*Nothing is Stable.* Every `gen_ai.*` construct carries the **Development**
+badge, so attribute names can change under us. That is accepted deliberately: a
+private schema would be stable and would also make this system's telemetry
+unreadable to anyone who knows the standard, which trades a real portability
+benefit for an imagined one.
+
+*There is no schema URL to pin.* The conventions moved out of the core
+repository in semantic-conventions v1.42.0 and the new repository has no tagged
+release and a `TODO` where its schema URL will go. **Pin instrumentation library
+versions, not schema URLs**, and revisit when the GenAI repository first tags.
+
+*The core registry now renders every `gen_ai.*` attribute as Deprecated.* That
+reflects the repository move, not deprecation of the concepts. Any conformance
+check written against the core registry will report the whole GenAI surface as
+deprecated and be wrong.
+
+**Not standardised, and therefore ours:** there is no `gen_ai.usage.cost`
+attribute — cost is derived downstream from token counts and model name — and
+there is no agent-to-agent handoff construct. Multi-agent coordination is
+expressed through `invoke_workflow` nesting and `gen_ai.workflow.name` only.
 
 ## What may leave the backend to a user surface
 
@@ -123,6 +165,23 @@ distinction to render its `withheld` state honestly.
 ## What may cross the telemetry boundary
 
 Telemetry leaves the application boundary entirely, so its rule is stricter.
+
+**This is a tightening of the standard, not a deviation from it.** The GenAI
+conventions mark every content-bearing attribute — `gen_ai.input.messages`,
+`gen_ai.output.messages`, `gen_ai.system_instructions`,
+`gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`,
+`gen_ai.retrieval.query.text` — as **`Opt-In`**, the lowest requirement level
+they define, and instruct that instrumentations *SHOULD NOT* capture them by
+default. The spec's own warning on the message attributes is that they are
+"likely to contain sensitive information including user/PII data", and it
+mandates no redaction mechanism at all.
+
+So the position is simply: **we never exercise the content opt-in.** Every
+Required and Conditionally Required attribute is metadata rather than content,
+so nothing at MUST or SHOULD level is given up. The tool-call and retrieval
+attributes are worth naming explicitly, because they are the ones a diligence
+system is most tempted to enable and the ones through which filing text would
+leave first.
 
 **The admitted list is closed.** Exactly these forms cross; anything else is
 refused, whether or not it looks sensitive:
@@ -359,7 +418,7 @@ and cost.
 
 ## Required parent edits
 
-Three edits to [`design-doc.md`](design-doc.md) are needed before this companion
+Three edits to [`runtime-architecture.md`](runtime-architecture.md) are needed before this companion
 is consistent with it. They are recorded rather than made, because the parent
 has its own review history and is the owner's to sign off.
 
@@ -382,6 +441,13 @@ has its own review history and is the owner's to sign off.
 of truth, so it cannot hold plane 1. As an OTLP consumer it is a reasonable
 optional deployment, self-hosted so agent content does not reach a third party —
 but nothing may require it and no audit claim may depend on it.
+
+Two integration facts if it is deployed: it ingests OTLP over HTTP/JSON and
+HTTP/protobuf only, with **no gRPC**; and its documented `gen_ai.*` mapping
+names the *deprecated* generation of content attributes (`gen_ai.prompt`,
+`gen_ai.completion`), so its support for the current
+`gen_ai.input.messages` shape should be verified rather than assumed. Since this
+design never emits content attributes at all, that gap costs nothing here.
 
 **A vendor-native tracing stack (X-Ray, Cloud Trace).** Rejected.
 **Portability is ratified** — the parent is explicit that this means "portable,
@@ -422,6 +488,10 @@ demote a transactional invariant to a convention while adding a dependency.
 - **`n_runs ≥ 5` is a guess.** It is enough to expose gross variance and not
   enough to resolve a small regression. The dispersion is recorded so the
   guess is visible, but a real power calculation has not been done.
+- **The GenAI conventions are Development, so our attribute names can be
+  invalidated by an upstream change** with no schema URL to pin against. The
+  mitigation is version-pinned instrumentation and a dated citation, which
+  bounds the surprise rather than removing it.
 - **The guarded/streamable split assumes guards are the only reason to
   withhold.** If tenancy isolation ever arrives, per-principal redaction becomes
   a second axis and this table becomes insufficient rather than merely
@@ -449,6 +519,8 @@ demote a transactional invariant to a convention while adding a dependency.
   answered by Phase 1, because the deletion test's premise is that telemetry is
   safe to drop and sampling is how that becomes true in practice.
 - Is `n_runs ≥ 5` defensible after the first release's observed dispersion?
+- When the GenAI conventions repository first tags a release, does a schema URL
+  become pinnable, and does anything we emit change?
 - Should the automatic-publication carve-out become asymmetric — additions to
   the flagging check set admitted without an RFC, removals not? That is an RFC
   against charter principle 3, not a reading of it (§ Scope).

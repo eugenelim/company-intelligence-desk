@@ -1,4 +1,4 @@
-# Company Intelligence Desk — inspectable multi-agent diligence
+# Runtime architecture — Company Intelligence Desk
 
 **Author(s):** eugenelim
 **Status:** Draft — revision r6

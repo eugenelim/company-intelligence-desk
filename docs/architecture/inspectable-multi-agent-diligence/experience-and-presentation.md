@@ -3,7 +3,7 @@
 **Author(s):** eugenelim
 **Status:** Draft — revision c3
 **Last updated:** 2026-09-10
-**Parent:** [`design-doc.md`](design-doc.md), whose § Scope commissions this
+**Parent:** [`runtime-architecture.md`](runtime-architecture.md), whose § Scope commissions this
 document and names the seam it must respect: **typed artifacts are the
 presentation contract**.
 **Settles:** most of

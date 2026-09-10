@@ -69,18 +69,18 @@ eugenelim — decides the context and evidence contract.
 - Which scoping dimensions are required? Inception candidates: workspace, run,
   agent, company, task, and as-of date. This list is a starting point, not a
   settled tuple.
-- Which data should be immutable versus versioned? *Proposed in `design-doc.md`
+- Which data should be immutable versus versioned? *Proposed in `runtime-architecture.md`
   § Context, evidence, and reproducibility; open until owner sign-off.*
 - How does the context model relate to the chosen runtime's native session and
-  memory primitives? *Proposed in `design-doc.md` § Ownership split — the
+  memory primitives? *Proposed in `runtime-architecture.md` § Ownership split — the
   context service is an application capability, not ADK's SessionService; open
   until owner sign-off.*
 - What retrieval model is required for the initial public filings?
 - How are citation locators represented and verified, and do they survive
-  evidence re-ingestion or re-indexing? *Proposed in `design-doc.md` § Context,
+  evidence re-ingestion or re-indexing? *Proposed in `runtime-architecture.md` § Context,
   evidence, and reproducibility; open until owner sign-off.*
 - What storage choices are sufficient without overbuilding? *Proposed in
-  `design-doc.md` § Structure and § Object store contract; open until owner
+  `runtime-architecture.md` § Structure and § Object store contract; open until owner
   sign-off.*
 - How does the context model represent retention, and how does it conform to the
   tenancy boundary owned by

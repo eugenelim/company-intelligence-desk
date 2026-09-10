@@ -85,8 +85,8 @@ def check(path):
     for r in REQ:
         if r not in s:
             probs.append(f"missing section {r}")
-    if re.search(r'design-doc\.md`?\s+r\d', s):
-        probs.append("design-doc revision pin")
+    if re.search(r'runtime-architecture\.md`?\s+r\d', s):
+        probs.append("architecture-doc revision pin")
     if "~~" in s:
         probs.append("strikethrough text")
     if not re.search(r'^- Revision: r\d+ —', s, re.M):
