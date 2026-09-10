@@ -25,7 +25,6 @@ open = [
   { path = "docs/product/intents/portable-identity-first-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Portable containerized ADK runtime reaching Bedrock via short-lived workload identity; architecture designed, awaits sign-off", needs = [] },
   { path = "docs/product/intents/scoped-context-and-evidence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Bounded versioned context packages and immutable evidence lineage; architecture designed, awaits sign-off", needs = [] },
   { path = "docs/product/intents/governed-observable-and-evaluable-operation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Policy, telemetry, evaluation, untrusted-content boundary; boundary awaits design sign-off, rest awaits an observability companion", needs = [] },
-  { path = "docs/product/intents/adoptable-reference-implementation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Legible, learnable reference implementation whose patterns transfer without the domain; awaits an owner pass naming the pattern set", needs = [] },
   { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Draft MVP brief coordinating the six foundation intents; charter ratified, architecture designed, awaits sign-off", needs = [] },
 ]
 closed = []

@@ -1,6 +1,6 @@
 # Adoptable Reference Implementation
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Kind:** outcome
 
 ## Outcome

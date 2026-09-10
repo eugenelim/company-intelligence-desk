@@ -110,7 +110,13 @@ own status and revision — an aggregate claim here decays on every material edi
 and on every promotion.
 
 None moves to `Accepted` without a revision-bound clean shaping review and
-explicit human confirmation. Intents stay **living until all work under them
+explicit human confirmation.
+
+**On acceptance an intent leaves `workspace.toml [backlog].open`.** That index
+tracks open *shaping* work, and the schema refuses an `Accepted` artifact there —
+it reports `impossible_transition`. Leaving the backlog does not end the
+document's life: an accepted intent stays living until the work under it ships,
+and its delivery is tracked through the brief and the specs cut from it. Intents stay **living until all work under them
 ships**: when a downstream artifact answers an open question, the intent records
 the resolution in place and names where the answer lives. `Accepted` ratifies the
 outcome and boundary; questions and projection keep tracking reality.
