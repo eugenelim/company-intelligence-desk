@@ -109,9 +109,11 @@ Two conventions do most of the work:
 
 ## Licence
 
-**Not yet chosen.** The charter ratifies that this is an open-source reference
-implementation, but no licence file exists yet, which means default copyright
-applies and you do not currently have permission to reuse this material. That is
-a gap, not an intention — it is tracked as an open question in
-[`adoptable-reference-implementation`](docs/product/intents/adoptable-reference-implementation.md).
-Until a licence lands, treat this repository as readable but not reusable.
+Licensed under either [Apache License 2.0](LICENSE-APACHE) or
+[MIT](LICENSE-MIT), **at your option**. Contributions are dual-licensed under
+the same terms unless you state otherwise.
+
+Dual licensing is deliberate for a project whose value is patterns being carried
+into other systems: the Apache arm carries an express patent grant, which is
+what most corporate legal review looks for, and the MIT arm keeps the material
+usable by GPLv2 projects, which Apache 2.0 alone would not.

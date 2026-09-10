@@ -69,7 +69,12 @@ eugenelim — decides what "reference implementation" obligates.
   can?
 - Which artifacts carry the teaching load — README, guides, architecture
   documents, annotated code, or the worked example itself?
-- What licence applies, and what contribution surface is offered?
+- **The licence is settled: dual Apache 2.0 OR MIT, at the adopter's option**,
+  copyright `eugenelim`, chosen 2026-09-10 and recorded in `README.md`. The
+  Apache arm supplies the express patent grant this project's audience needs;
+  the MIT arm preserves GPLv2 compatibility that Apache alone forfeits. **The
+  contribution surface is still open** — what contributions are accepted, and
+  through what process.
 - What output makes the reference persuasive while remaining bounded in effort?
 - Does a reader need to run the system to learn from it, or should the recorded
   artifacts of a run be sufficient?
