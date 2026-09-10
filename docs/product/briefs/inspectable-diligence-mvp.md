@@ -10,14 +10,11 @@
 
 - Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b6 — constraint block replaced by a citation to
-  [`../intents/README.md`](../intents/README.md) § 1; filing-language scope item
-  restated in the coverage-not-finding form its Accepted intent ratifies;
-  untrusted-content boundary added to scope and traceability; two wrong-owner
-  attributions corrected; charter-owned non-goals cited rather than restated,
-  with the charter's two non-boundary disclaimers no longer listed as
-  boundaries; the Ready-gaps section carried forward as open items it does not
-  own, rather than as a self-imposed gate it cannot meet, 2026-09-10
+- Revision: b7 — every non-goal now either belongs to this slice or cites the
+  artifact that owns it; the production-agent privilege floor, which had been
+  copied from its ratified wording with *network* narrowed to *browsing*, is
+  cited at its owner; the charter's exclusions are pointed to as a list rather
+  than partly enumerated, 2026-09-10
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
@@ -89,17 +86,20 @@ A user can analyse one public company as of an explicit date, and then:
 
 **Non-goals — this slice:**
 
-- Multi-company and portfolio-level analysis.
-- Unrestricted browsing, shell execution, or infrastructure control for
-  production agents.
 - Core behaviour inseparable from one cloud, model provider, policy engine, or
   observability product.
-- Becoming a universal agent platform.
 
-Investment advice, autonomous trading, portfolio management, buy/sell and
-price-target output, redistribution of private or licensed research data, and
-becoming a framework, library or extractable SDK are excluded by
-[`docs/CHARTER.md`](../../CHARTER.md) § Scope and are not restated here.
+Everything else this project refuses is refused somewhere that owns it, and is
+cited rather than restated:
+
+- **Purpose bounds** — the "does not do" list in
+  [`docs/CHARTER.md`](../../CHARTER.md) § Scope.
+- **Multi-company and portfolio-level analysis** — a standing exclusion in
+  [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md)
+  § Excluded, not a boundary this slice may later relax.
+- **The production-agent privilege floor** — a ratified constraint owned by
+  [`portable-identity-first-runtime`](../intents/portable-identity-first-runtime.md)
+  § Confirmed constraints.
 
 Two further limits are **not** scope boundaries, and the charter says so in the
 same section: model-generated analysis is not guaranteed complete or correct,
