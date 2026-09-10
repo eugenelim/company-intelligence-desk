@@ -24,13 +24,15 @@ consumes that contract to decide what a release check may assert.
 
 Two threats, two sub-results, because they do not share a defence.
 
-**1. Content not authored by the initiating human is not placed in instruction
-position by construction.** That is retrieved filings, tool results, and
-inter-agent messages — none reaches a component holding tool authority in a form
-that can act as instruction.
-*Falsifying observation:* such content reaches a component that can invoke a
-tool, as free text. That is a defect regardless of whether anything downstream
-detected it.
+**1. Content not authored by the initiating human never reaches a component
+holding tool authority in a form that can act as instruction.** This includes
+retrieved filings, tool results, and inter-agent messages. The set is determined
+by provenance at the entry point, not by inspecting content: what the initiating
+human authored arrives at one identified surface, and everything else is outside
+it by construction.
+*Falsifying observation:* content not authored by the initiating human reaches a
+component holding tool authority in a form that can act as instruction. That is a
+defect regardless of whether anything downstream detected it.
 
 **2. Every user-authored prompt is adjudicated by a recorded policy decision
 before it reaches a component holding tool authority or causes a tool
@@ -53,9 +55,11 @@ ceiling, which is owned by
 [`portable-identity-first-runtime.md`](portable-identity-first-runtime.md) and
 is not restated here. This intent depends on it.
 
-The charter ratifies the posture behind sub-result 1 in principle 1, and
-declines in § Scope to warrant that any demonstrated pattern is effective
-against a determined adaptive attacker. This intent does not warrant more than
+The charter ratifies this posture for *retrieved third-party* content in
+principle 1; this intent extends it to everything the initiating human did not
+author, for the reason given in sub-result 1. The charter separately declines in
+§ Scope to warrant that any demonstrated pattern is effective against a
+determined adaptive attacker. This intent does not warrant more than
 the charter does: the boundary is a construction, not a guarantee of defeat.
 
 Stated as outcomes rather than controls because the mechanism is an architecture
@@ -144,16 +148,15 @@ The **untrusted-content boundary** is settled by owner sign-off on the
 architecture design, which proposes its mechanism.
 
 The **auditability outcome** is settled by the commissioned *Observability and
-evaluation* companion document, which the design deferred the telemetry
-boundary, redaction rules, evaluation architecture, fixture versioning, and
-release gates to. That companion does not yet exist.
+evaluation* companion document, which the design's § Scope table defers its
+concerns to. That companion does not yet exist.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r9 — sub-result 1 widened to all content the initiating human did
-  not author, closing the inter-agent gap; sub-result 2's headline carries the
-  union its falsifier tests, 2026-09-10
+- Revision: r10 — sub-result 1's falsifier restated to quote its headline's
+  predicate verbatim; charter citation scoped to what principle 1 actually
+  covers, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

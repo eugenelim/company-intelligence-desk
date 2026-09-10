@@ -5,23 +5,32 @@
 
 ## Outcome
 
-The application runs anywhere a container runs, and no deployed component or
-anything in the repository holds a long-lived model credential.
+The application runs anywhere a container runs, and neither a deployed component
+nor the default branch's current tree holds a long-lived model credential.
 
 Three independently verifiable sub-results:
 
 1. A contributor can run the whole application locally in containers without
    cloud access, with substitution confined to the provider-adapter seam
    identified under Excluded.
+   *Falsified by:* a documented local path that cannot run the whole application
+   in containers without cloud access, or that requires substituting a component
+   outside the provider-adapter seam.
 2. Any production component that holds model access obtains it through
    short-lived workload credentials scoped to that component; a component whose
    responsibility does not require model access holds none.
-3. No artifact in the default branch's current tree — source, fixture, compose
-   file, or example environment — contains a long-lived model credential.
-   *Falsified by:* one such credential present in that tree.
-   Neither history nor non-default branches are in scope here: a credential
-   committed and later rotated out is a rotation incident, and an unmerged branch
-   has not yet made a claim about the repository.
+   *Falsified by:* a production component holding model access other than
+   through short-lived workload credentials scoped to that component, or a
+   production component holding model access its responsibility does not
+   require.
+3. No artifact in the default branch's current tree contains a long-lived model
+   credential — source, fixtures, compose files, example environments, CI
+   workflows and manifests alike.
+   *Falsified by:* an artifact in the default branch's current tree containing a
+   long-lived model credential.
+   Neither history nor non-default branches are in scope: a credential committed
+   and later rotated out is a rotation incident, and an unmerged branch has not
+   yet made a claim about the repository.
 
 ## Boundary
 
@@ -127,7 +136,8 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r10 — sub-result 3's headline carries the same scope as its
-  falsifier, with both narrowings justified in one clause, 2026-09-10
+- Revision: r12 — sub-results 1 and 2 given the explicit falsifiers their
+  sibling already carried, so falsifier coverage across the list is uniform,
+  2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

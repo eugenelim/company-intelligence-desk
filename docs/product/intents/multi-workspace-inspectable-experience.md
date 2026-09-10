@@ -8,21 +8,19 @@
 For any completed run, a user can reach from a rendered surface — without
 reading server logs or raw model output — the **per-run** properties
 [`governed-observable-and-evaluable-operation.md`](governed-observable-and-evaluable-operation.md)
-§ Outcome makes auditable (its sub-results 1, 2 and 4: the sequence of steps,
-the policy decisions and their outcomes, and where a human intervened), together
-with the artifact classes
-[`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) makes
-versioned and inspectable, and the evidence, temporal scope, and calculation
-lineage its Outcome requires a material output to resolve to.
+§ Outcome makes auditable, together with what
+[`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § In scope
+makes versioned and inspectable, and whatever its Outcome requires a material
+output to resolve to.
 
-*Falsifying observation:* one of those properties, artifact classes, or
-resolution targets that no rendered surface exposes for a completed run.
+*Falsifying observation:* a per-run property, or an item of either kind above,
+that no rendered surface exposes for a completed run.
 
 **Cross-release quality comparison — `governed` sub-result 3 — is deliberately
-outside this outcome.** It is not a per-run property, and which views exist at
-all is deferred to the delivery brief. Whether a surface for it exists remains
-open under the information-architecture question below; this outcome does not
-decide it, and does not leave that governed sub-result permanently unrendered. This intent does not define what is auditable; it owns whether the
+outside this outcome.** It is not a per-run property. Which views exist at all is
+open under the information-architecture question below and owned here; which of
+them land in the MVP is the delivery brief's slicing decision. This outcome
+decides neither. This intent does not define what is auditable; it owns whether the
 per-run set is *reachable*.
 
 ## Boundary
@@ -109,8 +107,8 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r9 — second citation restated as a criterion after the enumeration
-  proved already incomplete; the cross-release exclusion's reach determined,
-  2026-09-10
+- Revision: r10 — copied sub-result index and residual enumerations replaced by
+  the criteria that select them; view-set ownership separated from the brief's
+  slicing decision, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

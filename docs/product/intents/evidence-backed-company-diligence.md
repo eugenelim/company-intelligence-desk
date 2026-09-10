@@ -10,20 +10,23 @@ date and receive a structured analysis. Four sub-results, each independently
 verifiable:
 
 1. **At least one deterministic financial calculation is reported.**
-   *Falsified by:* an analysis containing no computed figure.
+   *Falsified by:* an analysis reporting no deterministic financial
+   calculation.
 2. **Filing-language comparison is covered, and its result stated.** The result
    may be a described change, an explicit finding of no material change, or an
    explicit statement that no comparable prior period exists.
    *Falsified by:* an analysis that is silent on filing-language comparison.
 3. **Both a supporting and a challenging reading of the same evidence are
-   presented.** *Falsified by:* fewer than two readings presented, two readings
-   that do not stand in supporting-versus-challenging opposition, or two readings
-   drawn from different evidence sets.
+   presented.** *Falsified by:* no pair of presented readings standing in
+   supporting-versus-challenging opposition on a single evidence set.
 4. **No published claim lacks a resolvable link** to public evidence or to
    deterministic calculation lineage. The publication-blocking rule and both
    resolution targets are ratified in [`docs/CHARTER.md`](../../CHARTER.md)
-   principle 1; this intent narrows the evidence target to *public* sources, per
-   its confirmed source tier. *Falsified by:* one unresolvable claim.
+   principle 1, which scopes them to *material* claims; pending the
+   material-claim question below, *published claim* is the standing interim
+   reading. This intent narrows the evidence target to *public* sources, per its
+   confirmed source tier. *Falsified by:* a published claim with no resolvable
+   link.
 
 Coverage is required; a *finding* is not. A company whose filing language did
 not materially change, and a first-time filer with no prior period, must both
@@ -93,7 +96,8 @@ eugenelim — decides domain scope for the diligence surface.
 `portable-identity-first-runtime` (execution topology).
 
 **Feeds:** `multi-workspace-inspectable-experience` (the domain artifacts its
-surfaces present).
+surfaces present), and `scoped-context-and-evidence`, whose traceability
+guarantee rests on the material-claim definition this intent owns.
 
 **Next step.** `architect-design` has run: `design-doc.md` proposes the system
 responsibilities, the deterministic-versus-agentic split, the source pipeline,
@@ -114,8 +118,7 @@ roles. Owner: eugenelim; settled by the slicing pass at
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r9 — sub-result 3's falsifier restored the opposition test the
-  zero-state fix had dropped; sub-result 4's stated delta corrected to the one
-  it actually makes, 2026-09-10
+- Revision: r11 — sub-result 1's falsifier restated to quote its headline
+  rather than paraphrase it in unrelated vocabulary, 2026-09-10
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

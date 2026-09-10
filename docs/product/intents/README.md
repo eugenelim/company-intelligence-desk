@@ -2,8 +2,7 @@
 
 Foundation intents recording what Company Intelligence Desk must achieve,
 written before any architecture existed. Those still in shaping are registered in
-`workspace.toml` `[backlog].open`, which tracks open work carrying `Draft`
-artifacts; see § Status.
+`workspace.toml` `[backlog].open`; see § Status.
 
 This file states the three rules that apply to all six, so they are not restated
 six times and cannot drift apart.
