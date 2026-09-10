@@ -80,8 +80,7 @@ eugenelim — decides what "reference implementation" obligates.
 **Depends on:** all five other foundation intents. What is worth teaching
 cannot be named before the architecture that would be taught exists.
 
-**Feeds:** nothing. This intent is the reader-facing consequence of the other
-five, and its obligations are discharged by them collectively.
+**Feeds:** nothing; see [README](README.md) § 3.
 
 **Next step.** This intent acts as a **review lens over the other five** rather
 than having a design surface of its own, and that role continues into the two
