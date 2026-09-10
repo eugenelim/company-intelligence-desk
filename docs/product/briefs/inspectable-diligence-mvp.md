@@ -10,11 +10,9 @@
 
 - Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b7 — every non-goal now either belongs to this slice or cites the
-  artifact that owns it; the production-agent privilege floor, which had been
-  copied from its ratified wording with *network* narrowed to *browsing*, is
-  cited at its owner; the charter's exclusions are pointed to as a list rather
-  than partly enumerated, 2026-09-10
+- Revision: b8 — the charter's two non-boundary disclaimers pointed to rather
+  than reproduced, the last restatement of ratified text in the brief,
+  2026-09-10
 - Authority: user-authorized; the intents remain the normative statement of each
   outcome. This brief coordinates them and does not restate or supersede them.
 
@@ -101,9 +99,9 @@ cited rather than restated:
   [`portable-identity-first-runtime`](../intents/portable-identity-first-runtime.md)
   § Confirmed constraints.
 
-Two further limits are **not** scope boundaries, and the charter says so in the
-same section: model-generated analysis is not guaranteed complete or correct,
-and nothing here removes human accountability for consequential conclusions.
+Two further limits stated in that same section of
+[`docs/CHARTER.md`](../../CHARTER.md) § Scope are explicitly **not** scope
+boundaries. This brief does not restate them.
 
 ## Appetite
 
