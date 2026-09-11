@@ -15,7 +15,7 @@ falsified it.
 | --- | --- | --- | --- |
 | 1 | LiteLLM resolves Bedrock credentials from ambient workload identity, preserving streaming and the tool loop | AWS | **passed** |
 | 2 | ADK step invocation under an application-owned orchestrator | model | **passed** |
-| 3 | Stream resumption across forced disconnects, with concurrent writers | Postgres | not run |
+| 3 | Stream resumption across forced disconnects, with concurrent writers | Postgres | **passed** |
 | 4 | Quarantine split preserves analytical quality on a real filing | model | **blocked** — no EDGAR access |
 | P1 | `worker` role is refused `INSERT INTO events (type='policy.decision')` | Postgres | **passed** |
 | P2 | Concurrent append/claim deadlock ordering | Postgres | **passed** |
@@ -116,6 +116,22 @@ action.
 Checks 3 and 4 are a pair: step context is supplied by the application and
 answered without a tool call, and a session with no prior turn does not know the
 earlier fact. Without check 4, check 3 could pass on ADK quietly carrying state.
+
+## Spike 3 — resumption holds under concurrent writers
+
+4/4. Across **9 forced mid-stream disconnects** while four writers appended
+concurrently: 160 events delivered, 160 distinct, covering 1..160 with zero
+duplicates and monotonic order across every resume boundary.
+
+The concurrency is what makes this worth running. A resumable stream over a
+quiescent log is easy; resuming correctly *while appends continue* is the claim.
+
+The client deliberately sent a **stale `after=0`** on every reconnect while
+supplying the correct `Last-Event-ID`. Delivery had no duplicates, which is the
+observable consequence of the server preferring `Last-Event-ID` over the query
+parameter — the behaviour § Event log and stream mechanism specifies because
+EventSource re-requests the original URL on reconnect. Had the server trusted
+`after=`, every resume would have replayed from zero.
 
 ## Spike 4 — blocked, not failed
 
