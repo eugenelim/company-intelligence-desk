@@ -49,6 +49,11 @@ RULES = [
      lambda m: m.group(0) in PUBLISHED_CONTACTS
      or m.group(0).endswith("@users.noreply.github.com")
      or re.search(r"@(?:[\w-]+\.)?example\.(?:com|org|net)$", m.group(0))),
+    ("absolute home path",
+     # Names the machine's user account. Tilde-relative and repo-relative paths
+     # are fine; an absolute one identifies a person and a filesystem.
+     re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+/"),
+     None),
     ("private key block",
      re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
      None),
