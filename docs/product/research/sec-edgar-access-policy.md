@@ -87,13 +87,26 @@ This is the part that matters most, and it reframes the rate limit. SEC does not
 merely tolerate programmatic consumers; it publishes a path built for them and
 recommends it over crawling (`https://www.sec.gov/developer`).
 
-**Bulk archives**, refreshed nightly around 03:00 ET. One request replaces
-hundreds of thousands:
+**Measured sizes**, by `HEAD` request on 2026-09-11. The spread across four
+orders of magnitude is the whole point — "use bulk" is not one decision:
 
-| Archive | Contains |
-| --- | --- |
-| `Archives/edgar/daily-index/bulkdata/submissions.zip` | Every filer's submission history |
-| `Archives/edgar/daily-index/xbrl/companyfacts.zip` | Every XBRL fact for every filer |
+| Endpoint | Size | Refresh |
+| --- | --- | --- |
+| `daily-index/bulkdata/submissions.zip` | **1,563 MB** | nightly |
+| `daily-index/xbrl/companyfacts.zip` | **1,409 MB** | nightly |
+| `full-index/<yr>/QTR<n>/form.idx` | **38.7 MB** | quarterly, growing |
+| `daily-index/<yr>/QTR<n>/form.<date>.idx` | **0.8 MB** | daily |
+| `daily-index/<yr>/QTR<n>/master.<date>.idx` | **0.1 MB** | daily |
+| `files/company_tickers.json` | **0.2 MB** | infrequent |
+
+The two whole-market archives are **~3 GB combined, refreshed every night**.
+Pulling them daily is ~1.1 TB/year of transfer. The daily `master.idx` covering
+the same day's filings is **0.1 MB** — roughly **15,000× smaller**, or ~36 MB a
+year.
+
+*Observation, not a contradiction:* SEC documents the archives as refreshed
+"approximately 3:00 a.m. ET"; the `Last-Modified` headers observed were just
+after midnight ET. Treat the documented time as approximate.
 
 **Index files** for incremental discovery: `/edgar/daily-index/` and
 `/edgar/full-index/` (quarterly), plus `/edgar/Feed/` and `/edgar/Oldloads/`

@@ -629,13 +629,30 @@ user agent, rate limiting, bounded retry. Three Phase 0 findings shape this
 boundary; see
 [`sec-edgar-access-policy.md`](../../product/research/sec-edgar-access-policy.md).
 
-**Discovery is batch, not web.** SEC publishes nightly bulk archives
-(`submissions.zip`, `companyfacts.zip`) and daily/quarterly index files precisely
-so consumers do not crawl, and recommends them over crawling. The worker acquires
-a filing's *location* from a bulk archive or index, and fetches an individual
-document only when it needs that document. A design that discovers by walking the
-site meets the rate limit within about a minute — Phase 0 did — while one that
-pulls an archive nightly never approaches it.
+**Discovery is batch, not web — and the right batch is small.** SEC publishes
+bulk archives and index files precisely so consumers do not crawl. But "use
+bulk" is not one decision: the published artifacts span four orders of
+magnitude, measured 2026-09-11.
+
+| Tier | Artifact | Size | Used for |
+| --- | --- | --- | --- |
+| 1 | `company_tickers.json` | 0.2 MB | ticker → CIK, cached, refreshed rarely |
+| 2 | `daily-index/…/master.<date>.idx` | 0.1 MB | what was filed that day |
+| 3 | `data.sec.gov/submissions/CIK….json` | small | one filer's history |
+| 4 | the filing document itself | ~1 MB | the analysis |
+| — | `submissions.zip` + `companyfacts.zip` | **~3 GB nightly** | **not used** |
+
+**The whole-market archives are out of scope by construction.** This system
+analyses *one company at a time*;
+[`evidence-backed-company-diligence`](../../product/intents/evidence-backed-company-diligence.md)
+§ Excluded bars multi-company and portfolio-level analysis outright. Ingesting
+every filer nightly — ~1.1 TB/year of transfer — to serve single-company
+analysis would be buying whole-market coverage the charter refuses. Tiers 1-4
+total well under 2 MB for a typical run.
+
+A design that discovers by walking the site meets the rate limit within about a
+minute — Phase 0 did — while one that reads a 0.1 MB daily index never
+approaches it.
 
 **The rate limit is enforced centrally, in the application.** SEC's cap is
 *"10 requests per second regardless of the number of machines used to submit

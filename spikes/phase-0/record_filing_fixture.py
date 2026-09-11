@@ -106,7 +106,8 @@ manifest = {
     "accession": acc_raw,
     "source_url": url,
     "retrieved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    "declared_contact_domain": CONTACT.split("@")[-1],   # never the local part
+    # The declared contact is deliberately NOT recorded. It is supplied at
+    # runtime via SEC_CONTACT and should not persist in repository history.
 }
 (OUT / f"{digest}.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
