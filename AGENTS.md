@@ -27,14 +27,28 @@ Before your first user-facing response or unrelated tool call, silently read [`A
 
 ## Development workflow
 
-Follow the repository's existing contributor workflow. Use the `work-loop`
-skill for repository changes when installed; it owns planning, verification,
-review, and recovery.
+**Every change goes on a feature branch and through a pull request. Do not
+commit directly to `main`.** Branch before the first edit, not after — work
+already on `main` cannot be put behind a review gate afterwards. PR descriptions
+follow the four-question shape in
+[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) § Pull requests.
 
-If the repository has `CONTRIBUTING.md` or equivalent guidance, link to it here.
-If it has none, the seeded [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) is an
-optional starting point to adopt with maintainer approval, not an authority that
-outranks existing guidance.
+Use the `work-loop` skill for repository changes when installed; it owns
+planning, verification, review, and recovery.
+
+Two checks run against every change, and both are cheap:
+
+```bash
+python3 tools/lint-no-identifiers.py --staged   # no account ids, ARNs, keys,
+                                                # emails or absolute home paths
+python3 tools/lint-intents.py                   # structural lint for docs/product/intents/
+```
+
+There is no `CONTRIBUTING.md` yet, and the contribution surface is an open
+question in
+[`adoptable-reference-implementation`](docs/product/intents/adoptable-reference-implementation.md).
+Until it is settled, [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) is the
+governing guidance for how work is done here.
 
 ## Build and test commands
 
