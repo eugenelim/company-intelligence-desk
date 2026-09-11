@@ -63,3 +63,14 @@ docs/knowledge/*.lock.stale-*
 # workspace-status repair/migration scratch — generated, never source.
 .workspace-repair-plan.json
 .workspace-migrations.json
+
+# Terraform state and variable files resolve real account identifiers by
+# construction; `tools/lint-no-identifiers.py` refuses them if tracked anyway.
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+
+# Local AWS/session scratch.
+.aws-sso-cache/
