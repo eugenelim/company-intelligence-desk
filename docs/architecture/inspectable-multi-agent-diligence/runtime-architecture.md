@@ -1,8 +1,8 @@
 # Runtime architecture — Company Intelligence Desk
 
 **Author(s):** eugenelim
-**Status:** Draft — revision r6
-**Last updated:** 2026-09-09
+**Status:** Draft — revision r7, after Phase 0
+**Last updated:** 2026-09-11
 **Sign-off:** outstanding. Open gaps are recorded under *Known at ship*; the
 Phase 0 spikes in *Rollout* gate ratification.
 **Evidence:** [`prompt-injection-defence-survey.md`](../../product/research/prompt-injection-defence-survey.md)
@@ -379,12 +379,26 @@ because `next_seq` is a row `UPDATE` that rollback undoes — unlike the `bigser
 rejected above, whose allocation survives rollback.) Deadlock (40P01) is retried
 with backoff.
 
+**Phase 0 sharpened this claim.** A *uniformly* inverted order does not deadlock
+— every writer takes the same `runs` row first and serialises there, so no cycle
+forms. The hazard is strictly one path inverting **against** another, which is
+what the ordering rule prevents. Demonstrated: zero deadlocks under the designed
+order across 8 concurrent writers, and 12 under mixed orders on the same rows.
+Sequence density was demonstrated in the same run — 200 events, `seq` dense from
+1, no duplicates, which is the property `bigserial` cannot provide because its
+allocation survives rollback.
+
 **The client owns the cursor; the server prefers `Last-Event-ID`.** EventSource's
 automatic reconnect re-requests the original URL with a now-stale `after=` while
 also sending `Last-Event-ID`, so the server uses `Last-Event-ID` when present and
 falls back to `after=`. The client persists its own cursor and reopens explicitly.
 
 **The sink is idempotent** on `(run_id, seq)`.
+
+Phase 0 verified the `Last-Event-ID` preference by reconnecting with a
+deliberately stale `after=0` on every resume: zero duplicates across 9 forced
+disconnects. Had the server trusted the query parameter, each resume would have
+replayed from the beginning.
 
 **Event envelope.**
 `{schema_version, run_id, seq, occurred_at, type, step_id?, agent_role?, principal, payload_ref}`.
@@ -993,13 +1007,16 @@ a task list; none is hidden elsewhere.
    holds an unqualified `events` insert, so it defends against a bug or partial
    compromise in any single write path — but the `worker` process legitimately
    reaches `PDP`, so full compromise of that process defeats it.
-3. **The event-append privilege model and the containment algorithm are stated as
-   invariants and unproven.** Their correctness is a Phase 0 test deliverable. A
-   failure there is an architecture-affecting result, not an implementation bug.
-   Specifically known and unresolved: the fragment's **prefix constructor is
-   set-sound but not semantically safe** on arguments the callee interprets —
-   see *Decidability*. Until that is closed, the authorization ceiling is
-   narrower than it appears for URL, path, and locator arguments.
+3. **The event-append privilege model is proven; the containment algorithm is
+   not.** Phase 0 demonstrated the `policy.decision` split against real database
+   roles: `worker` is refused the table, refused the reserved type by its own
+   append path, and refused the policy function, while each role retains its own
+   job. Lock ordering and sequence density were demonstrated in the same pass.
+
+   Still unproven: the containment algorithm. The fragment's **prefix constructor
+   is set-sound but not semantically safe** on arguments the callee interprets —
+   see *Decidability* — so the authorization ceiling remains narrower than it
+   appears for URL, path, and locator arguments.
 4. **The security posture rests on `[moderate]`, self-evaluated evidence** with no
    disinterested replication, no unlimited-budget adaptive test, and no benchmark
    for long-document financial filings — this system's exact workload class.
@@ -1010,20 +1027,26 @@ a task list; none is hidden elsewhere.
 
 ## Rollout
 
-**Phase 0 — spikes, before ratification.** Four falsifiable hypotheses: the
-LiteLLM workload-identity path; ADK step invocation under an application-owned
-orchestrator; stream resumption across forced disconnects **with concurrent
-writers**; and the quarantine split — whether references-plus-classifications
-preserve enough analytical quality on a real filing, which is the closest
-available proxy for the missing financial-filing benchmark.
+**Phase 0 — complete, 2026-09-11.** All six items ran; results and their limits
+are in [`spikes/README.md`](../../../spikes/README.md). Five held and one was
+falsified, which changed the design rather than the plan.
 
-Phase 0 also carries two **executable privilege tests**, because these two
-invariants are settled by running them rather than by argument: a
-`worker`-role session attempting `INSERT INTO events (type='policy.decision')`
-and being refused, and a concurrent append/claim deadlock-ordering test.
+| Item | Result |
+| --- | --- |
+| LiteLLM over Bedrock via ambient workload identity | held — 7/7, under a least-privilege role |
+| ADK step invocation under an application-owned orchestrator | held — 4/4, tool denied on argument value before executing |
+| Stream resumption across forced disconnects with concurrent writers | held — 4/4, 160 events over 9 disconnects, no gaps or duplicates |
+| Quarantine preserves analytical quality on a real filing | **falsified as run** — see § Injection defence and § Known at ship |
+| `worker` refused `INSERT INTO events (type='policy.decision')` | held — 7/7 |
+| Concurrent append/claim deadlock ordering | held — 3/3 |
 
-**Phase 1 — walking skeleton.** *Entry precondition: the 16 vCPU Fargate quota
-increase is granted.* Start a run; execute one ADK step against a real provider
+Phase 0 cost about $0.05 in model spend and produced four design changes: XBRL
+fact references for quantitative claims, a deterministic pipeline ahead of the
+quarantined agent, the ingestion tiering above, and as-of dating by filing date.
+
+**Phase 1 — walking skeleton.** *Entry precondition: satisfied in the target
+account, where the Fargate vCPU quota is already 4000; on an account carrying the
+6 vCPU default the increase is required first.* Start a run; execute one ADK step against a real provider
 via workload identity; append events; stream to a browser; kill the worker mid-run
 and observe reacquisition within 150 s; attempt a well-typed unauthorised tool
 call and observe refusal. Exit criteria: calibrate the p99 page threshold, record
@@ -1038,18 +1061,23 @@ inspection history.
 
 ## Open Questions
 
-- **Does ADK→LiteLLM→Bedrock resolve credentials from ambient workload identity
-  with no static key, preserving streaming and the tool-call loop?** *Hypothesis:*
-  yes, via boto3's default provider chain. *Falsified if* static credentials are
-  required or streaming or the tool loop breaks.
-- **Does references-only quarantine preserve analytical quality on a real
-  filing?** *Falsified if* closed-vocabulary classification loses distinctions the
-  diligence output depends on.
+- **Does an SEC-declared client remain unblocked under sustained, rate-respecting
+  load?** Phase 0 only observed a block triggered by bursty probing, which cleared
+  on its own. *Falsified if* a compliant client at a steady rate is blocked.
 - **Does an ALB truncate an in-flight SSE response at client-keepalive expiry?**
   Answered by test; changes operational tuning, not architecture.
 
 ### Settled
 
+- **ADK→LiteLLM→Bedrock resolves credentials from ambient workload identity.**
+  Verified under a least-privilege role: no static key, streaming preserved,
+  tool-call loop preserved, and an out-of-policy model refused. Raw model IDs are
+  not invocable on demand — an inference profile is required.
+- **References-only quarantine does *not* preserve analytical quality, as
+  originally specified.** Falsified on a real 10-Q; the design changed in
+  response — see § Injection defence for XBRL fact references and the
+  pipeline-first construction, and § Known at ship for what still does not
+  cross.
 - **The Fargate vCPU quota** needs no increase in the target account, where it
   is already 4000 — verified 2026-09-10. On any account carrying the 6 vCPU
   default, the request is 16 vCPU and must precede Phase 1; owner `eugenelim`.
