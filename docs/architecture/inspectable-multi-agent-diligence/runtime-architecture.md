@@ -654,6 +654,25 @@ A design that discovers by walking the site meets the rate limit within about a
 minute — Phase 0 did — while one that reads a 0.1 MB daily index never
 approaches it.
 
+**Freshness comes from per-company polling, not from the market-wide feed.**
+There is no push, webhook, or streaming for a non-PDS consumer, and the paid
+Public Dissemination Service is not the answer: SEC states filings are available
+on its website *before* reaching PDS, so the free surface is the faster one.
+Among polling surfaces, `data.sec.gov/submissions/CIK….json` is documented as
+sub-second, carries no window, and is not on a robots-disallowed path — unlike
+the `cgi-bin` latest-filings Atom feed, which is. That feed is also bounded at
+100 entries, which Phase 0 measured as covering only **1.7 hours** at ~58
+filings/hour, with the horizon shrinking exactly when filing activity peaks. It
+is therefore unusable for completeness; the daily index, bounded by the day
+rather than an entry count, supplies that instead.
+
+**As-of dating uses the filing date, never the acceptance timestamp.** Regulation
+S-T Rule 13(a)(2) deems a transmission begun after **17:30 ET** to be filed the
+*next business day* (22:00 ET for Forms 3/4/5 under Rule 13(a)(4)). A document is
+therefore publicly readable hours before the date it legally bears, and an
+as-of-dated analysis that timestamps evidence by acceptance or retrieval would
+attribute it to the wrong day.
+
 **Ingestion is scheduled; a run reads the store. Live fetch is not on the
 request path.** Four reasons, and the first is the one that actually decides it:
 

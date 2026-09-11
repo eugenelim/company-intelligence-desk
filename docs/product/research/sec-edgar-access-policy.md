@@ -104,9 +104,10 @@ Pulling them daily is ~1.1 TB/year of transfer. The daily `master.idx` covering
 the same day's filings is **0.1 MB** — roughly **15,000× smaller**, or ~36 MB a
 year.
 
-*Observation, not a contradiction:* SEC documents the archives as refreshed
-"approximately 3:00 a.m. ET"; the `Last-Modified` headers observed were just
-after midnight ET. Treat the documented time as approximate.
+*Observed refresh times.* The daily index is documented as updating *"nightly
+starting about 10:00 p.m. ET"*, and the observed `Last-Modified` was 22:01 ET —
+a match. The bulk archives are documented at *"approximately 3:00 a.m. ET"* and
+were observed just after 00:30 ET. Treat the archive time as approximate.
 
 **Index files** for incremental discovery: `/edgar/daily-index/` and
 `/edgar/full-index/` (quarterly), plus `/edgar/Feed/` and `/edgar/Oldloads/`
@@ -178,6 +179,94 @@ inference is the tempting one — it attributes the failure outward.
 **Documented appeals route:** contact `webmaster@sec.gov` *"with a screenshot or
 the text of the error message. Include your IP address so we can attempt to
 better assist you."*
+
+## Learning about a filing in near real time
+
+There is **no push, no webhook, and no streaming** for a non-PDS consumer, and
+SEC confirms it offers no email alerts for EDGAR filings. Polling is the only
+route. The question is what to poll.
+
+**The paid institutional feed is not the answer, and for a surprising reason.**
+The EDGAR Public Dissemination Service (PDS) is real — operated by Maximus
+Federal Consulting under a paid subscription agreement — but SEC's own PDS page
+states that it modified the system so that *"EDGAR filings are available to the
+public on the SEC website **before** such filings are made available to the
+public dissemination system"*. **The free public site is now faster than the
+paid redistribution feed.** PDS buys re-transmission, tracking and a helpdesk,
+not latency.
+
+**What to poll instead:**
+
+| Surface | Documented freshness | Notes |
+| --- | --- | --- |
+| `data.sec.gov/submissions/CIK….json` | *"real-time"*, typically **under one second** | Best surface for watched companies |
+| XBRL APIs (`api/xbrl/…`) | under one minute | |
+| XBRL RSS feeds | regenerated **every 10 min**, Mon–Fri 06:00–22:00 ET | The only feed with a documented cadence |
+| `cgi-bin/browse-edgar?action=getcurrent&…&output=atom` | undocumented | Market-wide latest filings — but see below |
+| `efts.sec.gov/LATEST/search-index?q=` | — | **Undocumented.** Reverse-engineered convention; not a supported interface |
+
+**The Atom feed sits on a robots-disallowed path.** `robots.txt` currently
+contains `Disallow: /cgi-bin`, and the latest-filings Atom feed lives there —
+while SEC simultaneously **publishes that exact URL on its own developer
+resources page**. SEC has never reconciled the two. The defensible reading is
+that robots.txt is stale, Drupal-inherited, and aimed at search indexing. The
+honest reading is that a strict robots-respecting client would refuse the URL,
+and someone arguing the poller is non-compliant has a literal-text case.
+
+**This project avoids the argument rather than winning it:** poll
+`data.sec.gov`, which is documented, sub-second, and not under a disallowed
+path.
+
+### Measured velocity, and why it rules the feed out anyway
+
+Sampled 2026-09-11, 100 entries, all form types:
+
+| Measure | Value |
+| --- | --- |
+| Entries returned (the feed's maximum) | 100 |
+| Span those 100 entries covered | **1.73 hours** |
+| Implied rate | **~58 filings/hour** |
+| Median inter-arrival | **0 s** — dissemination is bursty, many share a second |
+| Mean inter-arrival | 63 s |
+| Largest gap | 893 s (~15 min) |
+| Gaps over 10 minutes | 3 of 99 |
+
+**The binding constraint is the window, not the interval.** The feed returns at
+most 100 entries, so at the observed rate it holds about **1.7 hours** of
+history. Poll less often than that and filings fall off the end unseen.
+
+And that horizon is *velocity-dependent*, which is the real problem: this sample
+ran 20:00–21:45 ET, the Rule 13(a)(4) after-hours window for Forms 3/4/5. During
+business hours, and especially around the 17:30 ET cutoff in earnings season,
+the rate is higher and the window correspondingly shorter — possibly minutes. **A
+fixed polling interval cannot be derived safely from a bounded window whose
+horizon shrinks exactly when filing activity peaks.**
+
+*Sampling limit: one 1.7-hour window, after hours. Daytime velocity was not
+measured and is expected to be higher.*
+
+So the market-wide feed is the wrong instrument twice over — robots-disallowed
+path, and a window that silently truncates under load. **Completeness comes from
+the daily index, which is bounded by the day rather than by an entry count;
+freshness comes from per-CIK `data.sec.gov` polling for watched companies, which
+has no window at all.**
+
+## Three clocks, and the one that governs an as-of analysis
+
+A filing has an acceptance timestamp, a legal filing date, and a moment it
+appears in the index. They are not the same, and conflating them is a
+correctness bug for an as-of-dated product.
+
+- **Acceptance timestamp** — visible within minutes.
+- **Legal filing date** — Regulation S-T Rule 13(a)(2): transmission begun by
+  **17:30 ET** is that business day; **after 17:30 ET it is deemed filed the next
+  business day**. Rule 13(a)(4) extends to 22:00 ET for Forms 3/4/5 and
+  Schedule 14N.
+- **Index availability** — nightly from about 22:00 ET.
+
+**So a document can be publicly readable hours before the date it legally bears.**
+An as-of analysis must date evidence by **filing date**, never by acceptance
+timestamp or retrieval time.
 
 ## What "classified" means — SEC does not say
 
