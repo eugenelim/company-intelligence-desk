@@ -74,3 +74,6 @@ docs/knowledge/*.lock.stale-*
 
 # Local AWS/session scratch.
 .aws-sso-cache/
+
+# Spike virtualenvs — local, disposable.
+spikes/**/.venv/
