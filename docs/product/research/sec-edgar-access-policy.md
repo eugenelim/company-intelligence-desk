@@ -122,19 +122,29 @@ Every `sec.gov` path tested returned 403 from this network, including
 | `www.sec.gov/files/company_tickers.json` | 403 |
 | `www.sec.gov/developer` | 403 |
 
+All five were issued within roughly a minute of each other, after several
+earlier user-agent probes. That density is the cause, not the coincidence.
+
 A blanket block including static pages is **not** explained by our request shape.
 Several correctly-formed user agents were tried, and `/developer` involves no
 automation at all.
 
-The remaining explanation is the caller's egress address. The tests ran from a
-**residential ISP that allocates addresses across multi-dwelling buildings**, so
-the SEC rate budget — *"10 requests per second regardless of the number of
-machines"* — is shared with everyone behind the same address. One neighbour's
-scraper is sufficient to block the address for everybody on it. The edge is
-Akamai-served, which also makes IP-reputation handling plausible. **SEC
-publishes nothing on either mechanism, so this is inference, not fact** — but it
-is consistent with a block that covers static pages and ignores user agent
-entirely.
+**The block then cleared on its own, and that resolves the cause.** A subsequent
+request from the same address, same network, with a correctly-formed user agent,
+succeeded and returned a full 10-Q. So this was never IP reputation or a
+permanent range block.
+
+The explanation that fits is the documented one: rapid successive probing —
+several user-agent variants and five endpoints in quick succession — tripped
+SEC's rate control, which blocks the **address** rather than the request, which
+is why a static page like `/developer` was refused too. SEC documents that
+access resumes *"once the rate of requests has dropped below the threshold for
+10 minutes"*.
+
+An earlier revision of this document inferred a shared multi-dwelling ISP
+address and a neighbour exhausting the budget. That was over-reading: the
+simpler and correct explanation is self-inflicted. Recorded because the wrong
+inference is the tempting one — it attributes the failure outward.
 
 **Documented appeals route:** contact `webmaster@sec.gov` *"with a screenshot or
 the text of the error message. Include your IP address so we can attempt to
@@ -159,5 +169,5 @@ development and fail in production, or the reverse.
   and worth testing before the production fetch path is relied upon — a NAT
   gateway address is as shared as a residential one, just shared with different
   neighbours.
-- Whether the block is specific to this address or to its range. Testable from
-  any second network.
+- Whether a sustained, rate-respecting client is ever blocked. Only bursty
+  probing was observed to trigger it here.
