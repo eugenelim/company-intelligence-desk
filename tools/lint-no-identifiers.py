@@ -18,6 +18,14 @@ import subprocess
 import sys
 
 SKIP_PREFIXES = (".claude/", ".agents/", ".codex/")
+
+# Published role addresses of third-party organisations, cited in documentation.
+# Enumerated rather than pattern-matched: a rule like "allow any role address"
+# would be a hole, and each entry here is a deliberate, reviewable decision.
+PUBLISHED_CONTACTS = frozenset({
+    "opendata@sec.gov",      # SEC EDGAR feature requests
+    "webmaster@sec.gov",     # SEC documented route for a blocked client
+})
 SKIP_SUFFIXES = (".lock",)
 
 # Each rule is (label, compiled pattern, allowance predicate or None).
@@ -38,7 +46,8 @@ RULES = [
      re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"),
      # RFC 2606 reserves example.com/.org/.net for documentation, and the
      # noreply address is this project's own commit identity.
-     lambda m: m.group(0).endswith("@users.noreply.github.com")
+     lambda m: m.group(0) in PUBLISHED_CONTACTS
+     or m.group(0).endswith("@users.noreply.github.com")
      or re.search(r"@(?:[\w-]+\.)?example\.(?:com|org|net)$", m.group(0))),
     ("private key block",
      re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
