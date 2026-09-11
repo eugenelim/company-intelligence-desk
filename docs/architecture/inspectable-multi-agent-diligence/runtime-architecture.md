@@ -620,6 +620,23 @@ Residual risk: a quarantined model induced to forge a reference. Partially
 mitigated by resolving every reference against the evidence store; a reference
 that does not resolve fails the step.
 
+**Quantitative claims cross as XBRL fact references, not prose quotes.** Phase 0
+ran the boundary against a real 10-Q and found that a verbatim-substring anchor
+**cannot resolve a fact assembled from table cells** — `effective tax rate`,
+`17.9` and `16.4` each appear in the filing, but only as separate cells, so the
+quoted anchor matches nothing. Financial filings put their most material
+quantitative facts in tables, so a prose-quote reference type systematically
+drops precisely the figures this product exists to analyse. XBRL facts are
+already tagged, identified and individually addressable, which makes them
+deterministically resolvable; SEC publishes them through `companyfacts`, already
+reached by the ingestion tiers above. Prose quotes remain the right reference for
+narrative claims.
+
+The same run saw the quarantined agent emit one anchor appearing **nowhere** in
+the document — the forgery risk above, occurring at 1 in 8 with no adversary
+present, and correctly rejected. The parser behaved as specified; the cost is
+that true observations are dropped alongside fabricated ones.
+
 **Agent → tool authority.** Argument-value authorization at `PDP`.
 
 **Worker → model provider.** Workload identity only.
@@ -933,8 +950,18 @@ a task list; none is hidden elsewhere.
 
 1. **The quarantine guarantee is narrower than it first reads.** It is *"no
    attacker-authored free text reaches a planning agent"* — **not** *"no
-   attacker-influenced signal"*. The reference-selection channel is unmitigated
-   and unmeasured.
+   attacker-influenced signal"*. The reference-selection channel is unmitigated,
+   and Phase 0 observed it costing a material finding: a legal exposure and an
+   explicit management warning about intensifying component shortages both
+   appeared in the baseline analysis and neither crossed the boundary, although
+   `litigation_exposure` and `supply_concentration` are both in the admitted
+   vocabulary. Selection, not vocabulary, was the limit.
+
+   **Causality does not cross at all, and no vocabulary fixes that.** The
+   baseline attributed margin expansion to tariff refunds and judged it a
+   non-recurring tailwind; the boundary can carry `margin_expansion` and a
+   number, but the judgement is an argument rather than a category. This is a
+   recorded cost of the design, not a defect in it.
 2. **The `policy.decision` split separates recording, not decision.** No role
    holds an unqualified `events` insert, so it defends against a bug or partial
    compromise in any single write path — but the `worker` process legitimately

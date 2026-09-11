@@ -16,7 +16,7 @@ falsified it.
 | 1 | LiteLLM resolves Bedrock credentials from ambient workload identity, preserving streaming and the tool loop | AWS | **passed** |
 | 2 | ADK step invocation under an application-owned orchestrator | model | **passed** |
 | 3 | Stream resumption across forced disconnects, with concurrent writers | Postgres | **passed** |
-| 4 | Quarantine split preserves analytical quality on a real filing | model | **blocked** — no EDGAR access |
+| 4 | Quarantine split preserves analytical quality on a real filing | model | **falsified as run** — see below |
 | P1 | `worker` role is refused `INSERT INTO events (type='policy.decision')` | Postgres | **passed** |
 | P2 | Concurrent append/claim deadlock ordering | Postgres | **passed** |
 
@@ -133,7 +133,83 @@ parameter — the behaviour § Event log and stream mechanism specifies because
 EventSource re-requests the original URL on reconnect. Had the server trusted
 `after=`, every resume would have replayed from zero.
 
-## Spike 4 — blocked, not failed
+## Spike 4 — falsified as run, and usefully so
+
+Run against a real Apple 10-Q filed 2026-07-31, on 30,000 characters of MD&A.
+The same question was put to the same analyst model twice: once over the full
+prose, once over **only** what survived the quarantine boundary — 6 observations,
+2,029 characters, **6.8% of the prose**. Cost $0.022.
+
+**The hypothesis does not hold at n=1.** Closed-vocabulary classification lost
+distinctions a diligence reader depends on. Three losses, with different causes.
+
+### 1. Causality cannot cross a closed vocabulary
+
+The baseline found: *"Products gross margin expanded 560 bps YoY, driven partly
+by tariff refunds — a non-recurring tailwind that inflates reported
+profitability."*
+
+The vocabulary contains `margin_expansion`. It has no way to carry *why*, and
+"non-recurring tailwind that inflates reported profitability" **is** the
+diligence judgement — the reader's question is not whether margin moved but
+whether the move is repeatable. A label plus a scalar cannot express it, and no
+enlargement of the label set fixes this: the content is an argument, not a
+category.
+
+### 2. The anchor-resolution check systematically drops tabular facts
+
+Two of eight observations were rejected because their anchors did not resolve.
+Both were **substantively true**, and the reasons differ:
+
+| Dropped | Anchor the agent emitted | Reality |
+| --- | --- | --- |
+| `tax_rate_change` | `"effective tax rate 17.9 % 16.4 %"` | `effective tax rate`, `17.9` and `16.4` all appear — as **separate table cells**. The contiguous string does not exist |
+| `margin_expansion` | `"Products gross margin percentage increased"` | The phrase appears **nowhere** in the document. Invented |
+
+The first is the structural finding: **financial filings put their most material
+quantitative facts in tables, and a verbatim-substring anchor can never resolve
+a fact assembled from table cells.** Requiring prose quotes as the reference type
+guarantees that the figures a diligence product exists to analyse are the ones
+most likely to be dropped.
+
+The second is the forgery risk the design already names — *"a quarantined model
+induced to forge a reference"* — occurring here **with no adversary present**,
+at 1 in 8, from ordinary paraphrase.
+
+**The fail-closed parser worked.** Both were caught and neither crossed. That is
+the mechanism behaving exactly as specified; the cost is that true observations
+were dropped with the fabricated one.
+
+### 3. A material legal exposure never crossed
+
+The baseline surfaced the Epic/App Store injunction with Supreme Court review
+pending, and separately an explicit management warning that semiconductor, NAND
+and DRAM shortages are *expected to intensify*. `litigation_exposure` and
+`supply_concentration` are both **in** the vocabulary, so this is not a
+vocabulary limit — the quarantined agent simply did not select them under a
+"most material" instruction. Selection is itself a channel, which is the
+residual `runtime-architecture.md` § Known at ship already records as
+unmitigated.
+
+### What this changes
+
+The losses have identifiable causes, and the largest has a clean fix:
+**quantitative claims should cross as XBRL fact references, not prose quotes.**
+XBRL facts are already tagged, identified and individually addressable, so they
+resolve deterministically — a genuine admitted form for exactly the facts prose
+anchors handle worst. SEC publishes them through `companyfacts`, which the
+ingestion tiers already reach.
+
+Prose quotes remain right for narrative claims. Causality remains outside the
+boundary, and that is a real, recorded cost rather than a bug to fix.
+
+### Limits of this result
+
+n=1: one filing, one section, one hand-written vocabulary of 20 labels, one
+quarantined model (Haiku 4.5), one analyst (Sonnet 4.6), one prompt. A different
+vocabulary, a stronger quarantined agent, or an XBRL-based reference type could
+each move the result. It is evidence that the cost is real and where it falls —
+not a measurement of its size.
 
 SEC EDGAR returns **403 "Your Request Originates from an Undeclared Automated
 Tool"** from this network, across several user-agent formats that follow SEC's
