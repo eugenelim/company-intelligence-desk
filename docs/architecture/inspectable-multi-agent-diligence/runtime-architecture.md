@@ -662,7 +662,17 @@ address content hashes, not document positions.
 **The run header records the producer.** `{model_id, model_version,
 inference_profile, temperature, top_p, max_tokens, prompt_template_version,
 tool_manifest_hash, agent_role_version, context_assembler_version,
-app_image_digest}`. A re-run whose tuple differs is labelled **divergent**.
+app_image_digest, fetch_adapter, model_adapter}`. The two adapter fields record
+whether each external boundary is live or replaying, which is what distinguishes
+a fixture-mode run from an evaluation run — see
+[`observability-and-evaluation.md`](observability-and-evaluation.md)
+§ Fixture sets and comparability. A re-run whose tuple differs is labelled **divergent**.
+
+**Private model reasoning is not stored.** Chain-of-thought and deliberation
+traces are never written to the event log or the evidence store, so there is no
+servable location holding them. Charter principle 4 bounds inspection to exclude
+them, and the boundary is a storage property rather than a filter applied on
+read.
 
 **Reproducibility means replay, not re-execution.** Step *N*'s context is
 assembled from step *N−1*'s output; sampling is non-deterministic and specialists
@@ -694,11 +704,20 @@ ranked attributes above, not a fifth tradeable one.
 | Migration (transient, deploy-time only) | 0.5 | 1 | +0.5 |
 | **Rolling-deploy peak** (200% of steady state) | | | **13.0** |
 
-**The AWS On-Demand Fargate default is 6 vCPU per Region, so steady state sits
-*exactly* at the quota with zero headroom — and a rolling deploy needs 13.** The
-quota increase is therefore required **before Phase 1**, not Phase 2, and the
-figure to request is **16 vCPU** (peak plus margin). Owner and submit-by date in
-Open Questions.
+**The AWS On-Demand Fargate default is 6 vCPU per Region, so on a default
+account steady state sits *exactly* at the quota with zero headroom — and a
+rolling deploy needs 13.** Where that default applies, a quota increase to
+**16 vCPU** (peak plus margin) is required before Phase 1.
+
+**This table is a Phase 1 ceiling, not a starting shape.** Phase 0 provisions
+the minimum that runs the spike in question — a single task, fractions of a
+vCPU — and capacity grows to the table above only when a real workload needs it.
+Sizing to the ceiling early buys nothing and spends continuously.
+
+**Verified 2026-09-10:** in the target account the Fargate On-Demand vCPU quota
+is already **4000**, so no increase is needed there. That is a property of that
+account, not of the design: moving to a fresh account reinstates the 6 vCPU
+default and the increase becomes a Phase 1 precondition again.
 
 **Concurrency ceiling: 2 sequential-only runs; 1 when a run fans out to two
 specialists.** One step in flight per worker is a pool-sizing choice, not an
@@ -874,9 +893,9 @@ inspection history.
 
 ### Settled
 
-- **The Fargate vCPU quota increase** is owned by `eugenelim`: request **16 vCPU
-  On-Demand Fargate**, submitted **before Phase 0 concludes**, so the grant runs
-  in parallel with the spikes rather than after them.
+- **The Fargate vCPU quota** needs no increase in the target account, where it
+  is already 4000 — verified 2026-09-10. On any account carrying the 6 vCPU
+  default, the request is 16 vCPU and must precede Phase 1; owner `eugenelim`.
 - **Rotation of the ingress OIDC client secret** is owned by `eugenelim`. The
   procedure is defined at Phase 2, when a real deployment first holds the
   secret.
