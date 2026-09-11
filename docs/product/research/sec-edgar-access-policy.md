@@ -81,21 +81,37 @@ The fetch path refuses to run without it rather than substituting a placeholder:
 an unreachable contact in a declaration SEC asks to be genuine is a quieter form
 of the same dishonesty this document declines above.
 
-## The sanctioned route
+## The sanctioned route — batch, not web
 
-SEC publishes a programmatic path and recommends it over crawling
-(`https://www.sec.gov/developer`):
+This is the part that matters most, and it reframes the rate limit. SEC does not
+merely tolerate programmatic consumers; it publishes a path built for them and
+recommends it over crawling (`https://www.sec.gov/developer`).
 
-- **`data.sec.gov` REST APIs**, no key and no auth — `submissions/CIK##########.json`,
-  `api/xbrl/companyconcept/…`, `api/xbrl/companyfacts/…`, `api/xbrl/frames/…`
-- **Bulk archives**, refreshed nightly around 03:00 ET —
-  `Archives/edgar/daily-index/bulkdata/submissions.zip` and
-  `…/xbrl/companyfacts.zip`. One request replaces hundreds of thousands.
-- Daily and quarterly index files.
+**Bulk archives**, refreshed nightly around 03:00 ET. One request replaces
+hundreds of thousands:
+
+| Archive | Contains |
+| --- | --- |
+| `Archives/edgar/daily-index/bulkdata/submissions.zip` | Every filer's submission history |
+| `Archives/edgar/daily-index/xbrl/companyfacts.zip` | Every XBRL fact for every filer |
+
+**Index files** for incremental discovery: `/edgar/daily-index/` and
+`/edgar/full-index/` (quarterly), plus `/edgar/Feed/` and `/edgar/Oldloads/`
+daily archives of filings themselves.
+
+**`data.sec.gov` REST APIs** for targeted lookups, no key and no auth —
+`submissions/CIK##########.json`, `api/xbrl/companyconcept/…`,
+`api/xbrl/companyfacts/…`, `api/xbrl/frames/…`
 
 Guidance: *"download only… necessary data and moderate requests to minimize
 server load."* Feature requests go to `opendata@sec.gov`; SEC *"does not offer
 technical support for developing or debugging scripted processes."*
+
+**The rate limit is a symptom, not the constraint.** A design that discovers
+filings by walking the site will meet 10 req/s quickly — as this project did
+within about a minute of probing. A design that pulls one nightly archive and
+then fetches only the specific documents it needs will not approach it. The
+limit is what SEC uses to push consumers onto the path it already built.
 
 ## Redistribution — favourable, and it settles the fixture question
 
@@ -150,13 +166,56 @@ inference is the tempting one — it attributes the failure outward.
 the text of the error message. Include your IP address so we can attempt to
 better assist you."*
 
+## What "classified" means — SEC does not say
+
+SEC's rule that it *"does not allow 'unclassified' bots or automated tools to
+crawl the site"* uses the word **once, in scare quotes, undefined**. Its two
+canonical statements of the policy are not even verbally consistent: the
+Accessing EDGAR Data page states the same rule while **omitting the word
+entirely**. Neither page defines *classified*, *unclassified*, *botnet*, or
+*acceptable policy*.
+
+The only operational hook anywhere in the corpus is the User-Agent declaration,
+and the error page is titled *"**Undeclared** Automated Tool"* with the remedy
+*"updating your user agent to include company specific information"*. So in
+practice *classified* almost certainly means *declares a conforming user agent* —
+but **that equivalence is an inference from the error text, not a published
+definition**, and nothing suggests it means known to or registered with SEC.
+
+**There is no registration, allowlist, API-key, or high-volume programme.** The
+APIs *"do not require any authentication or API keys"*. The entire mechanism for
+telling SEC who you are is the contact in the user-agent string.
+
+## robots.txt and the access policy disagree
+
+`sec.gov/robots.txt` is a stock Drupal file with an appended SEC block. It
+contains a single `User-agent: *` group, **names no specific crawler**, and has
+**no `Crawl-delay` directive at all**. It explicitly `Allow`s
+`/Archives/edgar/data`.
+
+So a crawler in perfect robots.txt compliance — allowed path, no delay specified
+— is still capped at 10 req/s by a policy robots.txt never mentions, and is
+still blockable as an "unclassified bot". **SEC never references robots.txt in
+any access-policy prose.** The two regimes are disjoint and can disagree, which
+is the clearest gap in the published material.
+
 ## Consequence for the architecture
 
-`runtime-architecture.md` § Trust boundaries specifies the worker reaching EDGAR
-with a *"SEC-compliant user agent"*. That is necessary and **not sufficient**:
-compliance did not obtain access here. Whatever address the production task
-egresses from carries its own reputation, so this boundary can pass in
-development and fail in production, or the reverse.
+Three, in order of weight.
+
+1. **Discovery belongs in batch.** The fetch path should acquire the nightly
+   bulk archive or a daily index, and reach for individual documents only when a
+   specific filing is needed. That is the difference between a design that meets
+   the rate limit constantly and one that never approaches it.
+2. **The rate limit must be enforced centrally in the application.** SEC's cap is
+   *"regardless of the number of machines used to submit requests"* — an
+   aggregate obligation on the user. A per-worker limiter cannot satisfy it, and
+   no network topology enforces it. See
+   [`aws-egress-addressing.md`](aws-egress-addressing.md).
+3. **A compliant user agent is necessary and not sufficient.** § Trust boundaries
+   specifies one; compliance alone did not obtain access while the address was
+   rate-blocked. The declared contact is what lets a publisher attribute traffic
+   and contact a client rather than blanket-block it.
 
 ## Known unknowns
 

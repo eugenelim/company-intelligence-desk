@@ -625,13 +625,31 @@ that does not resolve fails the step.
 **Worker → model provider.** Workload identity only.
 
 **Worker → SEC EDGAR.** Via the egress proxy, hostname allowlist, SEC-compliant
-user agent, rate limiting, bounded retry. **A compliant user agent is necessary
-and not sufficient** — Phase 0 observed EDGAR returning 403 *"Your Request
-Originates from an Undeclared Automated Tool"* to several correctly-formed user
-agents, so the caller's egress address also matters. A task behind a NAT gateway
-inherits that address's reputation, so this boundary can fail in production
-having passed in development. The recorded-fixture path is the mitigation, not
-merely a convenience for offline contributors. A run whose fetch fails is a failed run
+user agent, rate limiting, bounded retry. Three Phase 0 findings shape this
+boundary; see
+[`sec-edgar-access-policy.md`](../../product/research/sec-edgar-access-policy.md).
+
+**Discovery is batch, not web.** SEC publishes nightly bulk archives
+(`submissions.zip`, `companyfacts.zip`) and daily/quarterly index files precisely
+so consumers do not crawl, and recommends them over crawling. The worker acquires
+a filing's *location* from a bulk archive or index, and fetches an individual
+document only when it needs that document. A design that discovers by walking the
+site meets the rate limit within about a minute — Phase 0 did — while one that
+pulls an archive nightly never approaches it.
+
+**The rate limit is enforced centrally, in the application.** SEC's cap is
+*"10 requests per second regardless of the number of machines used to submit
+requests"* — an aggregate obligation on the user, not on the host. A per-worker
+limiter cannot satisfy it and no network topology enforces it, so the shared
+token bucket sits in the egress path ahead of every worker.
+
+**A compliant user agent is necessary and not sufficient.** Phase 0 saw EDGAR
+return 403 to correctly-formed user agents while the address was rate-blocked —
+including on static pages, since the block is address-scoped. It cleared on its
+own, consistent with SEC's documented ten-minute cooldown. The declared contact
+is what lets a publisher attribute traffic and contact the operator rather than
+blanket-block; it is supplied at runtime and is never a maintainer's personal
+identity. A run whose fetch fails is a failed run
 with a recorded cause, never one proceeding on partial evidence.
 
 **Run → published output.** Automatic on a clean run; held for approval when
@@ -734,6 +752,16 @@ Sizing to the ceiling early buys nothing and spends continuously.
 is already **4000**, so no increase is needed there. That is a property of that
 account, not of the design: moving to a fresh account reinstates the 6 vCPU
 default and the increase becomes a Phase 1 precondition again.
+
+**Egress topology: task-assigned public IP, not a NAT gateway.** A NAT gateway
+costs ~$36/month fixed at this duty cycle against ~$0.15/month for a public IP on
+the task — about 240× — and buys a stable address no publisher has asked for.
+Because SEC's limit is aggregate rather than per-host, address determinism does
+not satisfy it; the central token bucket above does. NAT-plus-Elastic-IP is the
+escalation if a correctly-behaved client is ever blocked, and it must then be a
+*zonal* gateway: the regional gateway's automatic mode lets AWS manage addresses
+and would silently break any allowlist. Grounded in
+[`aws-egress-addressing.md`](../../product/research/aws-egress-addressing.md).
 
 **Concurrency ceiling: 2 sequential-only runs; 1 when a run fans out to two
 specialists.** One step in flight per worker is a pool-sizing choice, not an
