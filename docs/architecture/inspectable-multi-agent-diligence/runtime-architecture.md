@@ -654,6 +654,29 @@ A design that discovers by walking the site meets the rate limit within about a
 minute — Phase 0 did — while one that reads a 0.1 MB daily index never
 approaches it.
 
+**Ingestion is scheduled; a run reads the store. Live fetch is not on the
+request path.** Four reasons, and the first is the one that actually decides it:
+
+1. **An as-of analysis cannot be built from a live pull.** The evidence snapshot
+   pins the *universe of retrievable evidence* at a moment.
+   [`scoped-context-and-evidence`](../../product/intents/scoped-context-and-evidence.md)
+   is falsified by "a declared scope that resolves to a different set of
+   retrievable evidence on re-resolution while its evidence snapshot is held
+   fixed" — which is precisely what fetching at query time produces.
+2. **The data is daily.** Filings are discrete events disseminated on a business
+   calendar, not a stream. There is nothing for an intra-request fetch to gain.
+3. **It would couple user-facing latency and availability to a third party**
+   that rate-limits and blocks. A failed fetch is a failed run with a recorded
+   cause — correct, and not something to put in front of a user on every run.
+4. **The rate limit is aggregate.** Concurrent runs fetching live contend for one
+   10 req/s budget; scheduled ingestion spends it once, off the request path.
+
+So live fetch is confined to two jobs, both outside a run: building or
+backfilling the corpus, and acquiring a specific document not yet ingested.
+**This reframes recorded-fixture replay** — it is not merely a convenience for
+contributors without cloud access, it is the same mechanism the production
+ingest path uses, exercised with a different corpus.
+
 **The rate limit is enforced centrally, in the application.** SEC's cap is
 *"10 requests per second regardless of the number of machines used to submit
 requests"* — an aggregate obligation on the user, not on the host. A per-worker
