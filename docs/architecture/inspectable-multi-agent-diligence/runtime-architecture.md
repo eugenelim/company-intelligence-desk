@@ -494,6 +494,16 @@ AWS column is the current binding.
 | `migration` | none | DDL + DML on tables under active migration | none | none | own DB credential path |
 | `policy-author` | none | write agent-role and entitlement tables | none | none | human-operated |
 
+**Least privilege on Bedrock has a shape that is not obvious, established by
+Phase 0 experiment.** A `us.`-prefixed inference profile is *cross-region*:
+authorization for the underlying foundation model is evaluated in the region
+Bedrock **routes to**, not the one called. So the `worker` policy may pin the
+inference-profile ARN to the calling region, but the foundation-model ARN must
+stay region-wildcarded, and an `aws:RequestedRegion` equality condition **denies
+the call outright**. Both tightenings look correct and both break invocation.
+Recorded because it is the kind of detail that reads as a permissions bug two
+days into a build.
+
 `api` holds no model authority — compromising the internet-facing component
 yields no model access. `policy-author` is **human-operated; no runtime identity
 holds it.**
