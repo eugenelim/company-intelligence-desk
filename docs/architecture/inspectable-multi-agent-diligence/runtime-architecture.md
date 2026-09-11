@@ -620,6 +620,22 @@ Residual risk: a quarantined model induced to forge a reference. Partially
 mitigated by resolving every reference against the evidence store; a reference
 that does not resolve fails the step.
 
+**The model never produces a reference.** A deterministic semantic pipeline runs
+*before* the quarantined agent and produces the candidate set: XBRL facts from
+`companyfacts`, parsed table cells with their coordinates, and section
+boundaries. The quarantined agent's job shrinks to **selecting and labelling
+among candidates that already resolve** — it cannot emit an identifier the
+pipeline did not mint.
+
+This is the difference between detecting a forged reference and making forgery
+unrepresentable. Phase 0 tested the weaker construction, in which the agent
+emitted anchors and a parser rejected the ones that failed to resolve; 1 in 8
+were fabricated with no adversary present. Under the pipeline-first
+construction that failure mode does not exist, because there is no free-text
+reference for the model to invent. The same structural-over-detection argument
+the design makes at the outer boundary applies here, and applying it also makes
+the quarantined agent's task small enough for a light model.
+
 **Quantitative claims cross as XBRL fact references, not prose quotes.** Phase 0
 ran the boundary against a real 10-Q and found that a verbatim-substring anchor
 **cannot resolve a fact assembled from table cells** — `effective tax rate`,
@@ -962,6 +978,17 @@ a task list; none is hidden elsewhere.
    non-recurring tailwind; the boundary can carry `margin_expansion` and a
    number, but the judgement is an argument rather than a category. This is a
    recorded cost of the design, not a defect in it.
+
+   **A deterministic pipeline narrows this and does not close it.** Moving
+   reference production out of the model removes forgery and fixes tabular
+   facts, but four things still do not cross: causal attribution, as above;
+   **untagged narrative** — risk factors, legal proceedings and much of MD&A
+   carry no XBRL tagging, so exactly the qualitative material falls back to the
+   weaker prose-anchor path; **selection influence**, since whatever ranks or
+   filters candidates carries attacker-influenceable signal whether it is a
+   model or a heuristic; and **cross-fact inference**, where the finding is a
+   relation between facts rather than any fact. The pipeline moves the boundary;
+   it does not remove it.
 2. **The `policy.decision` split separates recording, not decision.** No role
    holds an unqualified `events` insert, so it defends against a bug or partial
    compromise in any single write path — but the `worker` process legitimately

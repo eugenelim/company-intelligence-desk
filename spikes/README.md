@@ -191,6 +191,25 @@ vocabulary limit — the quarantined agent simply did not select them under a
 residual `runtime-architecture.md` § Known at ship already records as
 unmitigated.
 
+### The construction this spike tested was weaker than it needed to be
+
+The quarantined agent here both *read* the prose and *emitted* the references,
+so the parser could only reject bad ones afterwards — a detection control, of
+the kind this design rejects everywhere else.
+
+The stronger construction runs a **deterministic semantic pipeline first**:
+XBRL facts, parsed table cells with coordinates, section boundaries. The agent
+then only **selects and labels among candidates that already resolve**, and
+cannot mint an identifier. Forgery stops being a thing to catch and becomes a
+thing that cannot be expressed — and the agent's remaining task is small enough
+for a light model.
+
+Both failure modes this spike measured are artefacts of the weaker design: the
+fabricated anchor could not occur, and the table-cell anchor would carry a cell
+coordinate rather than a reconstructed quote. **What it does not fix is
+§ Causality above**, plus untagged narrative, selection influence, and
+cross-fact inference — see `runtime-architecture.md` § Known at ship.
+
 ### What this changes
 
 The losses have identifiable causes, and the largest has a clean fix:
