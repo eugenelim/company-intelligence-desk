@@ -625,7 +625,13 @@ that does not resolve fails the step.
 **Worker → model provider.** Workload identity only.
 
 **Worker → SEC EDGAR.** Via the egress proxy, hostname allowlist, SEC-compliant
-user agent, rate limiting, bounded retry. A run whose fetch fails is a failed run
+user agent, rate limiting, bounded retry. **A compliant user agent is necessary
+and not sufficient** — Phase 0 observed EDGAR returning 403 *"Your Request
+Originates from an Undeclared Automated Tool"* to several correctly-formed user
+agents, so the caller's egress address also matters. A task behind a NAT gateway
+inherits that address's reputation, so this boundary can fail in production
+having passed in development. The recorded-fixture path is the mitigation, not
+merely a convenience for offline contributors. A run whose fetch fails is a failed run
 with a recorded cause, never one proceeding on partial evidence.
 
 **Run → published output.** Automatic on a clean run; held for approval when

@@ -13,10 +13,10 @@ falsified it.
 
 | # | Hypothesis / test | Needs | Result |
 | --- | --- | --- | --- |
-| 1 | LiteLLM resolves Bedrock credentials from ambient workload identity, preserving streaming and the tool loop | AWS | not run |
-| 2 | ADK step invocation under an application-owned orchestrator | model | not run |
+| 1 | LiteLLM resolves Bedrock credentials from ambient workload identity, preserving streaming and the tool loop | AWS | **passed** |
+| 2 | ADK step invocation under an application-owned orchestrator | model | **passed** |
 | 3 | Stream resumption across forced disconnects, with concurrent writers | Postgres | not run |
-| 4 | Quarantine split preserves analytical quality on a real filing | model | not run |
+| 4 | Quarantine split preserves analytical quality on a real filing | model | **blocked** — no EDGAR access |
 | P1 | `worker` role is refused `INSERT INTO events (type='policy.decision')` | Postgres | **passed** |
 | P2 | Concurrent append/claim deadlock ordering | Postgres | **passed** |
 
@@ -76,6 +76,66 @@ strictly one path inverting *against* another. The design already says this
 ("inverting the order **against the worker path**"), and the test now
 demonstrates the distinction rather than a weaker claim: a rule that cannot be
 shown failing is not a rule.
+
+## Spike 1 — ambient workload identity holds
+
+7/7, under a least-privilege role rather than under Admin. Ambient credential
+resolution with no static key, streaming, and the tool-call loop all work
+through LiteLLM to Bedrock, and a model outside the policy is refused — which is
+what makes the scope meaningful rather than decorative. Cost $0.002.
+
+**Finding: cross-region inference profiles change the shape of least privilege.**
+A `us.`-prefixed profile routes to other regions, and authorization for the
+underlying foundation model is evaluated in the **routed** region. Established by
+running three policy variants against the same call:
+
+| Tightening | Result |
+| --- | --- |
+| Region-pinned inference-profile ARN | allowed |
+| Region-pinned foundation-model ARN | **denied** |
+| `aws:RequestedRegion` equality condition | **denied** |
+
+Both failing tightenings look obviously correct. A team applying them would read
+the denial as a permissions bug and widen the wrong thing.
+
+**Finding: these models are not invocable by raw model id.** Bedrock requires an
+inference profile. The design already carries `inference_profile` in the producer
+tuple, so the shape was anticipated; the spike establishes it is mandatory.
+
+## Spike 2 — ADK sits under application control
+
+4/4. The application drives each step; ADK does not own the outer loop.
+
+The load-bearing check is the second: a tool call is **denied on argument
+value** — same tool, one ticker allowed and another refused — and denied
+*before* it executes. That is the seam the policy decision point occupies. If
+ADK executed tools without an interceptable hook, argument-value authorization
+would have nowhere to stand and `policy.decision` could not commit before the
+action.
+
+Checks 3 and 4 are a pair: step context is supplied by the application and
+answered without a tool call, and a session with no prior turn does not know the
+earlier fact. Without check 4, check 3 could pass on ADK quietly carrying state.
+
+## Spike 4 — blocked, not failed
+
+SEC EDGAR returns **403 "Your Request Originates from an Undeclared Automated
+Tool"** from this network, across several user-agent formats that follow SEC's
+documented guidance. General egress is fine, so this is SEC's own Akamai edge
+refusing this caller, not a local network block. Probing stopped there:
+circumventing a deliberate access control is not a spike result.
+
+**This is a deployment finding, not just a spike inconvenience.** § Trust
+boundaries specifies the worker reaching EDGAR "via the egress proxy, hostname
+allowlist, SEC-compliant user agent, rate limiting". A compliant user agent is
+necessary and evidently **not sufficient** — the caller's egress address
+matters. A Fargate deployment behind a NAT gateway inherits whatever reputation
+that address carries, so this can fail in production having passed in
+development.
+
+To unblock: obtain one filing from an unblocked network, once, and record it as
+a fixture. That is precisely what § Local development's recorded-fixture replay
+exists for, and the fetch adapter then replays it for every subsequent run.
 
 ## What these results do not establish
 
