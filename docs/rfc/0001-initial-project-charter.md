@@ -149,9 +149,16 @@ What this project does **not** do:
 - It does not provide investment advice.
 - It does not autonomously trade securities or manage portfolios.
 - It does not generate authoritative buy, sell, or price-target decisions.
-- It does not become a framework, library, or extractable SDK, and it does not
-  genericize its domain to serve more use cases. The specificity is what makes
-  the patterns legible.
+- **Superseded 2026-09-18** — this clause read *"It does not become a
+  framework, library, or extractable SDK, and it does not genericize its
+  domain to serve more use cases. The specificity is what makes the patterns
+  legible."* It was replaced by a direct owner
+  amendment to [`CHARTER.md`](../CHARTER.md) § Amendments, under the
+  shaping-phase exception recorded there. The project is a general-purpose
+  executable substrate; the replacement exclusions are "does not genericize
+  ahead of a use case" and "does not execute code that arrives as data". This
+  RFC is Accepted and is not rewritten — the text above is left visible as the
+  record of what was ratified on 2026-09-10.
 - It does not warrant that the security patterns it demonstrates are effective
   against a determined adaptive attacker. Their evidence base and its limits
   are recorded in the architecture documentation.

@@ -10,12 +10,26 @@
 Changes to this file go through an RFC. The rest of the docs in this repo
 are scaffolding around it; this file is the why.
 
+**Shaping-phase exception, owner-authorized 2026-09-18.** While the executable
+substrate's building blocks are being shaped, the owner may amend this file
+directly, with each amendment recorded in § Amendments. The exception is
+scoped and it expires: **it ends at Phase 2**, when the first user-facing
+deployment exists, after which the RFC route resumes for mission, scope and
+principles. It exists because the substrate's shape is changing faster than an
+RFC cycle can ratify it, not because the charter matters less.
+
 ---
 
 ## Mission
 
-Provide an inspectable reference implementation of a governed multi-agent
-application, demonstrated through evidence-backed public-company diligence.
+Provide an inspectable, general-purpose **executable substrate** for governed
+multi-agent applications — a runtime that hosts agents defined as data — made
+real by an evidence-backed public-company diligence application built on it.
+
+The substrate and the use case are not in tension and neither is decoration.
+A substrate with no use case cannot be shown to work; a use case with no
+substrate teaches nothing transferable. The diligence application exists to
+keep the substrate honest.
 
 The project exists to make the important parts of an agentic system visible and
 reviewable: what work was requested, which evidence and context were supplied,
@@ -32,8 +46,16 @@ interaction, context and evidence management, deterministic and agentic
 responsibility boundaries, policy enforcement, observability, evaluation, and
 portable deployment.
 
-The demonstration domain is public-company diligence. It is a reference use
-case; it does not make this an investment-advice service.
+The engineering domain also includes the substrate concerns that follow from
+hosting agents as data: agent and integration registries, compile-time binding
+of instructions, tools and credentials, and the governance those require —
+authoring-time authority containment, per-integration credential scoping, and
+the trust classification of arbitrary integration outputs.
+
+The demonstration domain is public-company diligence. It is the **proving** use
+case, not the boundary of what the substrate may host; it does not make this an
+investment-advice service. Additional use cases are admissible where they
+exercise substrate capabilities that diligence alone leaves untested.
 
 ## Scope
 
@@ -50,6 +72,12 @@ What this project does:
   human intervention.
 - Retains an inspection record of what ran, on what evidence, and under whose
   authority.
+- Provides a generic worker runtime and pool that hardcode nothing about any
+  agent: instructions, configuration and integrations arrive as versioned data
+  and are resolved at step start.
+- Keeps the set of *integration kinds* closed and code-reviewed while letting
+  the set of *integrations* grow as data — so the catalogue expands without
+  new executable behaviour entering the worker.
 - Serves as both a useful demonstration application and an engineering
   reference for other governed agentic systems.
 
@@ -58,9 +86,15 @@ What this project does **not** do:
 - It does not provide investment advice.
 - It does not autonomously trade securities or manage portfolios.
 - It does not generate authoritative buy, sell, or price-target decisions.
-- It does not become a framework, library, or extractable SDK, and it does not
-  genericize its domain to serve more use cases. The specificity is what makes
-  the patterns legible.
+- It does not genericize *ahead of* a use case. The substrate is general
+  purpose by construction, but a capability is built when a real application
+  needs it and not because a platform might. **Amended 2026-09-18** — this
+  previously read *"It does not become a framework, library, or extractable
+  SDK, and it does not genericize its domain to serve more use cases. The
+  specificity is what makes the patterns legible."* See § Amendments.
+- It does not execute agent-supplied or registry-supplied code. Integrations
+  are data that *select* a reviewed first-party adapter from a closed set of
+  kinds; introducing a new kind is a code change.
 - It does not warrant that the security patterns it demonstrates are effective
   against a determined adaptive attacker. Their evidence base and its limits
   are recorded in the architecture documentation.
@@ -78,8 +112,10 @@ neither list, that is a signal to refine this section rather than drift.
 **What the system is today.** It is built for a single operator. Any workspace or
 grouping it exposes is an organizational scope with no isolation behind it: every
 authenticated principal can read every run and its evidence. Supporting a second
-principal requires isolation work that does not exist. Whether a workspace
-*should* become a hard boundary is an open question owned by
+principal requires isolation work that does not exist. The open question is **not** whether a
+*workspace* should become a hard boundary — a workspace is a UI view, owned by
+`product/intents/multi-workspace-inspectable-experience.md`. It is what a
+**principal scope** should isolate, owned by
 `product/intents/portable-identity-first-runtime.md`, and this charter does not
 answer it — but the current state is a fact an adopter must not have to infer.
 
@@ -200,8 +236,10 @@ repository by [RFC-0001](rfc/0001-initial-project-charter.md):
   exception, not the shape.
 
 Mission, scope, and foundational-principle changes are reserved to the RFC
-route. Wording, clarification, examples, typos, broken links, and recording an
-accepted decision are normal pull requests regardless of this file's pathname.
+route, **subject to the shaping-phase exception recorded at the top of this
+file and expiring at Phase 2**. Wording, clarification, examples, typos, broken
+links, and recording an accepted decision are normal pull requests regardless
+of this file's pathname.
 
 ## When to revise
 
@@ -212,5 +250,50 @@ Revise this charter when:
 - A principle has stopped resolving ties: it is being ignored, or it
   contradicts another in ways we haven't acknowledged.
 
-Revise via RFC. Editing the charter directly without discussion is the
-single fastest way to lose the trust this document is meant to build.
+Revise via RFC, except under the shaping-phase exception above, where the
+owner may amend directly and **must** record the amendment in § Amendments.
+Editing the charter directly *without recording it* is the single fastest way
+to lose the trust this document is meant to build — the discipline the RFC
+route provides is the written trail, and that part is not suspended.
+
+## Amendments
+
+Direct owner amendments made under the shaping-phase exception. Each records
+what changed, when, and why, so that the absence of an RFC does not mean the
+absence of a reason.
+
+### 2026-09-18 — the project is an executable substrate
+
+**Authorized by:** eugenelim (owner), in session, explicitly declining the RFC
+route for the shaping phase.
+
+**What changed.** The Mission now names a general-purpose executable substrate
+with diligence as the application that makes it real. The Domain records the
+substrate concerns that follow. Scope gains the generic runtime and the
+closed-kind/open-catalogue rule. The exclusion on becoming *"a framework,
+library, or extractable SDK"* is **removed** and replaced by a narrower one:
+no genericizing ahead of a use case, and no executing code that arrives as
+data.
+
+**Why.** The worker runtime and pool were being designed to hardcode nothing —
+agent instructions, configuration and integrations all resolved from versioned
+data at step start. That *is* a general-purpose agent platform, and the
+previous exclusion forbade one. The design and the charter had to be made to
+agree, and the owner's decision was that the substrate is the point.
+
+**What the removed exclusion was protecting, and how it is still protected.**
+The old wording defended *legibility* — the worry that a genericized system
+teaches nothing because nothing in it is concrete. That concern is real and
+survives in two places: the retained "does not genericize ahead of a use case"
+exclusion, and the substrate's own design, where agent definitions are
+inspectable data rather than dispersed code. Legibility remains a satisfaction
+condition of the architecture, not a tradeable attribute.
+
+**What this amendment does not do.** It does not grant tenancy isolation, which
+still does not exist; it does not move authority containment from spawn time to
+authoring time; and it does not settle the trust class of prompts authored by
+someone other than the operator. Those are the three governance gaps a
+multi-author substrate needs and none is closed by this wording. They are
+tracked in
+[`worker-runtime.md`](architecture/pydantic-ai-worker-runtime/worker-runtime.md)
+§ Responsibility decomposition.

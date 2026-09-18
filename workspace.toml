@@ -21,6 +21,8 @@
 [backlog]
 open = [
   { path = "docs/product/intents/evidence-backed-fund-diligence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Deferred second demonstration domain: managed funds and ETFs; gated on an RFC amending the charter, not buildable", needs = [] },
+  { path = "docs/product/intents/assistant-mediated-operation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Draft capability intent: conversational control of the desk, bounded by the same authority and provenance as a run. Framed 2026-09-18 from a journey map and service blueprint; nine gaps named, two structural", needs = [] },
+  { path = "docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Follow-on: credential broker design. Owner-commissioned 2026-09-18 when DR12 settled per-integration credential scoping as blast-radius-only; brief is in that doc's DR12", needs = [] },
 ]
 closed = []
 

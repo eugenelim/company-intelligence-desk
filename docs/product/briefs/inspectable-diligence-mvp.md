@@ -80,7 +80,8 @@ A user can analyse one public company as of an explicit date, and then:
 - evidence verification before publication
 - a small multi-view React experience
 - a separate API boundary
-- a real ADK-to-Bedrock invocation using workload identity in the deployed path
+- a real agent-framework-to-Bedrock invocation using workload identity in the
+  deployed path
 - a scoped context package
 - a guarded user-visible result
 - the untrusted-content boundary, and adjudication of every user-authored prompt
@@ -166,7 +167,7 @@ owner of its outcome; this brief coordinates them.
 
 | Intent | Contributes to this brief |
 | --- | --- |
-| [`portable-identity-first-runtime`](../intents/portable-identity-first-runtime.md) | Containerization, the separate API boundary, ADK-on-AWS, Bedrock workload identity, event transport, tenancy |
+| [`portable-identity-first-runtime`](../intents/portable-identity-first-runtime.md) | Containerization, the separate API boundary, the agent runtime on AWS, Bedrock workload identity, event transport, tenancy |
 | [`scoped-context-and-evidence`](../intents/scoped-context-and-evidence.md) | Scoped context package, claim-level provenance, the evidence and citation contract |
 | [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) | Company + as-of date, SEC filings, deterministic calculation, filing-language comparison, opposed readings |
 | [`governed-observable-and-evaluable-operation`](../intents/governed-observable-and-evaluable-operation.md) | Guarded result, observable execution, evaluation receipt, policy outcomes, the untrusted-content boundary |
@@ -193,7 +194,7 @@ against an intent.
 
 | # | Slice | Acceptance rests on |
 | --- | --- | --- |
-| 1 | **Walking skeleton.** Start a run; one ADK step against a real provider via workload identity; append events; stream to a browser; kill the worker mid-run; attempt a well-typed unauthorised tool call. | `runtime-architecture.md` § Rollout Phase 1's stated exit criteria — reacquisition within 150 s, refusal observed, p99 page threshold calibrated. Not user-facing, which § Appetite authorises. |
+| 1 | **Walking skeleton.** Start a run; one Pydantic AI step against a real provider via workload identity; append events; stream to a browser; kill the worker mid-run; attempt a well-typed unauthorised tool call. | `runtime-architecture.md` § Rollout Phase 1's stated exit criteria — reacquisition within 150 s, refusal observed, p99 page threshold calibrated. Not user-facing, which § Appetite authorises. |
 | 2 | **First published analysis, typed scalars only.** One company, one as-of date, at least one deterministic financial calculation, memo plus evidence manifest. | [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) sub-results 1 and 4. |
 | 3 | **Filing-language comparison covered, and its result stated.** | That intent's sub-result 2, in its coverage-not-finding form. |
 | 4 | **Opposed readings covered, and the result stated.** | That intent's sub-result 3. |
@@ -235,15 +236,27 @@ Open, and **not owned by this brief**. None gates `Status: Ready`; each must be
 resolved before a slice depending on it is cut at `author-delivery-brief
 continue`.
 
-1. **Architecture proposed, not signed off.** `architect-design` has run and
-   produced a reviewed design at Draft; owner sign-off is outstanding, and
-   Phase 0 gates its ratification.
+1. **Architecture signed off 2026-09-18 — closed.** `architect-design` ran,
+   Phase 0 gated ratification and all six spikes ran (one falsified, changing
+   the design rather than the plan), and the owner ratified
+   `runtime-architecture.md` together with `worker-runtime.md`. Ratification
+   was explicitly *with* the five limits under r7 § Known at ship open; those
+   are accepted limits of the design, not outstanding work.
 2. **No offline contributor path — proposed, not settled.** The MVP requires a
    real Bedrock invocation. `runtime-architecture.md` § Local development proposes
    recorded-fixture replay, substituting exactly the model adapter and the fetch
    adapter, which is the seam set `portable-identity-first-runtime` § Excluded
-   names and closes. That intent's question stays open until owner sign-off.
+   names and closes. Settled by the 2026-09-18 sign-off; the contributor path
+   is recorded-fixture replay, implemented as a `ReplayModel`.
 3. **Success metrics absent.** No measure of whether the reference
    implementation actually teaches anyone anything. Owned by
    `adoptable-reference-implementation`'s second open question — "What must a
    reader be able to do after reading, and how would we know they can?"
+4. **The agent framework changed under this brief.** The agent-runtime
+   constraint was amended from Google ADK to Pydantic AI on 2026-09-17
+   ([`portable-identity-first-runtime`](../intents/portable-identity-first-runtime.md)
+   § Constraint amendments), and slice 1's wording was updated to match. The
+   substance of every slice is unchanged — the brief never depended on which
+   library sits inside a step — but Phase 0 spikes 1 and 2 were passes about
+   ADK and LiteLLM specifically and were re-established by spike 7. Owned by
+   that intent, not by this brief.

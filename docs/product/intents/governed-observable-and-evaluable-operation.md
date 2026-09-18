@@ -175,7 +175,7 @@ eugenelim — decides the policy, telemetry, and evaluation contract.
   is an ADR not yet written.
 - By what mechanism is the untrusted-content boundary held, and what does it
   cost in analytical capability? *Proposed in `runtime-architecture.md` § Injection
-  defence; open until owner sign-off.*
+  defence; settled by the **2026-09-18 owner sign-off** recorded in `runtime-architecture.md` § Sign-off.*
 - Should Langfuse be the observability and evaluation plane, and if so should it
   be hosted, self-hosted, or optional? It is an inception candidate, not a
   selection.
