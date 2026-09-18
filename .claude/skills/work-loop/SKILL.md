@@ -231,7 +231,7 @@ hard failure. Never require whole-repository ingestion or a new durable file.
 2. **Select light or full mode** (see [Select: light or full mode](#select-light-or-full-mode)). With an existing spec, retain its spec/plan lifecycle, workspace reconciliation, and governing authority. Without one, select direct-light only after its decision record establishes every eligibility conjunct; otherwise invoke `new-spec`. Full mode requires complete ACs and Testing Strategy. Do not recreate or replace an adequate existing spec.
 3. Use the existing plan's task list when a plan exists. For direct-light, use the bounded active-session task and verification plan; do not create a sibling plan.
 4. Use extended thinking for architecturally significant work.
-5. Write the **assumption trio** — which files you'll touch, what tests demonstrate "done", what you are *not* changing. Below the trio, **name what you were tempted to add and declined** (one line each: temptation + reason). Non-trivial tasks always have something to name; common patterns: new abstractions, structural choices, new dependencies, defensive scaffolding, hypothetical configurability.
+5. Write the **assumption trio** — which files you'll touch, what tests demonstrate "done", what you are *not* changing. Below the trio, **name what you were tempted to add and declined** (one line each: temptation + the `Cut before adding` rung in `AGENTS.md` that killed it + reason). Naming the rung is what grades the declination against the ladder rather than against an ad-hoc reason; where no rung covers the decline — an explicit requirement or a trust-boundary control forbids it — state that reason in the rung's place rather than fitting a rung to it. Non-trivial tasks always have something to name; common patterns: new abstractions, structural choices, new dependencies, defensive scaffolding, hypothetical configurability.
 
    - **Size the tail.** For a plan task predicted above 2,000 reviewable
      behavior and test lines, declare its expected review shape and act on it:
@@ -240,7 +240,7 @@ hard failure. Never require whole-repository ingestion or a new durable file.
      DEEP work is decomposed into dependency-ordered layers, each independently
      reviewable and leaving the repository working. Ambiguous shape is DEEP.
      Use the task graph to name the boundaries; do not invent tasks to make PRs.
-6. **Run self-coverage net-new checks**: conditional domain-grounding (when the build rests on an ungrounded domain claim) and open the resolve-vs-surface disposition record (see [Work-loop contract](#work-loop-contract)).
+6. **Run self-coverage net-new checks**: conditional domain-grounding (when the build rests on an ungrounded domain claim) and open the resolve-vs-surface disposition record (see [Work-loop contract](#work-loop-contract)). The `new-spec` assumptions step owns claim routing, under the anchor `load-bearing-claim-routing`.
 7. **Pick the verification mode for each task** before writing code:
    - **TDD** — compressible invariant (pure functions, state machines, protocols). When a spec and plan exist, record ACs + Testing Strategy and exact stub code in `plan.md` under `Tests:` before `Approach:`. Default for testable logic.
    - **Goal-based check** — build config, scaffolding, generated-code consumption, smoke entries. `Done when:` one-liner (build command, grep, typecheck). No test file; don't write a test that just asserts what the compiler already proves.
@@ -298,11 +298,16 @@ hard failure. Never require whole-repository ingestion or a new durable file.
 
     **`code` mode** (implementation work):
     ```bash
-    # 1. Spec approver writes Status: Approved in spec.md.
+    # 1. Spec approver writes Status: Approved in spec.md, and adds the
+    #    spec-approval entry to plan.md's Changelog (form: the plan
+    #    template's Changelog note).
     python '<skill-dir>/scripts/loop-engine.py' transition docs/specs/<feature> spec-approved
     # → PLAN-HUMAN-GATE; pending_human_wait: true
 
-    # 2. Plan approver writes Status: Approved in plan.md.
+    # 2. Plan approver writes Status: Approved in plan.md, and adds the
+    #    plan-approval entry to its Changelog in the SAME edit — step 3
+    #    pins plan content and splices out only the status token, so an
+    #    entry written after it invalidates the baseline hash.
     python '<skill-dir>/scripts/loop-engine.py' transition docs/specs/<feature> plan-approved
     # → SPEC-PLAN-APPROVED; pending_human_wait: false
 
@@ -322,11 +327,16 @@ hard failure. Never require whole-repository ingestion or a new durable file.
 
     **`spec-plan` mode** (spec/plan-only work — no implementation tasks):
     ```bash
-    # 1. Spec approver writes Status: Approved in spec.md.
+    # 1. Spec approver writes Status: Approved in spec.md, and adds the
+    #    spec-approval entry to plan.md's Changelog (form: the plan
+    #    template's Changelog note).
     python '<skill-dir>/scripts/loop-engine.py' transition docs/specs/<feature> spec-approved
     # → PLAN-HUMAN-GATE
 
-    # 2. Plan approver writes Status: Approved in plan.md.
+    # 2. Plan approver writes Status: Approved in plan.md, and adds the
+    #    plan-approval entry to its Changelog in the SAME edit — step 3
+    #    pins plan content and splices out only the status token, so an
+    #    entry written after it invalidates the baseline hash.
     python '<skill-dir>/scripts/loop-engine.py' transition docs/specs/<feature> plan-approved
     # → SPEC-PLAN-APPROVED
 
@@ -457,7 +467,7 @@ Fix the failure and return to EXECUTE.
 
 **Pre-existing failure triage.** Failure on a file not in the diff = pre-existing (file-not-in-diff is confirmation enough). If the failing file IS in the diff but failure looks unrelated, confirm with `git show HEAD:<file>` or a worktree-check (not a stash — the stash stack is shared across worktrees). Pre-existing: grep `[backlog].open` for the test/file name; if no entry exists, add `{slug = "pre-existing-…", source = "pre-flight/<iso-date>"}` with a cold-start-sufficient comment, treat as known-skip (continue, don't go to FIX). If the diff made the failure worse → in-scope, go to FIX. Full schema and three-condition heuristic: [`references/pre-flight-failures.md`](references/pre-flight-failures.md).
 
-**Mechanical doc-drift check.** `scripts/lint-spec-status.py` (sibling to `loop-cohort.py`) checks: status vocabulary, every AC checked at a new ship transition, dangling references (warn-only), and historical deferral anchors in `[backlog].open`. A `(deferred: <slug>)` marker no longer makes a newly shipped AC valid. Run at the finish-time checklist (below). No-ops without Python. Do not wire into `pre-pr.py`.
+**Mechanical doc-drift check.** `scripts/lint-spec-status.py` (sibling to `loop-cohort.py`) checks: status vocabulary, every AC checked at a new ship transition, dangling references (warn-only), and historical deferral anchors in `[backlog].open`. A `(deferred: <slug>)` marker no longer makes a newly shipped AC valid. Run at the finish-time checklist (below). No-ops without Python. Do not wire into `pre-pr.py`. Warn-only findings are counted, not listed, unless you pass `--verbose`; a run with a hard violation always lists everything.
 
 ## Step 4. REVIEW
 
@@ -529,7 +539,7 @@ Dispatch reviewers the diff warrants; don't run all by default. Select each via 
 
 - **`experience-reviewer`** — diff changes what a reader or adopter sees (full-mode only). Pass rendered output + grounded aesthetic reference and constraints — not the code diff. Its confirm-before-reviewing gate requires the grounded reference. For web: run the build, describe key pages from output. Fallback absent: named skip.
 
-- **`frontend-reviewer`** — primary HTML/CSS/JS output diffs (full-mode only). Pass diff + surface's evidence manifest state. Lens: CSS token drift, ARIA mutation completeness, state coverage regression, WCAG 2.2 Focus Appearance + Target Size, CWV regression signals. Fallback absent: named skip.
+- **`frontend-reviewer`** — primary HTML/CSS/JS output diffs (full-mode only). Pass diff + surface's evidence manifest state + **the rendered-page capture set and its recorded observations**, plus the adopter-named routes. Lens: CSS token drift, ARIA mutation completeness, state coverage regression, WCAG 2.2 AA Target Size, AAA Focus Appearance, CWV regression signals, reader-visible layout failure read from the page. Withholding the captures leaves it reviewing a diff, and no diff shows one element covering another. Fallback absent: named skip.
 
 - **`design-reviewer`** — only when an architect-pack integration explicitly
   activates it for an architecture artifact inside this work-loop. Pass the
@@ -657,6 +667,78 @@ independently reviewed unit in the same session: use the existing human-gate
 
 **Execution-path check.** Before routing any finding to `apply`: confirm the fix reaches a live code path — grep for callers or trace the entry point. A guard that no caller exercises doesn't close a finding; a test that drives a mock seam instead of the real entry point doesn't count.
 
+An author answering a sustained finding walks this ladder in order. Take the
+first answer that applies, then stop; do not evaluate the rest. A sustained
+finding does not by itself require an edit.
+
+### Cut
+
+- `drop-the-claim` — the assertion is not obliged by anything, so removing it
+  changes no stated outcome. It operates on an assertion, not a sentence or item,
+  and applies only to an assertion no surviving contract obligation depends on.
+  When the assertion is the whole obligation, removing it removes the obligation,
+  and that is `cut-the-item`. When removing it reduces a surviving obligation's
+  reach, that is `narrow-the-claim`.
+- `cut-the-item` — the obligation itself stops existing.
+- `demote-the-claim` — the obligation survives but stops being contract, moving
+  to working material with a content pin. It applies when the obligation's only
+  check is that a sentence exists. It is inapplicable when an adequate owner
+  already exists, and when the target was never contract. Its reason records the
+  destination that now owns the obligation, the pin that catches its removal, and
+  the owner authority permitting the removal.
+  An upstream pin may be revision-bound lifecycle invalidation at its
+  destination. A downstream pin remains a content test of the destination
+  that owns it.
+- `narrow-the-claim` — the obligation stays contract and in place. When
+  no check can reach the claimed property, only its stated reach shrinks to
+  what a check reaches. When some check can reach the claimed property, do not
+  narrow it; strengthen the check until it reaches the stated obligation.
+
+### Route
+
+- `route-to-owner` — an existing owner already covers it.
+- `bound-out-of-scope` — it leaves this scope with a named follow-on owner.
+
+### Fix
+
+Before repairing, walk the surfaces the repair reaches and repair them in one
+action. A repair's check asserts the repaired property itself, not only a
+consequence of it.
+
+- `repair-the-generator` — what produces the artifact is at fault, not this
+  instance.
+- `repair-the-artifact` — edit so the finding no longer holds.
+
+### Hold
+
+- `dismiss-and-re-present` — declined, reason recorded, and re-presented next
+  round.
+- `accept-as-proportionate` — left as it is, reason recorded.
+
+Demotion versus narrowing turns on one question: should this still be an
+obligation a completion gate reads? If yes and only its reach is wrong, narrow.
+If no, demote. Demotion removes an accepted obligation, so it needs owner
+authority and stays unresolved until that owner-authorized amendment lands; it
+is never free.
+
+Every walk starts from the cited location and expands to every other instance of
+the same claim, the companion statements that describe it, and anything that pins
+any of those.
+
+Every answer walks its surfaces before it is taken, and the direction differs:
+cut walks backwards to what referenced the removed thing; route walks outwards
+to confirm the owner covers the whole claim, then back to remove what still
+states it locally; fix walks sideways across other instances, the companions
+describing them, and anything pinning those; hold walks forwards so the next
+round can see the decision. Every review round closes with two traversal
+instruments rather than one: a literal sweep for repeated text and named
+references, and a semantic walk for paraphrased companions that share no
+string. After a repair, run both instruments again, then re-run the step-8a
+anchor-test sweep over every file the repair touched. Each change opens its own
+frontier, so continue until the frontier is empty. What the walk finds feeds
+back into the choice of rung: a claim living on many surfaces is evidence for
+repairing its generator or dropping it.
+
 - **Blockers** → include the correction required by the accepted intent. Re-run
   GATES and REVIEW after each fix; use the next review unit when it cannot
   safely share this one.
@@ -708,7 +790,12 @@ Refuse to declare done until every item is true. Light mode's checklist deltas a
   stasis alone is not completion; excluded work needs no backlog entry unless
   the owner explicitly requested capture through `work-intake`.
 - [ ] `git status` shows no uncommitted or untracked files (except gitignored scratch).
-- [ ] **When a persisted spec exists, doc-drift invariants hold**: spec `**Status:**` set to `Shipped` (code mode) or `Approved` (spec-plan mode, which ends after plan approval without proceeding to EXECUTE); **full mode:** also `plan.md` `**Status:**` `Done` — in `spec.md` use spec vocabulary only (`Draft | Approved | Implementing | Shipped | Archived`; plan vocabulary `Drafting/Executing/Done` there is invalid and will fail `lint-spec-status.py`); every final accepted AC is `[x]`; any separable follow-on is outside the AC list with its own owner/artifact reference; historical `(deferred: <slug>)` anchors still resolve in `[backlog].open`; intra-repo references the change touches resolve. Run `python '<skill-dir>/scripts/lint-spec-status.py' --root .` where Python is available. Per-spec invariants cover the specs changed against the base ref; the dangling-reference and deferral-anchor invariants always cover every spec. Add `--all` for the exhaustive per-spec sweep — use it when a base ref will not resolve, or in a gate. When no spec exists, do not run the spec-status lint.
+- [ ] **When a persisted spec exists, doc-drift invariants hold**: spec `**Status:**` set to `Shipped` (code mode) or `Approved` (spec-plan mode, which ends after plan approval without proceeding to EXECUTE); **full mode:** also `plan.md` `**Status:**` `Done` — in `spec.md` use spec vocabulary only (`Draft | Approved | Implementing | Shipped | Archived`; plan vocabulary `Drafting/Executing/Done` there is invalid and will fail `lint-spec-status.py`); every final accepted AC is `[x]`; any separable follow-on is outside the AC list with its own owner/artifact reference; historical `(deferred: <slug>)` anchors still resolve in `[backlog].open`; intra-repo references the change touches resolve. Run `python '<skill-dir>/scripts/lint-spec-status.py' --root .` where Python is available. Per-spec invariants cover the specs changed against the base ref; the dangling-reference and deferral-anchor invariants always cover every spec. Add `--all` for the exhaustive per-spec sweep — use it when a base ref will not resolve, or in a gate. Add `--verbose` to list the warn-only findings the clean summary only counts. When no spec exists, do not run the spec-status lint.
+- [ ] **A shipped feature's user-facing documentation is updated.** A spec is the
+  team's permanent record of the contract; its user-facing description belongs in
+  the guides — reference for authoritative description, how-to if users need a
+  recipe, explanation if it introduces a concept. The spec workflow is not done
+  until those are updated.
 - [ ] Conventional commit format used; no force-push to shared branches.
 - [ ] Learnings captured per [Capture learnings](#capture-learnings).
 - [ ] **Tail-triage check completed.** Inspect raw diff lines, material volume,
@@ -816,6 +903,7 @@ Load when the predicate fires; don't load speculatively.
 | EXECUTE or REVIEW fan-out, supervisor waves, worktrees, or Phase-1 sequencing | [`references/supervisor-mode.md`](references/supervisor-mode.md) |
 | Considering native unattended execution | [`references/unattended-loops.md`](references/unattended-loops.md) |
 | Full mode needs state-field, mutation, or troubleshooting detail | [`references/state-schema.md`](references/state-schema.md) |
+| A repair or claimed fix needs mutation proof | [`references/mutation-proof.md`](references/mutation-proof.md) |
 | Before every `finding-adjudicator` dispatch | [`references/finding-adjudication.md`](references/finding-adjudication.md) |
 | Emitting or validating the verdict record | [`references/review-verdict-record.md`](references/review-verdict-record.md) |
 | Resuming a persisted full- or legacy-light-mode run | [`references/session-resumption.md`](references/session-resumption.md) |

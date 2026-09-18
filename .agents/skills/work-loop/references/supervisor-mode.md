@@ -10,9 +10,14 @@
 plan's full `Depends on:` DAG (`loop-cohort schedule <spec-dir>`) and, when an
 `implementer` subagent is installed, dispatches each plan task in topological
 order with one implementer at a time. It does *not* auto-fan-out. `schedule`
-also fails loud on a dependency cycle or a forward-reference (a task whose
-declared dep is authored later), so an ill-formed plan is caught at PLAN, not
-run out of order.
+stops the run on a dependency cycle. It reports a forward reference (a task
+whose declared dependency is authored later) on stderr, corrects the wave order
+so the dependency runs first, and continues. A `Depends on:` entry that
+names no task in the plan is refused: `schedule` exits non-zero and names every
+offending task→dependency pair without persisting any state. The field is read
+up to its first `(`, so an ID written inside or after parenthetical prose is
+commentary rather than a declared dependency — it is neither scheduled as an
+edge nor reported as unknown.
 
 This file owns the **opt-in parallel-write path** only. It is entered
 deliberately — never automatically — and only for a wave that clears the
@@ -252,5 +257,66 @@ is sequential too.
 - Tool verb surface: `loop-cohort.py --help` (script at
   [`../scripts/loop-cohort.py`](../scripts/loop-cohort.py)).
 - Rationale, boundary, motivations: see
-  `docs/CONVENTIONS.md § Supervisor mode` (in this repo;
+  this reference's own § Why a separate mode, and its boundary (in this repo;
   in other repos, the adopter's own conventions doc).
+
+## Why a separate mode, and its boundary
+
+**Supervisor mode is wave-scheduled and sequential in Phase 1.** The
+work-loop builds the plan's full `Depends on:` DAG (`loop-cohort schedule`) and
+dispatches plan tasks in topological order with one `implementer` at a time —
+failing loud on a cycle and warning on a forward-reference. Parallel
+`implementer` fan-out (`dispatch-decision`, `worktree`, `auto-parallel`) is
+**disabled in Phase 1** — those verbs exit non-zero without touching
+`state.json`. The design intent for opt-in parallel fan-out and the step-by-step
+worktree procedure live in the `work-loop` skill §EXECUTE and
+`references/supervisor-mode.md`. This section is the why and the boundary.
+
+**Why a separate mode instead of a separate skill.** The trigger is
+structural (the plan's shape), not a choice the user makes. Branching
+inside `work-loop` means contributors never pick the wrong skill, and
+the 80% overlap with single-agent flow stays single-sourced.
+
+**Why an implementer subagent, not a recursive work-loop.** The
+implementer's job is narrow — build one task, run gates, report.
+Reviewing, dispatch decisions, and merge belong to the supervisor. A
+recursive work-loop would let an implementer spawn its own
+implementers; that's nested coordination overhead with no clear win.
+Keep the tree two levels deep: supervisor → leaf implementers.
+
+**Worktrees as the coordination primitive.** Each independent task gets
+`.worktrees/<task-id>/` checked out on its own branch
+(`<base-branch>-<task-id>`). Worktrees are git-native, support parallel
+checkout of the same repo, and avoid lockfile contention. The directory
+is gitignored ([`.gitignore`](../.gitignore)); branches live in git
+history for traceability.
+
+**Merge discipline.** The supervisor merges with `git merge --no-ff
+<base>-<task-id>` into the primary branch, **sequentially in task-id
+order**. The procedure file
+(`references/supervisor-mode.md` in the `work-loop` skill)
+has the executable form (including how to order non-numeric IDs). If a
+sequential merge conflicts, the tasks weren't actually independent —
+the plan was wrong. Surface that as a PLAN-level escalation, not a
+`git mergetool` session.
+
+**Gates run in the primary, not the worktree.** Each implementer runs
+gates inside its worktree and reports the result, but those results are
+**advisory**. The supervisor reruns lint / typecheck / tests against
+the merged state — that's the only signal that counts.
+
+**Escalating implementer failures.** If an implementer reports
+`blocked` or `failed`, the supervisor surfaces the failure list to a
+human and returns to PLAN. It does **not** redispatch the same
+implementer on the same task — the assumption that produced the
+failure is what needs revising, not the attempt.
+
+**Known limitation.** The procedure has been validated by prose
+walk-through, not by an executed end-to-end dry-run. Any change to
+**pre-flight (procedure step 0)**, **worktree creation (step 1)**,
+**report persistence ordering (step 3)**, **merge order (step 5)**,
+**cleanup recovery (step 6)**, or the **`state.json` `worktrees`
+schema** must perform an actual `git worktree add` + parallel-dispatch
+round against a throwaway spec before merging — read-only walk-through
+is not sufficient for those surfaces. Step numbers refer to the
+procedure at `references/supervisor-mode.md` in the `work-loop` skill.
