@@ -77,3 +77,4 @@ docs/knowledge/*.lock.stale-*
 
 # Spike virtualenvs — local, disposable.
 spikes/**/.venv/
+.loop-run/
