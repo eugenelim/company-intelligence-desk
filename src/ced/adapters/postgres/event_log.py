@@ -74,6 +74,14 @@ class StartedRun:
 def retry_on_deadlock[T](operation: Callable[[], T]) -> T:
     """Run `operation`, retrying only on 40P01.
 
+    r7 § Event log: "Deadlock (40P01) is retried with backoff." Every append
+    path below goes through this, so the retry is on the live path rather than
+    being a helper nothing calls.
+
+    A retry is safe because a deadlocked append rolled back whole: it consumed
+    no sequence number, so the second attempt is the first append, not a
+    duplicate.
+
     Scoped to deadlock deliberately. A serialization failure from the fence is
     *not* retried: it means the lease moved on, and retrying it would be a
     worker insisting on work it no longer owns.
@@ -140,25 +148,29 @@ def append_step_event(
     idempotency_key: str | None = None,
 ) -> int:
     """The worker path: fenced on `lease_epoch`. Returns the allocated `seq`."""
-    try:
-        with conn.transaction():
-            row = conn.execute(
-                "SELECT append_step_event(%s, %s, %s, %s, %s, %s, %s, %s)",
-                (
-                    run_id,
-                    step_id,
-                    lease_epoch,
-                    type,
-                    principal,
-                    agent_role,
-                    payload_ref,
-                    idempotency_key,
-                ),
-            ).fetchone()
-            assert row is not None
-            return int(row[0])
-    except psycopg.errors.SerializationFailure as exc:
-        raise Fenced(str(exc).splitlines()[0]) from exc
+
+    def call() -> int:
+        try:
+            with conn.transaction():
+                row = conn.execute(
+                    "SELECT append_step_event(%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        run_id,
+                        step_id,
+                        lease_epoch,
+                        type,
+                        principal,
+                        agent_role,
+                        payload_ref,
+                        idempotency_key,
+                    ),
+                ).fetchone()
+                assert row is not None
+                return int(row[0])
+        except psycopg.errors.SerializationFailure as exc:
+            raise Fenced(str(exc).splitlines()[0]) from exc
+
+    return retry_on_deadlock(call)
 
 
 def append_run_event(
@@ -170,16 +182,20 @@ def append_run_event(
     payload_ref: str | None = None,
 ) -> int:
     """The run-lifecycle path: unfenced, `step_id` null, two types only."""
-    try:
-        with conn.transaction():
-            row = conn.execute(
-                "SELECT append_run_event(%s, %s, %s, %s)",
-                (run_id, type, principal, payload_ref),
-            ).fetchone()
-            assert row is not None
-            return int(row[0])
-    except psycopg.errors.SerializationFailure as exc:
-        raise RunAlreadyTerminal(str(exc).splitlines()[0]) from exc
+
+    def call() -> int:
+        try:
+            with conn.transaction():
+                row = conn.execute(
+                    "SELECT append_run_event(%s, %s, %s, %s)",
+                    (run_id, type, principal, payload_ref),
+                ).fetchone()
+                assert row is not None
+                return int(row[0])
+        except psycopg.errors.SerializationFailure as exc:
+            raise RunAlreadyTerminal(str(exc).splitlines()[0]) from exc
+
+    return retry_on_deadlock(call)
 
 
 def append_policy_decision(
@@ -200,16 +216,20 @@ def append_policy_decision(
     defend against full compromise of the worker process, which legitimately
     holds the credential that reaches the decision point.
     """
-    try:
-        with conn.transaction():
-            row = conn.execute(
-                "SELECT append_policy_decision(%s, %s, %s, %s, %s, %s)",
-                (run_id, step_id, lease_epoch, principal, agent_role, payload_ref),
-            ).fetchone()
-            assert row is not None
-            return int(row[0])
-    except psycopg.errors.SerializationFailure as exc:
-        raise Fenced(str(exc).splitlines()[0]) from exc
+
+    def call() -> int:
+        try:
+            with conn.transaction():
+                row = conn.execute(
+                    "SELECT append_policy_decision(%s, %s, %s, %s, %s, %s)",
+                    (run_id, step_id, lease_epoch, principal, agent_role, payload_ref),
+                ).fetchone()
+                assert row is not None
+                return int(row[0])
+        except psycopg.errors.SerializationFailure as exc:
+            raise Fenced(str(exc).splitlines()[0]) from exc
+
+    return retry_on_deadlock(call)
 
 
 def read_events(

@@ -44,16 +44,31 @@ from uuid import UUID
 import psycopg
 
 from ced.adapters.postgres.dsn import database_url
+from ced.adapters.postgres.event_log import Fenced
 
 log = logging.getLogger("ced.worker.pool")
 
-#: r7 § Step execution. TTL 60 s, heartbeat at TTL/3, poll 30 s — so a worker
-#: that dies without notice loses at most one TTL plus one poll interval, which
-#: is the 150 s AC-0010 measures against.
+#: r7 § Step execution: TTL 60 s, heartbeat at TTL/3, poll 30 s.
 LEASE_TTL_SECONDS = 60
 HEARTBEAT_SECONDS = LEASE_TTL_SECONDS // 3
 POLL_SECONDS = 30
-WORST_CASE_REACQUISITION_SECONDS = LEASE_TTL_SECONDS + POLL_SECONDS + HEARTBEAT_SECONDS
+
+#: The bound this implementation can be derived to. A worker dying immediately
+#: after a renewal leaves the lease valid for one full TTL, and the surviving
+#: worker then needs at most one poll interval to find it claimable.
+DERIVED_REACQUISITION_BOUND_SECONDS = LEASE_TTL_SECONDS + POLL_SECONDS
+
+#: AC-0010's bound, and r7's own figure for the same timings.
+#:
+#: **These two numbers do not agree, and the difference is recorded rather than
+#: reconciled here.** r7 § Step execution and `worker-runtime.md` § The pool
+#: both state 150 s for TTL 60 / heartbeat 20 / poll 30; the terms above sum to
+#: 90, and no arrangement of those three values reaches 150. The criterion is
+#: the looser of the two, so nothing is at risk: this implementation is inside
+#: both. Reconciling the architecture's arithmetic belongs to the outstanding
+#: r8 consistency pass its own header names, not to this spec, which is
+#: forbidden from designing around a ratified decision.
+CRITERION_REACQUISITION_BOUND_SECONDS = 150
 
 #: r7 change 3. One class in MVP, so the predicate narrows nothing yet.
 DEFAULT_POOL_CLASS = "default"
@@ -92,10 +107,6 @@ class PoolConfig:
             heartbeat_seconds=int(os.environ.get("CED_HEARTBEAT_SECONDS", HEARTBEAT_SECONDS)),
             poll_seconds=int(os.environ.get("CED_POLL_SECONDS", POLL_SECONDS)),
         )
-
-
-class Fenced(Exception):
-    """The lease moved on while this worker held it."""
 
 
 def verify_boot(config: PoolConfig) -> None:

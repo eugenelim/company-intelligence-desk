@@ -336,3 +336,38 @@ demonstrate the mechanism and not the number, and the number is the criterion.
   establish" to "What the Postgres spike results do not establish", because the
   Phase 1 section now cites it and an unqualified heading would read as
   covering both.
+
+### Simplify pass, and one arithmetic finding
+
+- **`retry_on_deadlock` had no production caller.** r7 § Event log specifies
+  *"Deadlock (40P01) is retried with backoff"*, and the spec's Always-do says to
+  implement what r7 specifies — so it stays, and all three append paths now go
+  through it. A retry is safe because a deadlocked append rolled back whole and
+  consumed no sequence number, so the second attempt is the first append.
+- **Two classes named `Fenced` meant the same thing**, one in `event_log` and
+  one in `pool`. The pool now imports the one definition.
+- **`EventEnvelope.is_terminal` had no caller and was removed.**
+  `TERMINAL_EVENT_TYPES` stays, and a new schema test asserts it names exactly
+  the three types revision 0001's partial index names. Neither side had a
+  caller that would catch a mismatch, and `walking-skeleton-evidence` will rely
+  on both.
+- **FINDING — r7's 150-second figure is not derivable from its own timings.**
+  r7 § Step execution and `worker-runtime.md` § The pool both state:
+  *"With TTL = 60 s, heartbeat every 20 s and poll interval 30 s, worst-case
+  reacquisition is 150 s."* The mechanism gives a worker dying immediately
+  after a renewal one full TTL of valid lease, then at most one poll interval
+  before the survivor finds it claimable: **60 + 30 = 90 s**. No arrangement of
+  60, 20 and 30 reaches 150.
+
+  **Nothing is at risk and nothing was designed around.** The criterion's bound
+  is the looser of the two and this implementation is inside both — two
+  observations, **59.5 s** and **80.3 s**, the second of which is above 60 and
+  so confirms 90 rather than 60 is the ceiling. Both constants are in
+  `pool.py` under their own names, `DERIVED_REACQUISITION_BOUND_SECONDS` and
+  `CRITERION_REACQUISITION_BOUND_SECONDS`, with the disagreement written at the
+  definition. The test asserts the criterion's bound and prints both.
+
+  Reconciling the architecture's arithmetic belongs to the **r8 consistency
+  pass r7's own header already names as outstanding**, not to this spec, which
+  is forbidden from designing around a ratified decision. Surfaced to the owner
+  rather than silently adopted.

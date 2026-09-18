@@ -20,13 +20,15 @@ from uuid import UUID
 import psycopg
 import pytest
 
+from ced.worker.pool import CRITERION_REACQUISITION_BOUND_SECONDS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "deploy" / "compose.yaml"
 
 WORKER_CONTAINERS = ("deploy-worker-a-1", "deploy-worker-b-1")
 
-#: r7 § Step execution: TTL 60 + poll 30 + heartbeat 20 = 150 s worst case.
-WORST_CASE_SECONDS = 150
+#: AC-0010's bound, imported so the number has one home rather than two.
+WORST_CASE_SECONDS = CRITERION_REACQUISITION_BOUND_SECONDS
 #: A little headroom for container scheduling, named rather than folded in.
 OBSERVATION_MARGIN_SECONDS = 20
 

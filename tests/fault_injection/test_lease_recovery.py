@@ -25,6 +25,8 @@ from uuid import UUID
 import psycopg
 import pytest
 
+from ced.worker.pool import DERIVED_REACQUISITION_BOUND_SECONDS
+
 from .conftest import (
     OBSERVATION_MARGIN_SECONDS,
     WORST_CASE_SECONDS,
@@ -98,7 +100,8 @@ def test_a_killed_worker_has_its_step_reacquired_within_150_seconds(
     print(
         f"\nAC-0010: {first_owner} killed; {reacquired.owner} reacquired step "
         f"{step_id} after {elapsed:.1f} s (epoch {first_epoch} → "
-        f"{reacquired.epoch})"
+        f"{reacquired.epoch}). Criterion bound {WORST_CASE_SECONDS} s; bound "
+        f"derivable from the timings {DERIVED_REACQUISITION_BOUND_SECONDS} s."
     )
 
 

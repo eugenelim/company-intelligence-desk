@@ -26,6 +26,12 @@ RUN_LIFECYCLE_TYPES: Final = frozenset({RUN_REQUESTED, RUN_CANCELLED})
 #: r7 § Event log — liveness and termination: a terminal event closes the
 #: stream. `expired` is a run *state* and is deliberately not here: it is
 #: non-terminal and an approver can reopen it.
+#:
+#: Nothing in `walking-skeleton-foundation` appends one — `append_run_event`
+#: admits only the two run-lifecycle types, and the run state machine that
+#: produces terminal events is `walking-skeleton-evidence`'s. The set is here
+#: because revision 0001's partial index names the same three types, and
+#: `tests/schema` asserts the two agree so they cannot drift apart.
 TERMINAL_EVENT_TYPES: Final = frozenset({"run.completed", "run.failed", RUN_CANCELLED})
 
 #: The step-scoped type carrying a derived idempotency key. Named because the
@@ -61,11 +67,6 @@ class EventEnvelope:
     agent_role: str | None = None
     payload_ref: str | None = None
     idempotency_key: str | None = None
-
-    @property
-    def is_terminal(self) -> bool:
-        """Whether this event closes the stream."""
-        return self.type in TERMINAL_EVENT_TYPES
 
 
 def derived_idempotency_key(run_id: UUID, step_id: UUID, tool_call_id: str) -> str:

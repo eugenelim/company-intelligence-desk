@@ -385,7 +385,7 @@ being built, is in
 | The dependency-direction gate fails on a real violation | AC-0007 | Seven injected imports each reported, four permitted placements each not reported, three dynamic-import forms caught, and zero findings once removed |
 | The identifier lint catches an embedded account id, and not a content hash | AC-0008 | Five embedding shapes exit 1; a hash containing a twelve-digit run exits 0. The real script, as a subprocess, against a throwaway git repository |
 | The served routes match the committed contract | AC-0009 | Route table equality against `/openapi.json`, and the comparison shown failing on three mutations of a copy |
-| A killed worker's step is reacquired with no operator action | AC-0010 | `docker kill`; reacquired after **59.5 s**, `lease_epoch` 1 → 2 |
+| A killed worker's step is reacquired with no operator action | AC-0010 | `docker kill`; reacquired after **59.5 s** and **80.3 s** on two runs, `lease_epoch` 1 → 2 |
 | A drained worker's step returns in one poll interval | AC-0011 | `docker stop`; reacquired after **29.8 s**, against a 30-second poll interval |
 
 Two further results that no criterion asked for and that a reader needs:
@@ -438,10 +438,19 @@ Each of these is a real stand-in, not a weaker version of the same thing.
 - **Nothing about the AWS identity layer.** No cloud credential is used
   anywhere in this suite. What is proven is the *database* privilege model,
   which is where the `policy.decision` split actually lives.
-- **The 150-second bound is not established; one observation inside it is.**
-  AC-0010 measured 59.5 s because the survivor's poll fell shortly after the
-  lease expired. 150 s is the worst case — TTL 60 + poll 30 + heartbeat 20 —
-  and a single measurement below a bound does not prove the bound.
+- **The 150-second bound is not established; two observations inside it are.**
+  AC-0010 measured 59.5 s and 80.3 s on two runs. Measurements below a bound do
+  not prove the bound.
+
+  **And r7's 150 is not derivable from r7's own timings.** A worker dying
+  immediately after a renewal leaves one full TTL of valid lease, then at most
+  one poll interval before the survivor finds the step claimable: 60 + 30 =
+  **90 s**. No arrangement of 60, 20 and 30 reaches 150. The criterion is the
+  looser of the two, so this implementation is inside both, and the 80.3 s
+  observation confirms 90 rather than 60 is the real ceiling. Reconciling the
+  architecture's arithmetic belongs to the r8 consistency pass r7's header
+  already names as outstanding — not to this spec, which is forbidden from
+  designing around a ratified decision.
 - **`append_policy_decision`'s lock ordering is argued, not demonstrated.**
   Spike P2 ran with no second locker on `steps`, so the claim that the policy
   path preserves P2's proven ordering rests on it taking the fence in the same

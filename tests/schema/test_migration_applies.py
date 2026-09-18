@@ -161,3 +161,32 @@ def test_the_schema_survived_the_attempted_downgrade(
         ).fetchall()
     }
     assert EXPECTED_TABLES <= present
+
+
+def test_the_terminal_index_names_the_same_types_as_the_domain_vocabulary(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """The partial index and the Python set must not drift apart.
+
+    Nothing in this spec appends a terminal event, so neither side has a caller
+    that would catch a mismatch. This is what stops the two definitions of
+    "terminal" diverging before `walking-skeleton-evidence` relies on both.
+    """
+    from ced.domain.events import TERMINAL_EVENT_TYPES
+
+    row = owner_conn.execute(
+        "SELECT pg_get_indexdef(indexrelid) FROM pg_index "
+        "WHERE indexrelid = 'events_terminal_idx'::regclass"
+    ).fetchone()
+    assert row is not None, "events_terminal_idx is absent"
+    definition = row[0]
+
+    for event_type in TERMINAL_EVENT_TYPES:
+        assert f"'{event_type}'" in definition, (
+            f"{event_type!r} is in TERMINAL_EVENT_TYPES but not in the index"
+        )
+    # And nothing extra: count the quoted literals in the predicate.
+    predicate = definition.split("WHERE", 1)[1]
+    assert predicate.count("'") // 2 == len(TERMINAL_EVENT_TYPES), (
+        f"the index predicate names types the vocabulary does not: {predicate}"
+    )
