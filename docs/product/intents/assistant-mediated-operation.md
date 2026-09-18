@@ -188,7 +188,10 @@ whether scenario modelling is in the MVP at all.
   journey stage and one of only two positive moments in the emotional arc.
 - What is an acceptable refusal rate, and how would we know it had been
   exceeded? Nothing currently counts boundary refusals, so sub-result 3 can be
-  satisfied while the product is unusable.
+  satisfied while the product is unusable. **Escalated 2026-09-18:** the
+  legible-refusal design makes a refusal a *successful* outcome an agent can
+  choose, which turns this from a quality question into the mitigation for
+  that design's largest unmitigated risk.
 - Where does a module-scoped assistant's ceiling come from — the module, the
   principal, or their intersection — and does the overall assistant hold the
   union? *Proposed answer in
@@ -219,17 +222,28 @@ for which a governed assistant is the most transferable pattern in the product.
 **Next step.** The experience is mapped
 ([`agentic-assistant`](../../ux/journeys/agentic-assistant.md)) and blueprinted
 ([`agentic-assistant`](../../ux/blueprints/agentic-assistant.md)), which named
-**nine gaps** between this outcome and the runtime as designed. Two are
-structural and need architecture rather than construction: a boundary refusal
-is currently a step failure rather than an answer, and readiness is computed
-once where the analyst needs it continuously. Those two are the next design
-effort. This intent is settled by owner sign-off on that effort, not by another
-framing pass.
+**nine gaps** between this outcome and the runtime as designed. The two
+structural ones are now designed in
+[`legible-refusal-and-readiness`](../../architecture/legible-refusal-and-readiness/legible-refusal-and-readiness.md)
+(Draft): inadmissibility becomes an admitted type rather than a parse failure,
+and readiness becomes a projection over the event log rather than a batch
+check. The remaining seven are ordinary construction against seams that
+already exist.
+
+**This intent is settled by owner sign-off on that design**, not by another
+framing pass. Note what sign-off would *not* settle: the design's own largest
+risk is a **suppression channel** — a quarantined agent can hide a finding
+behind an inadmissibility label — whose mitigation is measurement, and no
+baseline exists. That is the same open question this intent already carries
+about refusal rates, and it is now load-bearing rather than curious.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
+- Revision: r2 — next step updated: the two structural gaps are designed in
+  `legible-refusal-and-readiness`, and the refusal-rate question escalated to
+  the mitigation for that design's suppression channel, 2026-09-18
 - Revision: r1 — framed 2026-09-18 from the agentic-assistant journey map and
   service blueprint, after the owner described the assistant surface as control
   over the application and its data

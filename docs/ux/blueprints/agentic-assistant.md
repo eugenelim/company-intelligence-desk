@@ -72,7 +72,9 @@ answerable from `agent_role.tool_allowlist` — the authority is already data �
 but no read path renders it for a human. This is the cheapest gap on the list
 and the one with the best ratio: it exists, it just isn't exposed.
 
-**G3 — A boundary refusal is a step failure, not an answer. (Structural.)**
+**G3 — A boundary refusal is a step failure, not an answer. (Structural —
+designed 2026-09-18 in
+[`legible-refusal-and-readiness`](../../architecture/legible-refusal-and-readiness/legible-refusal-and-readiness.md).)**
 Trust-class enforcement fails the step when output is not admissible. That is
 correct for an attack and *wrong for the journey's most common case*: the
 analyst asked a reasonable question whose answer is untagged narrative or a
@@ -95,7 +97,8 @@ inputs. Nothing persists an assumption set as a first-class object, so a
 scenario figure that reaches a report arrives unprovenanced.
 
 **G6 — Readiness is computed once, and the journey needs it continuously.
-(Structural.)** Pre-release checks run in the step executor before the agent
+(Structural — designed 2026-09-18 in
+[`legible-refusal-and-readiness`](../../architecture/legible-refusal-and-readiness/legible-refusal-and-readiness.md).)** Pre-release checks run in the step executor before the agent
 run, once. The analyst wants to watch publishability approach while composing.
 That is a different invocation model — incremental evaluation over a forming
 claim set — not a re-run of the same check.
