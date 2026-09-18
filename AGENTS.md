@@ -163,17 +163,34 @@ Tests marked `substrate` need Postgres and MinIO. **Use `docker-compose`, not
 environment, and the standalone binary is:
 
 ```bash
-docker-compose -f deploy/compose.yaml up -d --build
+docker-compose -f deploy/compose.yaml up -d --build postgres minio
 ./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
-./.venv/bin/python -m pytest           # the full suite, about 3 minutes
+docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
+./.venv/bin/python -m pytest           # 3-3.5 min; `pytest` reports the count
 docker-compose -f deploy/compose.yaml down -v
 ```
 
+**The schema has to exist before the workers start, which is why this is three
+commands and not two.** A single `up -d --build` starts the workers against an
+empty database; they die on their first claim with `relation "steps" does not
+exist`, and `restart: "no"` — load-bearing for AC-0010, so a killed worker
+stays dead and the recovery observed is the *other* worker's — keeps them dead.
+The stack then looks healthy while every `tests/fault_injection` check fails on
+its two-worker precondition. Reproduced by following the previous version of
+this block on a fresh volume.
+
 `--build` matters: the stack includes two worker containers built from
 `deploy/Dockerfile`, and `tests/fault_injection` kills and restarts them. That
-suite runs at r7's real lease timings — TTL 60 s, heartbeat 20 s, poll 30 s —
-so it takes about three and a half minutes on its own. Compressed timings would
-demonstrate the mechanism and not the 150-second number the criterion states.
+suite runs at r7's real lease timings — TTL 60 s, heartbeat 20 s, poll 30 s, so
+it dominates that figure almost entirely — and it is why the figure is a range
+rather than a number: a survivor's poll offset is uniform on [0, 30 s), so
+consecutive runs measured 186 s and 205 s. Compressed timings would demonstrate
+the mechanism and not the 150-second number the criterion states.
+**This is the only place a suite duration is published.** Three files used to
+carry figures that contradicted each other, one of them a sub-suite longer than
+the whole; the rest now describe the shape and leave the number here. The workers also run on
+their own `CED_POOL_CLASS`, so they cannot claim the default-class rows the
+other suites assert on; `deploy/compose.yaml` records why.
 
 ### Running the two deployables
 

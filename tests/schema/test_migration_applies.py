@@ -364,6 +364,29 @@ def _require_local_substrate() -> None:
     except Exception as exc:  # noqa: BLE001 — an unparseable DSN fails closed
         pytest.skip(f"refusing cluster DDL: the target DSN did not parse ({exc})")
 
+    # Any parameter that can redirect the connection is refused outright
+    # rather than interpreted. `hostaddr` is the one that defeated the previous
+    # version: libpq uses `host` only for authentication and TLS once
+    # `hostaddr` is present, so
+    # `postgresql://.../ced?hostaddr=<remote>` parses to `host='127.0.0.1'`
+    # with the real target in a key this check never read — measured, and it
+    # passed the guard. `service=` is refused for the adjacent reason: the
+    # service file is not resolved here, so it can supply a `hostaddr` this
+    # process never sees.
+    #
+    # Refusing beats resolving. The tempting alternative — connect and ask the
+    # server where it is — does not work: `inet_server_addr()` on the
+    # legitimate local substrate returns the container's bridge address
+    # (measured as 172.18.0.3), not a loopback, so a guard requiring loopback
+    # from the server's own view would refuse the one target this check is for.
+    for redirecting in ("hostaddr", "service"):
+        if resolved.get(redirecting):
+            pytest.skip(
+                f"refusing cluster DDL: the DSN carries `{redirecting}`, which "
+                "can send this connection somewhere other than the host named "
+                "in it, so the target cannot be established from the DSN alone"
+            )
+
     host, port = resolved.get("host"), resolved.get("port")
     if host != LOCAL_HOST or str(port) != str(LOCAL_PORT):
         pytest.skip(
@@ -376,6 +399,7 @@ def _require_local_substrate() -> None:
 
 def test_the_policy_role_can_connect_and_is_refused_every_read(
     policy_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
 ) -> None:
     """`policy-writer` gets no read at all, per r7's Layer-1 identity table.
 
@@ -388,7 +412,25 @@ def test_the_policy_role_can_connect_and_is_refused_every_read(
     """
     assert policy_conn.execute("SELECT session_user").fetchone() == ("app_policy",)
 
-    for table in ("runs", "steps", "events", "agent_role", "entitlements"):
+    # Read from the catalogue, not from a hand-kept tuple. The tuple listed
+    # five of the six tables — `integration_registry` was missing, and it is
+    # granted in the same statement as the two that were present, so the one
+    # gate that exists to catch a re-grant to this role could not have caught
+    # it there. ADR-0005's confirmation signal is "refused `SELECT` on every
+    # table"; deriving the list is what makes that literally what runs.
+    tables = [
+        row[0]
+        for row in owner_conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+            "AND tablename <> 'alembic_version' ORDER BY tablename"
+        ).fetchall()
+    ]
+    assert len(tables) == 6, (
+        f"expected the six application tables, found {tables} — this check "
+        "asserts a refusal per table and must not silently cover fewer"
+    )
+
+    for table in tables:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             policy_conn.execute(f"SELECT count(*) FROM {table}")
         policy_conn.rollback()

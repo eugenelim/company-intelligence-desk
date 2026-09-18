@@ -13,12 +13,20 @@ from pydantic import BaseModel, Field
 
 from ced.domain.events import EventEnvelope
 
+#: The bound on both attribution fields, and it is in the contract too —
+#: AC-0009 asserts the served document agrees with `runs.yaml`, so these move
+#: together or the agreement check reds. Both fields are self-asserted on an
+#: unauthenticated surface and land in unconstrained `text` columns, so
+#: unbounded they let one request persist an arbitrarily large string that
+#: every later read of the run returns.
+ATTRIBUTION_MAX_LENGTH = 256
+
 
 class StartRunRequest(BaseModel):
     """What a client must supply to start a run."""
 
-    principal: str = Field(min_length=1)
-    agent_role: str = Field(min_length=1)
+    principal: str = Field(min_length=1, max_length=ATTRIBUTION_MAX_LENGTH)
+    agent_role: str = Field(min_length=1, max_length=ATTRIBUTION_MAX_LENGTH)
 
 
 class StartedRun(BaseModel):

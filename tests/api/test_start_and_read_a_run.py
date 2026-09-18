@@ -7,6 +7,8 @@ import uuid
 import psycopg
 import pytest
 
+from ced.api.models import ATTRIBUTION_MAX_LENGTH
+
 from .conftest import Client
 
 pytestmark = pytest.mark.substrate
@@ -143,3 +145,33 @@ def test_the_api_identity_cannot_reach_a_model_or_forge_a_decision(
         "/runs/{run_id}/events",
         "/runs/{run_id}/snapshot",
     ]
+
+
+def test_an_oversized_attribution_field_is_refused(
+    api_server: Client, clean_runs: None
+) -> None:
+    """The bound on `principal` and `agent_role`, driven rather than declared.
+
+    Both are self-asserted attribution on an unauthenticated surface and land
+    in unconstrained `text` columns, so without a bound one request persists an
+    arbitrarily large string that every later read of the run returns. The
+    contract and the model carry the same number and AC-0009 asserts they
+    agree; this asserts the served route actually enforces it, and that a
+    value at the bound still works — a check that only rejected would pass a
+    model with the bound set to one.
+    """
+    at_bound = "p" * ATTRIBUTION_MAX_LENGTH
+    over_bound = "p" * (ATTRIBUTION_MAX_LENGTH + 1)
+
+    assert (
+        api_server.post("/runs", {"principal": at_bound, "agent_role": "coordinator"}).status
+        == 201
+    )
+    assert (
+        api_server.post("/runs", {"principal": over_bound, "agent_role": "coordinator"}).status
+        == 422
+    )
+    assert (
+        api_server.post("/runs", {"principal": "operator", "agent_role": over_bound}).status
+        == 422
+    )

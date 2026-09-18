@@ -51,11 +51,24 @@ step needs no read.
 ## Decision
 
 - **D1:** `fence_step`'s predicate additionally requires `owner IS NOT NULL`
-  and `lease_expires_at > now()`. The fence therefore proves that the named
-  step **holds a live lease**, not merely that the caller restated its current
-  epoch. A never-claimed step has `owner IS NULL` and is unappendable; a
-  released step has `lease_expires_at IS NULL`; a drained one has it set to
-  `now()`. None satisfies the predicate.
+  and `lease_expires_at > clock_timestamp()`. The fence therefore proves that
+  the named step **holds a live lease**, not merely that the caller restated
+  its current epoch. A never-claimed step has `owner IS NULL` and is
+  unappendable; a released step has `lease_expires_at IS NULL`; a drained one
+  has it set to `now()`. None satisfies the predicate.
+
+  **`clock_timestamp()`, and the first shipped version of this got it wrong.**
+  D1 was written as `lease_expires_at > now()`, and `now()` is
+  `transaction_timestamp()` — the caller's transaction start, which
+  `SECURITY DEFINER` does not reset. A caller that opened a transaction while
+  the lease was live therefore satisfied the liveness clause for as long as it
+  held that transaction open, however long ago the lease had really died, which
+  is not the property this decision states. Measured as `app_policy` against a
+  lease dead by a second and a half of real time: the forged `policy.decision`
+  committed at seq 1. `psycopg`'s `conn.transaction()` degrades to a savepoint
+  when a transaction is already open, so that state is reached without trying
+  for it. The decision is unchanged; the predicate that expresses it is
+  corrected, and the Evidence table below is re-probed.
 - **D2:** This **goes beyond r7 § Event log's stated fence for the append
   path**, and is taken on the owner's decision of 2026-09-18 rather than read
   out of r7. The ground is that r7 § Step execution already fences renewal on
@@ -76,15 +89,27 @@ step needs no read.
 ## Evidence
 
 Probed against the running local substrate, 2026-09-18, every mutating
-statement rolled back. As `app_policy`:
+statement rolled back. As `app_policy`. Re-probed in full after the
+`clock_timestamp()` correction, because the two rows a frozen clock changes
+were absent from the first table and the rest were measured from a transaction
+that happened to open after the state was set.
 
-| Call | Before D1/D4 | After |
-| --- | --- | --- |
-| never-claimed step, epoch 0 | accepted, seq 1 | `serialization_failure` |
-| live lease, correct epoch | accepted | accepted |
-| live lease, wrong epoch | refused | refused |
-| expired lease, correct epoch | accepted | `serialization_failure` |
-| `SELECT` on `steps` / `runs` / `events` | allowed | refused |
+| Call | Before D1/D4 | With `> now()` | Shipped (`> clock_timestamp()`) |
+| --- | --- | --- | --- |
+| never-claimed step, epoch 0 | accepted, seq 1 | `serialization_failure` | `serialization_failure` |
+| live lease, correct epoch | accepted | accepted | accepted, seq 1 |
+| live lease, wrong epoch | refused | refused | `serialization_failure` |
+| expired lease, correct epoch | accepted | `serialization_failure` | `serialization_failure` |
+| released lease (expiry `NULL`) | accepted | `serialization_failure` | `serialization_failure` |
+| drained lease (expiry `now()`) | accepted | `serialization_failure` | `serialization_failure` |
+| ownerless lease | accepted | `serialization_failure` | `serialization_failure` |
+| expired lease, caller's transaction opened while live | accepted | **accepted** | `serialization_failure` |
+| drained lease, caller's transaction opened while live | accepted | **accepted** | `serialization_failure` |
+| `SELECT` on `steps` / `runs` / `events` | allowed | refused | refused (`42501`) |
+
+The two bolded cells are the defect the middle column had and the reason the
+predicate changed: every other row was already refused, which is why the first
+table read as complete.
 
 **What this evidence does not cover.** A step that genuinely holds a live lease
 at a low, guessable epoch is still appendable by any caller that can name its

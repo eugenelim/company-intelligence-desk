@@ -181,13 +181,19 @@ def test_the_policy_role_can_append_a_decision(
     assert seq == 1
 
 
-def test_the_policy_role_holds_no_access_to_steps_beyond_select(
+def test_the_policy_role_holds_no_access_to_steps_at_all(
     policy_conn: psycopg.Connection, leased_step: LeasedStep
 ) -> None:
     """r7 change 1's whole point: the narrow role gains no table access.
 
-    `SELECT ... FOR UPDATE` needs UPDATE privilege, so this is the check that
-    the fence really had to be a function rather than a grant.
+    The name and the reason both used to be wrong. They said "no access beyond
+    `SELECT`" and attributed the refusal to the missing `UPDATE` that
+    `SELECT ... FOR UPDATE` needs — a reading that required the role to *hold*
+    `SELECT`. ADR-0005 D4 removed all of `app_policy`'s table reads, so the
+    refusal below is now the plainer one: it holds nothing on `steps`, and the
+    conclusion that the fence had to be a function rather than a grant follows
+    a fortiori rather than from the lock's privilege requirement. The assertion
+    itself never changed.
     """
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         policy_conn.execute(

@@ -90,6 +90,16 @@ services:
       # container port, not the published 55432.
       CED_DATABASE_URL_WORKER: postgresql://app_worker:local_only_not_a_secret@postgres:5432/ced
       CED_DATABASE_URL_POLICY: postgresql://app_policy:local_only_not_a_secret@postgres:5432/ced
+      # **The partition, and this is where it is chosen.** These containers run
+      # continuously while every suite runs, so any step row left at the
+      # default class is fair game for them: `tests/api` asserts
+      # `state = "runnable"` on the row `POST /runs` enqueues, and a claim
+      # landing in that gap reds it for a reason unrelated to the code. Keeping
+      # the containers on their own class means the only rows they can take are
+      # the ones `tests/fault_injection` creates for them. `tests/worker`
+      # partitions itself the same way on `in-process-tests`; the API and its
+      # suite keep the column default.
+      CED_POOL_CLASS: fault-injection
       # A sleep, not a model call: this suite needs no credential and no spend.
       CED_STEP_BODY_SECONDS: "600"
     depends_on:
@@ -99,6 +109,13 @@ services:
     # step to come back, which is what AC-0010 measures. `no` keeps a killed
     # worker dead so the recovery observed is the *other* worker's.
     restart: "no"
+    # Above the pool's join bound, which is one lease TTL (60 s). Docker's
+    # default is 10 s, and at that value a cooperative-but-slow body is
+    # SIGKILLed before the drain can surrender the lease or take its
+    # stuck-body branch — AC-0011's surrender degrading silently into waiting
+    # out the TTL. `stop_body`'s docstring carries the other half of this
+    # relationship; the two numbers move together.
+    stop_grace_period: 75s
 
   worker-b:
     <<: *worker
@@ -106,4 +123,7 @@ services:
       CED_WORKER_ID: worker-b
       CED_DATABASE_URL_WORKER: postgresql://app_worker:local_only_not_a_secret@postgres:5432/ced
       CED_DATABASE_URL_POLICY: postgresql://app_policy:local_only_not_a_secret@postgres:5432/ced
+      # `environment` replaces rather than merges under `<<`, so the partition
+      # has to be repeated here; the anchor's other keys are inherited.
+      CED_POOL_CLASS: fault-injection
       CED_STEP_BODY_SECONDS: "600"

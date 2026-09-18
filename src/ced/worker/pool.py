@@ -17,22 +17,46 @@ means a fenced worker has exactly one thing to abandon, which is what makes
 "aborts without *additional* side effects" a simple statement rather than a
 coordination problem.
 
-**Every exit path stops and joins the body before the step can be taken by
-anyone else**, and the stuck-body case is handled by *not* surrendering:
+**Every exit path stops and joins the body before this worker touches the
+row.** The five dispositions:
 
   * completion and failure — join, then `release`;
   * fence loss and a terminal run — join, then return without touching the
     row, because the step is already someone else's or the run is over;
-  * drain — join, then `_expire_now`. If the body could not be joined within a
-    lease TTL the lease is **left to expire on its own** instead, so the step
-    does not become claimable beside a body that is still running. The worker
-    then stops claiming.
+  * drain where the body had already finished — join, then `release` with the
+    recorded outcome, so a step that completed on its own is not handed back
+    to a survivor to re-run;
+  * drain — join, then `_expire_now`;
+  * drain where the body could not be joined within a lease TTL — the lease is
+    **left to expire on its own** and the worker stops claiming.
+
+**This is not a no-overlap invariant, and it used to claim to be one.** The
+join in the last two cases runs for a full lease TTL while the supervisor —
+the only renewer — is inside it, so no heartbeat fires; the lease was last
+renewed at most one heartbeat earlier and therefore has TTL minus heartbeat to
+TTL of validity left. A body that takes longer than that to unwind loses its
+lease *during the join*, and a survivor claims and starts a second body beside
+it. Measured, with the timings compressed: at TTL 6 / heartbeat 2 against a
+body needing 14 s to stop, the lease was dead 5.13 s after the drain signal
+with the old body still running, and a second worker claimed the same step at
+the next epoch. At the shipped timings the threshold is a body that takes more
+than about 40 s to stop.
+
+That overlap is **accepted, ratified behaviour, not a defect to close here**.
+`worker-runtime.md` § The fence-detection window states that two workers can be
+inside the same step's toolset stack at once and names the derived idempotency
+key and the fenced `policy.decision` append as "exactly what make that overlap
+benign — neither is optional". Shortening the join or renewing through it would
+be designing around that acceptance. What the non-surrender above buys is
+narrower and worth stating exactly: this worker does not *itself* hand the step
+over while its body runs. Whether the lease outlives the body is a race it does
+not control.
 
 An earlier version surrendered the lease on the drain path regardless, which
-made the step claimable while the old body ran — the exact overlap this design
-trades capacity to avoid. The cost of the current behaviour is that a stuck
-body delays recovery of its step to one full lease TTL, which is the recovery
-path r7 already specifies for a worker that dies.
+made the step claimable immediately while the old body ran. The cost of the
+current behaviour is that a stuck body delays recovery of its step to one full
+lease TTL, which is the recovery path r7 already specifies for a worker that
+dies.
 
 **What this module does not do**, because no criterion in
 `walking-skeleton-foundation` needs it and the sibling specs own it:
@@ -358,6 +382,19 @@ class Worker:
             A body that will not stop is a defect in the body, and the caller
             must not claim again while it runs — so the return value is acted
             on rather than only logged.
+
+            **The join bound and the container's stop grace are one
+            relationship, not two independent numbers.** This joins for a lease
+            TTL; a container SIGKILLed before that elapses never reaches
+            `_expire_now` or the `if not stopped` branch, and AC-0011's
+            surrender silently degrades to waiting out the TTL. So
+            `deploy/compose.yaml` sets `stop_grace_period` on both worker
+            services above this bound, and the two must move together. The
+            fault-injection suite does not exercise the interaction — it uses
+            `docker kill --signal=TERM`, which has no grace period and no
+            follow-up SIGKILL — so the grace period is the only thing standing
+            between a slow body and that degradation under `docker stop` or
+            `docker-compose down`.
             """
             body_stop.set()
             thread.join(timeout=self.config.lease_ttl_seconds)

@@ -19,6 +19,8 @@ with the fence fully subverted. These tests are what close that gap.
 
 from __future__ import annotations
 
+import re
+import time
 import uuid
 
 import psycopg
@@ -333,8 +335,17 @@ def test_the_refused_set_matches_the_migration_constant(
     ).fetchone()
     assert row is not None
     # The guard compares a normalised form, so the marker is the normalising
-    # call rather than the bare parameter (ADR-0005's sibling fix).
-    refused = row[0].split("lower(btrim(p_type)) IN (", 1)[1].split(")", 1)[0]
+    # call rather than the bare parameter (ADR-0005's sibling fix). Matched by
+    # pattern rather than by a literal prefix: the normaliser is now a
+    # `regexp_replace` whose own parentheses broke the old `split(")")`, and a
+    # marker that has to be rewritten whenever the expression is edited is a
+    # check that reds for the wrong reason.
+    match = re.search(r"regexp_replace\(p_type.*?\)\)\s+IN \(([^)]*)\)", row[0], re.S)
+    assert match is not None, (
+        "the refusal list is not where this check looks for it; the normaliser "
+        "or the guard's shape changed"
+    )
+    refused = match.group(1)
     names = {piece.strip().strip("'") for piece in refused.split(",")}
 
     expected = {RESERVED_EVENT_TYPE, *RUN_LIFECYCLE_TYPES, *TERMINAL_EVENT_TYPES}
@@ -469,6 +480,140 @@ def test_a_lease_that_is_not_live_and_owned_is_not_appendable(
         )
 
 
+def test_a_lease_that_lapsed_during_the_callers_transaction_is_not_appendable(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    leased_step: LeasedStep,
+) -> None:
+    """The one liveness shape the parametrized table above cannot reach.
+
+    Every case there forces expiry into the absolute past, so transaction age
+    cannot matter. Here the lease is live when the caller's transaction opens
+    and dead in real time when it appends — which is the state a frozen
+    `now()` admitted, because `SECURITY DEFINER` does not reset
+    `transaction_timestamp()`. Reproduced as `app_policy` before the fix: the
+    forged `policy.decision` committed against a lease dead by a second and a
+    half.
+
+    `psycopg`'s `conn.transaction()` nests as a savepoint once a transaction is
+    open, so the append below genuinely runs under the older snapshot rather
+    than starting its own.
+    """
+    with owner_conn.transaction():
+        owner_conn.execute(
+            "UPDATE steps SET lease_expires_at = clock_timestamp() "
+            "+ interval '2 seconds' WHERE step_id = %s",
+            (leased_step.step_id,),
+        )
+
+    # Open the caller's transaction while the lease is still live, and prove it
+    # is open — an autocommit connection would reset the clock per statement
+    # and the check would pass for the wrong reason.
+    worker_conn.execute("SELECT 1")
+    assert worker_conn.info.transaction_status.name == "INTRANS"
+    frozen = worker_conn.execute("SELECT now()").fetchone()[0]
+
+    time.sleep(3)
+
+    still_frozen, really_dead = worker_conn.execute(
+        "SELECT now() = %s, lease_expires_at < clock_timestamp() FROM steps WHERE step_id = %s",
+        (frozen, leased_step.step_id),
+    ).fetchone()
+    assert still_frozen, (
+        "the caller's transaction timestamp advanced, so this check is not "
+        "exercising the frozen-clock caller it exists for"
+    )
+    assert really_dead, "the lease did not actually lapse; the wait was too short"
+
+    # Rolled back in `finally`, and that is not tidiness. This check has to
+    # leave its transaction open to mean anything, so on the failure it exists
+    # to catch — the append succeeding — the row locks it takes would still be
+    # held when `leased_step` tears down, and the fixture's `DELETE` would
+    # block on them indefinitely. The first version did exactly that and hung
+    # the suite instead of redding it, which is strictly worse than no check.
+    try:
+        with pytest.raises(event_log.Fenced):
+            event_log.append_step_event(
+                worker_conn,
+                run_id=leased_step.run_id,
+                step_id=leased_step.step_id,
+                lease_epoch=leased_step.lease_epoch,
+                type="step.started",
+                principal="worker-1",
+            )
+    finally:
+        worker_conn.rollback()
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    ["tool. invoked", "step.\tstarted", "tool.\u00a0invoked", "step.\u200bstarted"],
+)
+def test_a_type_carrying_interior_whitespace_is_refused_rather_than_collapsed(
+    worker_conn: psycopg.Connection, leased_step: LeasedStep, malformed: str
+) -> None:
+    """Refused, deliberately, rather than normalised into a different name.
+
+    Collapsing interior padding would turn `'run.comp leted'` into a reserved
+    name the caller never sent — a normaliser that manufactures a legitimate
+    type is worse than one that refuses a malformed one. Refusing it is also
+    what lets the refused-name rule be a claim about *every* spelling: trimming
+    handles the edges, this handles the middle, and nothing is left that
+    renders as a canonical name while being a different string.
+    """
+    with pytest.raises(event_log.MalformedEventType):
+        event_log.append_step_event(
+            worker_conn,
+            run_id=leased_step.run_id,
+            step_id=leased_step.step_id,
+            lease_epoch=leased_step.lease_epoch,
+            type=malformed,
+            principal="worker-1",
+        )
+
+
+def test_a_padded_admitted_type_cannot_escape_the_idempotency_index(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    leased_step: LeasedStep,
+) -> None:
+    """The dedup consequence, which is worse than the forged-audit one.
+
+    `events_tool_invoked_idempotency_idx` is partial on `type = 'tool.invoked'`,
+    so before the fix a single trailing tab put the row outside the index
+    entirely and two appends sharing one derived key both committed — defeating
+    the guarantee `src/ced/domain/events.py` rests the two-worker overlap on.
+    Canonicalising before the insert is what puts the variant back inside it.
+    """
+    key = "derived-key-for-one-tool-call"
+    first = event_log.append_step_event(
+        worker_conn,
+        run_id=leased_step.run_id,
+        step_id=leased_step.step_id,
+        lease_epoch=leased_step.lease_epoch,
+        type="tool.invoked",
+        principal="worker-1",
+        idempotency_key=key,
+    )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        event_log.append_step_event(
+            worker_conn,
+            run_id=leased_step.run_id,
+            step_id=leased_step.step_id,
+            lease_epoch=leased_step.lease_epoch,
+            type="tool.invoked\t",
+            principal="worker-1",
+            idempotency_key=key,
+        )
+
+    stored = owner_conn.execute(
+        "SELECT type FROM events WHERE run_id = %s AND seq = %s",
+        (leased_step.run_id, first),
+    ).fetchone()[0]
+    assert stored == "tool.invoked"
+
+
 def test_the_fence_predicate_names_liveness_and_ownership(
     owner_conn: psycopg.Connection,
 ) -> None:
@@ -481,11 +626,46 @@ def test_the_fence_predicate_names_liveness_and_ownership(
     body = row[0]
 
     assert "owner IS NOT NULL" in body, "the fence does not require an owner"
-    assert "lease_expires_at > now()" in body, "the fence does not require liveness"
+    # `clock_timestamp()`, and the absence of `now()`, are both asserted. The
+    # pin used to name `lease_expires_at > now()`, which is the defect round 4
+    # found rather than the property: `now()` is the caller's
+    # `transaction_timestamp()` and `SECURITY DEFINER` does not reset it, so a
+    # caller holding a transaction open outlived its own lease. Pinning the
+    # wrong spelling would have forced the defect back in on the next edit.
+    assert "lease_expires_at > clock_timestamp()" in body, (
+        "the fence does not decide liveness against the real current time"
+    )
+    assert "lease_expires_at > now()" not in body, (
+        "the fence compares against the caller's transaction timestamp, which "
+        "a caller can freeze by holding a transaction open"
+    )
 
 
 @pytest.mark.parametrize(
-    "variant", ["run.completed ", "RUN.COMPLETED", " Run.Cancelled ", "POLICY.DECISION"]
+    "variant",
+    [
+        "run.completed ",
+        "RUN.COMPLETED",
+        " Run.Cancelled ",
+        "POLICY.DECISION",
+        # Round 4. The normaliser was `lower(btrim(...))`, and one-argument
+        # `btrim` strips only U+0020 — so every spelling below was admitted and
+        # stored verbatim, reproduced as `app_worker` against the substrate.
+        # The table had only the space-padded and case-varied forms, so it
+        # could not red for any of them.
+        "policy.decision\t",
+        "\tpolicy.decision",
+        "policy.decision\n",
+        "run.completed\r",
+        "policy.decision\x0b",
+        "policy.decision\x0c",
+        "policy.decision\u00a0",
+        "\u200bpolicy.decision",
+        "policy.decision\u200b",
+        "policy.decision\ufeff",
+        "\u2003policy.decision\u2003",
+        "policy.decision\u3000",
+    ],
 )
 def test_no_spelling_of_a_refused_type_reaches_the_log(
     worker_conn: psycopg.Connection, leased_step: LeasedStep, variant: str

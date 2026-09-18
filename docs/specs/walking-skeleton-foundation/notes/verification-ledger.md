@@ -162,8 +162,13 @@ schema this delivery ships rather than the spike's own.
   disable the authorization-audit write path. **The shipped owner is
   `ced_fence`**, a `NOLOGIN` role granted to no application identity
   (ADR-0004). What still holds from this entry: `app_policy` is refused
-  `SELECT ... FOR UPDATE` on `steps` directly, which is the check that the
-  fence genuinely had to be a function rather than a grant.
+  `SELECT ... FOR UPDATE` on `steps` directly. **Round 4 corrected why.** This
+  said the refusal was "the check that the fence genuinely had to be a function
+  rather than a grant" — a reading that needed the role to hold `SELECT` and
+  lack `UPDATE`, which is the grant matrix ADR-0005 D4 removed. `app_policy`
+  now holds nothing on `steps`, so the refusal is the plainer one and the
+  function-not-a-grant conclusion follows a fortiori. The check is renamed
+  `test_the_policy_role_holds_no_access_to_steps_at_all`.
 - **AC-0006 — established, SQL level only.** A second `tool.invoked` carrying a
   recorded derived key raises `UniqueViolation`, and consumes no sequence
   number. The index's partiality is checked in both directions: the same key
@@ -261,8 +266,10 @@ the shipped binary.
 ### T5 — a killed worker loses at most 150 seconds
 
 Four checks in `tests/fault_injection`, all green, driving real containers at
-r7's real timings. The suite takes 201 seconds; compressed timings would
-demonstrate the mechanism and not the number, and the number is the criterion.
+r7's real timings — which is what makes the wall clock long; compressed timings
+would demonstrate the mechanism and not the number, and the number is the
+criterion. `AGENTS.md` § The local substrate carries the measured duration; a
+figure recorded here would be a second one to keep in step.
 
 - **AC-0010 — established.** `docker kill` (SIGKILL) on the worker holding the
   step. **Observed: 59.5 s to reacquisition**, with `lease_epoch` advancing
@@ -748,6 +755,17 @@ inside the allowance.
 Authority for the amendment is this section. Evidence for every completed task
 is its commit, bound through the `contract-amendment` transition.
 
+**One line in `plan.md`'s Changelog for this amendment is false, and this is
+where a reader lands looking for the grounds.** That entry says "T5's `Tests`
+field updated for the second clause" and points here. The field was **not**
+updated: `plan.md` is hash-pinned at `edcaf7fe76b1…`, and editing it — even
+the Changelog — breaks `schedule check-current`, whose offered recovery clears
+the review retry counters this run has accumulated. So T5's `Tests` still
+describes the pre-amendment measurement method, and the shipped method is the
+one in § T7 re-run under the amendment below. The retraction was first recorded
+under § Review round 3 › What round 3 did NOT establish, which is not where the
+false line's own cross-reference sends anyone; round 4 moved it here.
+
 ### How the amendment's gates were satisfied
 
 The `contract-amendment` transition returns to `SPEC-PLAN-DRAFTING` and requires
@@ -936,8 +954,14 @@ frozen clock had been hiding behind the survivor's poll.
   regardless of whether the body could be joined, so a body ignoring its stop
   event left the step claimable while still running — the overlap the design
   trades capacity to avoid. The lease is now left to expire on its own in that
-  case, and the module docstring states the four exits and what each does
-  instead of claiming a blanket invariant.
+  case, and the module docstring states the exits and what each does.
+
+  **Round 4 correction: this entry claimed the docstring stopped asserting a
+  blanket invariant, and it had not.** The docstring still opened with "every
+  exit path stops and joins the body before the step can be taken by anyone
+  else" in bold, which the mechanism does not deliver — see § Review round 4 ›
+  The pool claimed an invariant it cannot hold. It also enumerated four exits
+  where `_execute` has five.
 
 ### Records corrected
 
@@ -993,3 +1017,227 @@ frozen clock had been hiding behind the survivor's poll.
   enforced.
 - **The stuck-body path is still undriven.** It needs a deliberately
   uncooperative body, and T5's pinned `Tests` promises a sleeping one.
+
+## Review round 4 — two exploits in round 3's own fix, and a claim the pool cannot hold
+
+Three reviewers, twenty-one findings sustained by adjudication and one refuted.
+Both blockers were introduced by the round-3 fix, and both were reproduced
+against the running substrate before anything was changed.
+
+### The fence's liveness clause was defeated by the caller's own transaction
+
+ADR-0005 D1 shipped as `lease_expires_at > now()`. `now()` is
+`transaction_timestamp()`, and `SECURITY DEFINER` does not reset it, so the
+clause was evaluated against the **caller's** transaction start. A caller that
+opened a transaction while the lease was live satisfied it indefinitely,
+however long ago the lease had really died — and `psycopg`'s
+`conn.transaction()` degrades to a savepoint when a transaction is already
+open, so that state is reached without trying for it.
+
+Measured as `app_policy` against a lease dead by a second and a half of real
+time: `append_policy_decision` with a caller-chosen `principal` and
+`agent_role` committed at seq 1. That is the forged authorization record the
+whole privilege split exists to prevent.
+
+**What makes this the round's most instructive finding: I diagnosed this exact
+property on the observing test connection in round 3, corrected every test read
+to `clock_timestamp()` for it, and wrote `now()` into the new predicate in the
+same commit.** The knowledge and the defect shipped together.
+
+Fixed to `clock_timestamp()`. ADR-0005's evidence table is re-probed in full —
+every state refused except the one legitimate call, including the two
+frozen-clock rows the first table did not have. The structural pin in
+`tests/event_log/test_definer_hardening.py` asserted the literal
+`lease_expires_at > now()`, so it would have forced the defect back in on the
+next edit; it now asserts `clock_timestamp()` *and* the absence of `now()`.
+
+### `btrim` strips only the space, so the refused-type rule was a rule about padding
+
+The negative rule and the canonical store shared one normaliser,
+`lower(btrim(p_type))`. One-argument `btrim` strips only U+0020. As
+`app_worker`, holding a live lease on its own step, every one of these was
+**accepted and stored verbatim**: `policy.decision` with a trailing tab, with a
+trailing NBSP, with a leading zero-width space, and `run.completed` with a
+trailing newline — the reserved authorization type and the terminal namespace,
+written by the one role forbidden both, and rendering identically to the
+canonical name in any terminal or any reader that trims.
+
+The worse consequence needed no reader assumption at all.
+`events_tool_invoked_idempotency_idx` is partial on `type = 'tool.invoked'`, so
+a single tab put a row **outside the index entirely**: two appends sharing one
+derived idempotency key both committed, at seq 1 and seq 2. That is the
+guarantee `worker-runtime.md` names as what makes the two-worker overlap
+benign, defeated by one character.
+
+Fixed with one canonicaliser used to decide *and* to store: surrounding
+whitespace and zero-width forms trimmed by character class, case folded, and
+interior padding **refused** rather than collapsed — because collapsing
+`'run.comp leted'` would manufacture a reserved name the caller never sent. The
+variant table carried only space-padded and case-varied spellings, so it could
+not have reddened for any of this; it now carries tab, newline, CR, VT, FF,
+NBSP, zero-width space, BOM, em space and ideographic space.
+
+The interior-whitespace refusal first reused `invalid_parameter_value`, which
+the adapter already maps to `StepRunMismatch` — so a malformed type arrived as
+"step does not belong to run", adding a fresh instance of the very
+refusal-conflation this round found elsewhere. It has its own SQLSTATE and its
+own `MalformedEventType`.
+
+### The pool claimed an invariant it cannot hold, and the overlap is ratified
+
+`pool.py` opened with "**every exit path stops and joins the body before the
+step can be taken by anyone else**". It does not. `stop_body` joins for a full
+lease TTL while the supervisor — the only renewer — is inside the join, so no
+heartbeat fires; the lease was last renewed at most one heartbeat earlier, so
+it has TTL-minus-heartbeat to TTL of validity left against a TTL-long join.
+
+Reproduced with the timings compressed: at TTL 6 / heartbeat 2 against a body
+needing 14 s to unwind, the lease was dead 5.13 s after the drain signal with
+the old body still running, and a second worker claimed the same step at the
+next epoch. At shipped timings the threshold is a body taking more than about
+40 s to stop.
+
+**The overlap itself is accepted ratified behaviour, not a defect to close.**
+`worker-runtime.md` § The fence-detection window states that two workers can be
+inside the same step's toolset stack at once and names the derived idempotency
+key and the fenced `policy.decision` append as "exactly what make that overlap
+benign — neither is optional". Shortening the join or renewing through it would
+be designing around that acceptance, so the fix is the claim, not the
+mechanism: the docstring now states the five exits, the measured threshold, and
+that the non-surrender buys only that *this worker* does not itself hand the
+step over while its body runs. § Two more defects in round 2's own fix has been
+corrected where it asserted this had already been done.
+
+### The check for the most dangerous drain path could not fail
+
+`test_the_drain_stops_the_body_before_surrendering_the_lease` asserted that the
+body was stopped, the body was finished, and the lease was expired — all three
+read after `_execute` returns, and all three equally true with the two
+statements swapped back, because `_execute` returns only after the join either
+way. So the round-3 fix to the one path that makes a step claimable beside a
+live body had no check that could red for it, and the check asserted strictly
+less than its own neighbour while looking like an independent guard.
+
+The injected body gained an `on_stop` hook, and the lease is now read on a
+dedicated connection at the one instant the two orders differ — the moment the
+body is asked to stop. Inverting the two statements in `_execute` reds it, and
+reds **nothing else**, which is the measurement that confirms the gap was real.
+
+### Smaller sustained findings, closed
+
+- **The DDL guard was defeated by `hostaddr`.** `conninfo_to_dict` on
+  `...?hostaddr=<remote>` returns `host='127.0.0.1'` with the redirect in a key
+  the guard never read, so `CREATE`/`DROP DATABASE` would have run wherever
+  `hostaddr` pointed. Measured. The guard now refuses any DSN carrying
+  `hostaddr` or `service` rather than trying to interpret it.
+
+  The tempting alternative was worse and is recorded as declined: asking the
+  server where it is via `inet_server_addr()` returns the container's bridge
+  address on the legitimate local substrate — measured as 172.18.0.3, not a
+  loopback — so a guard requiring loopback from the server's own view would
+  refuse the one target the check exists for.
+- **The policy no-read check covered five of six tables.** `integration_registry`
+  was missing, and it is granted in the same statement as two that were
+  present, so the gate for a re-grant to that role could not have caught one
+  there. The list is now read from the catalogue, with an assertion on the table
+  count so it cannot silently cover fewer.
+- **The container workers shared a pool class with suites that assert on step
+  rows.** `tests/api` asserts `state = "runnable"` on the row `POST /runs`
+  enqueues, at the default class both containers poll, so a claim landing in
+  that gap reds it for an unrelated reason. Observed directly: mid-round the
+  substrate held a live default-class step that worker-a was still
+  heartbeating, left from a finished suite. The containers now run on their own
+  `CED_POOL_CLASS`, recorded in `deploy/compose.yaml` where the value is
+  chosen, with a check that the deployment and the fixtures still agree.
+- **The join bound and the container stop grace were unrelated numbers.** A
+  60 s join against Docker's 10 s default meant a cooperative-but-slow body was
+  SIGKILLed before the drain could surrender or take its stuck-body branch, so
+  AC-0011's surrender degraded silently to waiting out the TTL. The grace period
+  is now set above the join bound and the relationship is recorded at both ends.
+- **The distinguishing drain check asserted a bound the mechanism cannot
+  guarantee.** It measured signal-to-reacquisition against one poll interval —
+  the reading AC-0011's amendment rejected as unguaranteeable — so healthy code
+  reds a few percent of runs blaming the graceful path. It now asserts on the
+  surrender against the lease TTL, which is the comparison that actually
+  distinguishes the two recovery paths. AC-0011 clause 2 states its observation
+  granularity rather than absorbing it into a round number.
+- **`verify_boot`'s stated contract was the one case it was not driven for.**
+  The docstring sold a readiness failure on a broken policy connection against
+  a healthy substrate. The failure is now driven with an unreachable policy
+  DSN, leaving the worker role alone so the failure is attributable.
+- **Attribution fields were unbounded on an unauthenticated surface.**
+  `principal` and `agent_role` had `min_length=1` and no maximum, in the model
+  and the contract alike, and land in unconstrained `text`. Both are bounded at
+  256 in both places, with a check that a value at the bound still works.
+- **Three records justified the fence-as-function decision with a privilege
+  `app_policy` no longer holds.** ADR-0005 D4 removed its table reads, so
+  attributing the `SELECT ... FOR UPDATE` refusal to a missing `UPDATE` asserted
+  the opposite of the shipped grant matrix. Renamed and restated in all three.
+- **`Fenced` described one of the four states it carries.** Corrected, with the
+  conflation recorded deliberately: a forgery attempt against a never-leased
+  step is **not** observable at that boundary, and splitting the types is a
+  sibling spec's call once something reads them.
+- **The architecture map omitted the property ADR-0005 added**, and the plan's
+  false Changelog line pointed at a ledger section that did not carry its
+  retraction. Both fixed; the retraction now sits in § Contract amendment,
+  where the Changelog sends a reader.
+- **Three contradictory suite durations, one of them impossible.** A sub-suite
+  was published as longer than the whole. `AGENTS.md` § The local substrate now
+  carries the single measured figure and the others describe the shape.
+
+### One finding refuted, and it would have added cruft
+
+The in-place editing of revisions 0001 and 0002 was reported as an operability
+defect needing a forward repair revision. Adjudication refuted it: the
+revisions are unreleased on an unmerged branch with no deployment, the
+documented lifecycle ends in `down -v`, and a stale database fails the suite
+loudly rather than silently — so a permanent idempotent repair revision for
+text no deployment ever applied is the larger change, not the smaller one. I
+had already planned to write that revision; the refutation stopped it.
+
+### A defect found by following this repository's own instructions
+
+`AGENTS.md` § The local substrate documented `up -d --build` followed by
+`alembic upgrade head`. On a fresh volume that starts the workers against an
+empty database; they die on their first claim with `relation "steps" does not
+exist`, and `restart: "no"` — load-bearing for AC-0010 — keeps them dead. The
+stack then looks healthy while every fault-injection check fails on its
+two-worker precondition. Reproduced while bringing the substrate up for this
+round's gate run. The documented sequence now brings up the database, migrates,
+and only then starts the workers.
+
+Declined, and recorded rather than built: adding a schema probe to
+`verify_boot`. It would turn a traceback from inside `claim_one` into a legible
+readiness failure, but `restart: "no"` means the worker dies either way, so it
+changes the message and not the outcome — `AGENTS.md` § Cut before adding
+rung 1.
+
+### What round 4 did NOT establish
+
+- **The stuck-body path is still undriven**, and round 4 adds a measured reason
+  to care: the overlap is reachable at shipped timings for a body taking more
+  than about 40 s to unwind. The 5.13 s reproduction used compressed timings in
+  a scratchpad probe, not a committed check, and T5's pinned `Tests` promises a
+  sleeping body. What is established is that the docstring no longer claims
+  otherwise.
+- **The `stop_grace_period` interaction is unexercised.** The fault-injection
+  suite uses `docker kill --signal=TERM`, which has no grace period and no
+  follow-up SIGKILL, so nothing drives a slow body against `docker stop`. The
+  relationship is recorded at both ends; it is not measured.
+- **No reader normalises event types**, so the forged-audit leg of the `btrim`
+  bypass rests on human inspection of the log and on a sibling spec's decision
+  point being built on this rule. What is measured is the dedup bypass, which
+  needs no reader assumption.
+- **The frozen-clock exploit was never reachable from shipped code**, because
+  nothing in `src/` calls either fenced append yet. It was reproduced at the
+  role level, which is the level the privilege split defends, and the caller
+  that will reach it is the sibling spec's step body.
+- **`clock_timestamp()` is not monotonic.** It reads the system clock, so a
+  backwards step could extend a lease's apparent liveness. That is strictly
+  better than the frozen `now()` it replaces and no worse than the expiry
+  stamp, which is written from the same clock; a monotonic lease is not
+  something Postgres offers and r7 does not ask for one.
+- **Mutation evidence covers the checks this round added or changed**, not the
+  suite. The fence clock, the canonicaliser and the drain ordering were each
+  reverted in place and the corresponding checks confirmed to red — the drain
+  ordering redding alone. No wider mutation run was performed.

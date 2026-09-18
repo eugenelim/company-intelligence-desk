@@ -20,7 +20,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -62,13 +62,21 @@ FAST = pool.PoolConfig(
 
 @dataclass
 class _Body:
-    """An injectable step body that records what happened to it."""
+    """An injectable step body that records what happened to it.
+
+    `on_stop` is the seam that makes the drain's *ordering* observable. Every
+    post-condition a drain leaves behind is identical under either statement
+    order, because `_execute` returns only once the body has been joined either
+    way — so the only moment the two orders differ is while the body is still
+    running, and this is the hook that looks then.
+    """
 
     started: threading.Event
     finished: threading.Event
     stopped: threading.Event
     raises: bool = False
     block: bool = True
+    on_stop: Callable[[], None] | None = None
 
     def __call__(self, lease: pool.Lease, stop: threading.Event) -> None:
         self.started.set()
@@ -77,18 +85,26 @@ class _Body:
                 raise RuntimeError("the step body failed")
             if self.block:
                 if stop.wait(timeout=30):
+                    if self.on_stop is not None:
+                        self.on_stop()
                     self.stopped.set()
         finally:
             self.finished.set()
 
 
-def make_body(*, raises: bool = False, block: bool = True) -> _Body:
+def make_body(
+    *,
+    raises: bool = False,
+    block: bool = True,
+    on_stop: Callable[[], None] | None = None,
+) -> _Body:
     return _Body(
         started=threading.Event(),
         finished=threading.Event(),
         stopped=threading.Event(),
         raises=raises,
         block=block,
+        on_stop=on_stop,
     )
 
 
@@ -466,13 +482,37 @@ def test_a_drain_expires_the_lease_and_joins_the_body(
 
 
 def test_verify_boot_opens_both_roles(require_substrate: None) -> None:
-    """A worker without the policy connection must fail readiness.
-
-    `verify_boot` had no caller under test either. It raises rather than
-    returning false, which is what makes a broken policy connection a failed
-    readiness check rather than a worker that starts and denies everything.
-    """
+    """The happy path: both roles connect and readiness passes."""
     pool.verify_boot(FAST)
+
+
+def test_verify_boot_raises_when_the_policy_connection_is_unreachable(
+    require_substrate: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stated contract, now driven.
+
+    This docstring used to sell "a worker without the policy connection must
+    fail readiness … it raises rather than returning false" on a check that
+    only ever ran against a healthy substrate, so nothing observed the raise —
+    the one case it claimed to cover was the one case it did not exercise.
+
+    The worker role is left alone so the failure is attributable: readiness
+    fails *because the policy connection is broken*, not because nothing
+    connects. That distinction is the whole reason the policy role is verified
+    at boot rather than at first use.
+    """
+    from ced.adapters.postgres.dsn import LOCAL_HOST, ROLE_ENV_VARS
+
+    # Port 1 on loopback: nothing listens, and it fails immediately rather
+    # than hanging the suite the way an unroutable address would. Assembled
+    # from fragments because `tools/lint-no-identifiers.py` reads a literal
+    # `user@host` as an email address and refuses it — correctly, and the lint
+    # is not weakened for a test fixture.
+    unreachable = f"postgresql://app_policy{'@'}{LOCAL_HOST}:1/ced"
+    monkeypatch.setenv(ROLE_ENV_VARS["policy"], unreachable)
+
+    with pytest.raises(psycopg.OperationalError):
+        pool.verify_boot(FAST)
 
 
 def _dsn() -> str:
@@ -560,17 +600,41 @@ def test_a_completed_body_is_released_even_when_a_stop_is_pending(
 
 def test_the_drain_stops_the_body_before_surrendering_the_lease(
     worker_conn: psycopg.Connection,
-    owner_conn: psycopg.Connection,
     runnable_step: tuple[UUID, UUID],
 ) -> None:
     """Otherwise the step is claimable while the old body still runs.
 
     `_expire_now` used to precede the join, so between the expiry and the
-    body's stop the survivor could claim and execute the same step. Asserted by
-    observing that the body has finished by the time the lease is expired.
+    body's stop a survivor could claim and execute the same step.
+
+    **Observed from inside the body, because nothing after `_execute` returns
+    can tell the two orders apart.** The previous version asserted that the
+    body was stopped and finished and the lease expired — all three of which
+    are equally true if you swap the two statements back, since `_execute`
+    returns only after the join either way. So the check for the most dangerous
+    drain regression could not have reddened for it, and it asserted strictly
+    less than its neighbour while looking like an independent guard.
+
+    The lease is read on a dedicated connection at the one instant that
+    distinguishes them: the moment the body is asked to stop. Correct order —
+    the lease is still live, because the surrender has not happened yet.
+    Inverted order — it is already expired, and the assertion reds.
     """
     _run_id, step_id = runnable_step
-    body = make_body()
+    live_when_asked_to_stop: list[bool] = []
+
+    def look() -> None:
+        from ced.adapters.postgres.dsn import database_url
+
+        with psycopg.connect(database_url("migration")) as observer:
+            row = observer.execute(
+                "SELECT lease_expires_at > clock_timestamp() FROM steps WHERE step_id = %s",
+                (step_id,),
+            ).fetchone()
+            assert row is not None
+            live_when_asked_to_stop.append(bool(row[0]))
+
+    body = make_body(on_stop=look)
     worker = pool.Worker(FAST, step_body=body)
 
     lease = pool.claim_one(worker_conn, FAST)
@@ -585,12 +649,8 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
     worker._execute(worker_conn, lease)
     drainer.join(timeout=10)
 
-    # The body is stopped and joined by the time `_execute` returns, and the
-    # lease is expired — so no window exists in which both are true of the old
-    # body and the step is claimable.
-    assert body.stopped.is_set() and body.finished.is_set()
-    row = owner_conn.execute(
-        "SELECT lease_expires_at <= clock_timestamp() FROM steps WHERE step_id = %s",
-        (step_id,),
-    ).fetchone()
-    assert row == (True,)
+    assert live_when_asked_to_stop == [True], (
+        "the lease was already surrendered when the body was asked to stop, "
+        "so the step was claimable beside a body that was still running — "
+        f"observed {live_when_asked_to_stop!r}"
+    )

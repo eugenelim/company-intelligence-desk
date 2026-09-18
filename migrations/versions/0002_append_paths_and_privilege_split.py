@@ -102,6 +102,44 @@ _NON_STEP_SQL_LIST = _sql_list(NON_STEP_EVENT_TYPES)
 #: schema capturing an unqualified relation name.
 _DEFINER_SEARCH_PATH = "SET search_path = pg_catalog, pg_temp"
 
+#: Every space and zero-width form a type name could be padded or salted with.
+#: `btrim` with one argument strips **only** U+0020, so the normalised refusal
+#: below admitted `E'policy.decision\t'`, `E'policy.decision\u00a0'` and
+#: `E'\u200bpolicy.decision'` — the reserved authorization type, written by the
+#: one role forbidden it, and stored verbatim so that it renders identically to
+#: the canonical name. Reproduced as `app_worker` against the running
+#: substrate; the dedup consequence is worse than the audit one, because
+#: `events_tool_invoked_idempotency_idx` is partial on `type = 'tool.invoked'`
+#: and a single tab puts a row outside the index that makes the derived key
+#: dedup at all.
+#:
+#: `\s` covers the ASCII set; the rest are the Unicode spaces, the zero-width
+#: and bidi format characters, and the BOM. Postgres regexps take `\uwxyz`
+#: escapes, and `standard_conforming_strings` is on, so the backslashes reach
+#: the regex engine rather than the string parser.
+_TYPE_SPACE_CLASS = (
+    r"\s"
+    r"\u00a0\u1680"
+    r"\u2000-\u200f"
+    r"\u2028\u2029\u202f\u205f\u2060"
+    r"\u3000\ufeff"
+)
+
+
+def _canonical_type(arg: str) -> str:
+    """The one normalised form, used to decide *and* to store.
+
+    Surrounding padding is removed and case is folded. Interior padding is
+    deliberately **not** removed: collapsing it would rewrite
+    `'run.comp leted'` into a name the caller did not send, and a normaliser
+    that invents a legitimate type is worse than one that refuses a malformed
+    one. `append_step_event` refuses what is left instead.
+    """
+    return (
+        f"lower(regexp_replace({arg}, "
+        f"'^[{_TYPE_SPACE_CLASS}]+|[{_TYPE_SPACE_CLASS}]+$', '', 'g'))"
+    )
+
 
 def upgrade() -> None:
     # ── r7 changes 3 and 4: two nullable, additive columns ───────────────────
@@ -138,17 +176,30 @@ def upgrade() -> None:
         BEGIN
             -- The steps row lock, taken before any runs lock on every path.
             --
-            -- `owner IS NOT NULL AND lease_expires_at > now()` is the second
-            -- half, and it is what makes this a proof of *possession* rather
-            -- than of knowledge. On the epoch alone the fence admitted a
-            -- never-claimed step, because `lease_epoch` is NOT NULL DEFAULT 0
-            -- — so a caller passing 0 forged an append against a step no
-            -- worker had ever leased. Observed as `app_policy`, the narrowest
-            -- role in the system.
+            -- `owner IS NOT NULL AND lease_expires_at > clock_timestamp()`
+            -- is the second half, and it is what makes this a proof of
+            -- *possession* rather than of knowledge. On the epoch alone the
+            -- fence admitted a never-claimed step, because `lease_epoch` is
+            -- NOT NULL DEFAULT 0 — so a caller passing 0 forged an append
+            -- against a step no worker had ever leased. Observed as
+            -- `app_policy`, the narrowest role in the system.
             --
             -- It also closes the two adjacent states: `release` sets
             -- `lease_expires_at = NULL` and the drain sets it to `now()`, and
-            -- neither satisfies `> now()`.
+            -- neither satisfies the comparison.
+            --
+            -- **`clock_timestamp()`, never `now()`.** `now()` is
+            -- `transaction_timestamp()`, and `SECURITY DEFINER` does not reset
+            -- it: it is the *caller's* transaction start. A caller whose
+            -- transaction opened while the lease was live therefore satisfied
+            -- `> now()` for as long as it kept that transaction open, however
+            -- long ago the lease had really died — and `psycopg`'s
+            -- `conn.transaction()` degrades to a savepoint on an already-open
+            -- connection, which is how that state is reached without trying.
+            -- Measured as `app_policy` against a lease dead by a second and a
+            -- half of real time: the forged `policy.decision` committed. The
+            -- liveness half has to be decided against a clock the caller
+            -- cannot freeze, which is what `clock_timestamp()` is.
             --
             -- This goes beyond r7 § Event log's epoch-only pseudocode for the
             -- append path. Owner decision 2026-09-18, recorded in ADR-0005;
@@ -158,7 +209,7 @@ def upgrade() -> None:
              WHERE step_id = p_step_id
                AND lease_epoch = p_lease_epoch
                AND owner IS NOT NULL
-               AND lease_expires_at > now()
+               AND lease_expires_at > clock_timestamp()
                FOR UPDATE;
             RETURN FOUND;
         END $$
@@ -201,8 +252,18 @@ def upgrade() -> None:
             -- than the rule it states. `events.type` deliberately carries no
             -- CHECK, because enumerating the step-scoped vocabulary is the
             -- decision T4 declined; normalising the comparison keeps the rule
-            -- negative while closing every spelling of a refused name.
-            IF lower(btrim(p_type)) IN ({_NON_STEP_SQL_LIST}) THEN
+            -- negative while closing the padded and case-varied spellings of a
+            -- refused name.
+            --
+            -- The normaliser was `lower(btrim(...))`, which strips only
+            -- U+0020, so one tab reopened the whole rule. It is now
+            -- `_canonical_type`, and the two clauses below are what make the
+            -- claim exact: the first refuses a refused name in any padding or
+            -- case, the second refuses any name still carrying a space or
+            -- zero-width character *inside* it. Together they mean no spelling
+            -- of a refused name reaches `events`, without enumerating the
+            -- admitted vocabulary — which is still T4's declined decision.
+            IF {_canonical_type("p_type")} IN ({_NON_STEP_SQL_LIST}) THEN
                 -- session_user, not current_user: inside a definer function
                 -- current_user is ced_owner, which would name the wrong
                 -- principal in every audit record. Found by spike P1.
@@ -210,6 +271,27 @@ def upgrade() -> None:
                     'append_step_event refuses % (caller %)',
                     p_type, session_user
                     USING ERRCODE = 'insufficient_privilege';
+            END IF;
+
+            -- A name that still carries a space or zero-width character after
+            -- trimming cannot be stored: it would render as a canonical name
+            -- it is not. Refused rather than collapsed, because collapsing
+            -- `'run.comp leted'` would manufacture a reserved name the caller
+            -- never sent — and refusing it is what makes the clause above a
+            -- statement about every spelling rather than about padding.
+            IF {_canonical_type("p_type")} ~ '[{_TYPE_SPACE_CLASS}]' THEN
+                RAISE EXCEPTION
+                    'append_step_event refuses a type carrying whitespace: % '
+                    '(caller %)', p_type, session_user
+                    -- `invalid_text_representation`, deliberately not
+                    -- `invalid_parameter_value`: the adapter already maps that
+                    -- one to `StepRunMismatch`, so reusing it would surface a
+                    -- malformed type as "step does not belong to run" and add
+                    -- another instance of the refusal-conflation this round
+                    -- found elsewhere. A malformed argument is not a privilege
+                    -- failure either, so it does not join the reserved-type
+                    -- refusal under `insufficient_privilege`.
+                    USING ERRCODE = 'invalid_text_representation';
             END IF;
 
             IF p_step_id IS NULL THEN
@@ -257,7 +339,7 @@ def upgrade() -> None:
             -- a sibling spec — has to normalise on the way out.
             INSERT INTO public.events (run_id, seq, type, step_id, agent_role,
                                        principal, payload_ref, idempotency_key)
-            VALUES (p_run_id, v_seq, lower(btrim(p_type)), p_step_id,
+            VALUES (p_run_id, v_seq, {_canonical_type("p_type")}, p_step_id,
                     p_agent_role, p_principal, p_payload_ref,
                     p_idempotency_key);
             RETURN v_seq;
@@ -280,7 +362,7 @@ def upgrade() -> None:
             -- spelling was already refused. Normalising makes a legitimate
             -- caller's stray whitespace work rather than fail obscurely, and
             -- keeps the two paths deciding the same way about the same string.
-            IF lower(btrim(p_type)) NOT IN ({_RUN_LIFECYCLE_SQL_LIST}) THEN
+            IF {_canonical_type("p_type")} NOT IN ({_RUN_LIFECYCLE_SQL_LIST}) THEN
                 RAISE EXCEPTION
                     'append_run_event refuses % (caller %)', p_type, session_user
                     USING ERRCODE = 'insufficient_privilege';
@@ -302,7 +384,7 @@ def upgrade() -> None:
 
             INSERT INTO public.events (run_id, seq, type, step_id, principal,
                                        payload_ref)
-            VALUES (p_run_id, v_seq, lower(btrim(p_type)), NULL, p_principal,
+            VALUES (p_run_id, v_seq, {_canonical_type("p_type")}, NULL, p_principal,
                     p_payload_ref);
             RETURN v_seq;
         END $$

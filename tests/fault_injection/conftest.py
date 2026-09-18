@@ -39,6 +39,15 @@ WORST_CASE_SECONDS = CRITERION_REACQUISITION_BOUND_SECONDS
 #: AC-0011 clause 2's bound: reacquisition within one poll interval **of the
 #: lease surrender**. Named for that quantity: it was `DRAIN_BOUND_SECONDS`,
 #: which after the amendment described the wrong clause — the drain's own bound
+#: The pool class the Compose workers poll, set in `deploy/compose.yaml`.
+#: These are the only rows those containers can claim, which is what keeps them
+#: away from the default-class row `tests/api` asserts on — the containers run
+#: continuously while every suite runs, so sharing a class made an unrelated
+#: assertion racy. Mirrored here rather than imported because the value is a
+#: deployment choice, not a code constant; `test_the_workers_poll_the_partition`
+#: is what stops the two drifting.
+CONTAINER_POOL_CLASS = "fault-injection"
+
 #: is `POOL_HEARTBEAT_SECONDS`.
 REACQUIRE_BOUND_SECONDS = POLL_SECONDS
 
@@ -207,9 +216,9 @@ def pending_step(
     with owner_conn.transaction():
         owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (run_id,))
         owner_conn.execute(
-            "INSERT INTO steps (step_id, run_id, state, agent_role) "
-            "VALUES (%s, %s, 'runnable', 'coordinator')",
-            (step_id, run_id),
+            "INSERT INTO steps (step_id, run_id, state, agent_role, pool_class) "
+            "VALUES (%s, %s, 'runnable', 'coordinator', %s)",
+            (step_id, run_id, CONTAINER_POOL_CLASS),
         )
     try:
         yield run_id, step_id

@@ -362,7 +362,7 @@ repository keeps the answer to *what do we actually know*. The same standard
 applies: **a check that cannot fail is not evidence**, so setup checks are
 reported apart from hypothesis checks.
 
-All checks green — the count is deliberately not stated here, because it moved three times during review and a stale tally is worse than none; `pytest` reports it. The full suite takes about four minutes, most of it the
+All checks green — the count is deliberately not stated here, because it moved three times during review and a stale tally is worse than none; `pytest` reports it. The same goes for the duration: `AGENTS.md` § The local substrate carries the one measured figure, and the three that used to be published here and there disagreed with each other. Most of that time is the
 fault-injection suite running at r7's real lease timings. No model provider is
 called, no cloud credential is used, and the spend is **$0.00** — by design:
 `walking-skeleton-agent-runtime` owns every provider-touching claim.
@@ -399,8 +399,10 @@ Two further results that no criterion asked for and that a reader needs:
   application identity, verified in `pg_proc` — so the fence runs far below the
   schema owner's privilege *and* the role the split distrusts cannot `DROP` or
   `ALTER` it. `app_policy` is refused `SELECT ... FOR UPDATE` on `steps`
-  directly, which is the check that the fence genuinely had to be a function
-  rather than a grant. [ADR-0004](../docs/adr/0004-fence-function-owner.md)
+  directly — and since ADR-0005 D4 it holds no table access at all, so that
+  refusal is attributable to holding nothing rather than to the `UPDATE` the
+  row lock needs. Either way the fence had to be a function rather than a
+  grant. [ADR-0004](../docs/adr/0004-fence-function-owner.md)
   records this as an owner-approved narrowing of `worker-runtime.md` item 1,
   whose preferred option — owning the fence as `worker` — review established as
   unsafe.

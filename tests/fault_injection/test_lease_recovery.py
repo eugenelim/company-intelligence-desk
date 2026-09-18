@@ -20,6 +20,7 @@ timing, or its notice period is measured.
 
 from __future__ import annotations
 
+import pathlib
 import time
 from uuid import UUID
 
@@ -28,9 +29,11 @@ import pytest
 
 from ced.worker.pool import (
     DERIVED_REACQUISITION_BOUND_SECONDS,
+    LEASE_TTL_SECONDS,
 )
 
 from .conftest import (
+    CONTAINER_POOL_CLASS,
     OBSERVATION_MARGIN_SECONDS,
     POLL_SECONDS,
     POOL_HEARTBEAT_SECONDS,
@@ -172,9 +175,14 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
         f"({POOL_HEARTBEAT_SECONDS} s) or more — the drain waited rather than "
         "acting on the signal"
     )
-    assert elapsed <= REACQUIRE_BOUND_SECONDS, (
+    # The observer polls, so `elapsed` can overshoot the true interval by up to
+    # one granularity step; the allowance is stated rather than absorbed
+    # silently into a round number, because a bound that is secretly one
+    # granularity looser than it reads is not the bound AC-0011 states.
+    assert elapsed <= REACQUIRE_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS, (
         f"reacquisition took {elapsed:.1f} s after the surrender, outside "
-        f"AC-0011's one poll interval ({REACQUIRE_BOUND_SECONDS} s)"
+        f"AC-0011's one poll interval ({REACQUIRE_BOUND_SECONDS} s) even "
+        f"allowing the observer's {OBSERVATION_MARGIN_SECONDS} s granularity"
     )
     qualifier = (
         "the surrender itself"
@@ -193,7 +201,7 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
     )
 
 
-def test_the_drain_is_faster_than_waiting_out_the_lease(
+def test_the_drain_surrenders_far_sooner_than_the_lease_would_expire(
     owner_conn: psycopg.Connection,
     running_workers: list[str],
     pending_step: tuple[UUID, UUID],
@@ -202,6 +210,18 @@ def test_the_drain_is_faster_than_waiting_out_the_lease(
 
     A drain that happened to take 150 s would satisfy AC-0010's bound and tell
     an operator nothing about whether the graceful path works at all.
+
+    **Asserted on the surrender, not on the reacquisition.** The previous
+    version measured from the signal to the survivor's *claim* and asserted
+    that against one poll interval — which bounds the drain plus a poll offset
+    that is uniform on [0, POLL_SECONDS) plus the observer's own granularity,
+    so healthy code reds a few percent of the time with a message blaming the
+    graceful path. That is the reading AC-0011's amendment rejected as
+    unguaranteeable, and asserting it here rather than in AC-0011 does not make
+    it guaranteeable. What distinguishes the two recovery paths is when the
+    lease stops being held: the drain surrenders it, and waiting out the TTL
+    does not. That is what is compared, against the TTL the graceful path
+    exists to avoid paying.
     """
     _run_id, step_id = pending_step
 
@@ -212,26 +232,52 @@ def test_the_drain_is_faster_than_waiting_out_the_lease(
     signalled_at = time.monotonic()
     docker("kill", "--signal=TERM", victim)
     try:
-        _reacquired, elapsed = wait_for_reacquisition(
+        surrender, seen = wait_for_lease_surrender(
             owner_conn,
             step_id,
             claimed.owner,
-            REACQUIRE_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
-            started=signalled_at,
+            POOL_HEARTBEAT_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            signalled_at,
         )
     finally:
         _restart(victim)
 
-    # Asserted against a bound the helper's timeout can actually exceed. This
-    # compared against the 150 s host-loss worst case under a 50 s helper
-    # timeout, so the helper always failed first and the assertion could never
-    # be the thing that reds — the same shape round 1 removed from AC-0011,
-    # left behind in its sibling.
-    assert elapsed < REACQUIRE_BOUND_SECONDS, (
-        f"the drained step took {elapsed:.1f} s to come back, outside one poll "
-        f"interval ({REACQUIRE_BOUND_SECONDS} s) — at that point the graceful "
-        "path is no better than waiting out the lease"
+    # The observer polls, so the figure carries up to one granularity interval
+    # of overshoot; the bound below is a whole lease TTL, which swamps it.
+    assert surrender + OBSERVATION_MARGIN_SECONDS < LEASE_TTL_SECONDS, (
+        f"the drained worker's lease stopped being held {surrender:.1f} s "
+        f"after SIGTERM (observed as {seen!r}), which is not usefully sooner "
+        f"than the {LEASE_TTL_SECONDS} s the lease would have taken to expire "
+        "on its own — at that point the graceful path buys nothing"
     )
+    print(
+        f"\nDrain vs TTL: the lease stopped being held {surrender:.2f} s after "
+        f"SIGTERM, against {LEASE_TTL_SECONDS} s to expire unattended."
+    )
+
+
+def test_the_container_workers_poll_the_partition_the_fixtures_insert_at(
+    running_workers: list[str],
+) -> None:
+    """The deployment and this suite must agree on the pool class.
+
+    `pending_step` inserts at `CONTAINER_POOL_CLASS` and nothing else does, so
+    if Compose stopped setting `CED_POOL_CLASS` to the same value every test in
+    this file would hang waiting for a claim that cannot come — and the failure
+    would look like a broken pool rather than a broken partition. Read from the
+    deployment file, because that is where the value is chosen.
+    """
+    import yaml
+
+    compose = yaml.safe_load(
+        (pathlib.Path(__file__).parents[2] / "deploy" / "compose.yaml").read_text()
+    )
+    for service in ("worker-a", "worker-b"):
+        configured = compose["services"][service]["environment"].get("CED_POOL_CLASS")
+        assert configured == CONTAINER_POOL_CLASS, (
+            f"{service} polls {configured!r} but this suite inserts at "
+            f"{CONTAINER_POOL_CLASS!r}; every check here would wait forever"
+        )
 
 
 def test_a_step_is_claimed_by_exactly_one_worker_at_a_time(

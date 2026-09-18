@@ -28,6 +28,7 @@ __all__ = [
     "DEADLOCK_ATTEMPTS",
     "DEADLOCK_BACKOFF_SECONDS",
     "Fenced",
+    "MalformedEventType",
     "StepRunMismatch",
     "RunAlreadyTerminal",
     "append_policy_decision",
@@ -48,7 +49,19 @@ DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15, 0.30)
 
 
 class Fenced(Exception):
-    """The lease moved on: this worker no longer owns the step.
+    """The step does not hold a live lease at the epoch the caller named.
+
+    **This covers more than a lease that moved on**, and the docstring used to
+    name only that case. `fence_step` refuses four states through one
+    `serialization_failure`: the epoch advanced, the step was never claimed
+    (`lease_epoch` is `NOT NULL DEFAULT 0`, so epoch 0 matched a fresh row),
+    the owner is null, and the lease has lapsed or been released. A worker
+    losing its lease and an `app_policy` forging an append against a step no
+    worker ever leased therefore arrive here identically, and the pool logs
+    both as an ordinary abandon — so a forgery attempt is **not** observable at
+    this boundary. Recorded rather than split: ADR-0005's confirmation signal
+    is that the refusals occur, not that they are distinguishable, and giving
+    each state its own type is a sibling spec's call once something reads them.
 
     Not a retryable condition. A fenced worker aborts without *additional*
     side effects; it may already have invoked a tool, and attribution is at the
@@ -63,6 +76,17 @@ class StepRunMismatch(Exception):
     the worker should abandon quietly; this means the *arguments* disagree, which
     is a caller defect or a forgery attempt, and it must not be retried or
     treated as an ordinary abandon.
+    """
+
+
+class MalformedEventType(Exception):
+    """The event type carries whitespace or a zero-width character inside it.
+
+    Refused by `append_step_event` rather than normalised away, because
+    collapsing interior padding would manufacture a name the caller never
+    sent. It carries its own SQLSTATE (`invalid_text_representation`) so that
+    it does not arrive as `StepRunMismatch`, which is a statement about the
+    step and run arguments disagreeing and nothing to do with the type.
     """
 
 
@@ -182,6 +206,8 @@ def append_step_event(
                 return int(row[0])
         except psycopg.errors.SerializationFailure as exc:
             raise Fenced(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.InvalidTextRepresentation as exc:
+            raise MalformedEventType(str(exc).splitlines()[0]) from exc
         except psycopg.errors.InvalidParameterValue as exc:
             raise StepRunMismatch(str(exc).splitlines()[0]) from exc
 
@@ -243,6 +269,8 @@ def append_policy_decision(
                 return int(row[0])
         except psycopg.errors.SerializationFailure as exc:
             raise Fenced(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.InvalidTextRepresentation as exc:
+            raise MalformedEventType(str(exc).splitlines()[0]) from exc
         except psycopg.errors.InvalidParameterValue as exc:
             raise StepRunMismatch(str(exc).splitlines()[0]) from exc
 
