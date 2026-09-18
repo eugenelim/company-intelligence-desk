@@ -22,7 +22,9 @@ row.** The five dispositions:
 
   * completion and failure — join, then `release`;
   * fence loss and a terminal run — join, then return without touching the
-    row, because the step is already someone else's or the run is over;
+    row, because the step is already someone else's or the run is over. If the
+    body cannot be joined on either path it is **not** joined, and the worker
+    additionally stops claiming, exactly as in the drain case below;
   * drain where the body had already finished — join, then `release` with the
     recorded outcome, so a step that completed on its own is not handed back
     to a survivor to re-run;
@@ -39,8 +41,14 @@ lease *during the join*, and a survivor claims and starts a second body beside
 it. Measured, with the timings compressed: at TTL 6 / heartbeat 2 against a
 body needing 14 s to stop, the lease was dead 5.13 s after the drain signal
 with the old body still running, and a second worker claimed the same step at
-the next epoch. At the shipped timings the threshold is a body that takes more
-than about 40 s to stop.
+the next epoch.
+
+At the shipped timings the threshold is a body that takes more than about 40 s
+to stop — **derived, not measured**: it is `LEASE_TTL_SECONDS` minus
+`HEARTBEAT_SECONDS`, the least validity a lease can have left when the join
+starts. Nothing drives a stuck body at the shipped timings, and the 5.13 s
+figure above came from a scratchpad probe rather than a committed check; both
+limits are recorded in the verification ledger.
 
 That overlap is **accepted, ratified behaviour, not a defect to close here**.
 `worker-runtime.md` § The fence-detection window states that two workers can be

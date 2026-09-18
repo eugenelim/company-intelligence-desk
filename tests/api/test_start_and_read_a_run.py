@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pathlib
 import uuid
 
 import psycopg
@@ -155,16 +156,26 @@ def test_an_oversized_attribution_field_is_refused(
     Both are self-asserted attribution on an unauthenticated surface and land
     in unconstrained `text` columns, so without a bound one request persists an
     arbitrarily large string that every later read of the run returns. The
-    contract and the model carry the same number and AC-0009 asserts they
-    agree; this asserts the served route actually enforces it, and that a
-    value at the bound still works — a check that only rejected would pass a
-    model with the bound set to one.
+    The contract and the model carry the same number;
+    `test_the_published_attribution_bound_matches_the_model` is what holds them
+    in step, since AC-0009's route-table comparison excludes
+    `components.schemas`. This asserts the served route actually enforces the
+    bound, and that a value at the bound still works — a check that only ever
+    rejected would pass a model whose maximum was far too low.
     """
     at_bound = "p" * ATTRIBUTION_MAX_LENGTH
     over_bound = "p" * (ATTRIBUTION_MAX_LENGTH + 1)
 
+    # Both fields at the bound, not just `principal`. With only `principal`
+    # driven, any `agent_role` maximum between 12 (longer than "coordinator")
+    # and 255 would have passed — a positive control has to cover each field it
+    # claims to.
     assert (
         api_server.post("/runs", {"principal": at_bound, "agent_role": "coordinator"}).status
+        == 201
+    )
+    assert (
+        api_server.post("/runs", {"principal": "operator", "agent_role": at_bound}).status
         == 201
     )
     assert (
@@ -175,3 +186,30 @@ def test_an_oversized_attribution_field_is_refused(
         api_server.post("/runs", {"principal": "operator", "agent_role": over_bound}).status
         == 422
     )
+
+
+def test_the_published_attribution_bound_matches_the_model() -> None:
+    """The one check that holds the contract's number and the model's in step.
+
+    AC-0009 compares a route table and excludes `components.schemas` by
+    design, so nothing there notices if these two drift — and two comments
+    used to claim otherwise. This is deliberately *not* an extension of
+    AC-0009: widening that criterion's artifact would change what a ratified
+    acceptance criterion asserts, which is not this delivery's call. It is a
+    construction check over the two files that publish the same number.
+    """
+    import yaml
+
+    contract = yaml.safe_load(
+        (pathlib.Path(__file__).parents[2] / "contracts" / "openapi" / "runs.yaml").read_text()
+    )
+    published = contract["components"]["schemas"]["StartRunRequest"]["properties"]
+
+    for field in ("principal", "agent_role"):
+        assert published[field]["maxLength"] == ATTRIBUTION_MAX_LENGTH, (
+            f"{field}'s published maxLength is "
+            f"{published[field]['maxLength']} but the model enforces "
+            f"{ATTRIBUTION_MAX_LENGTH}; a client trusting the contract would "
+            "be told the wrong limit"
+        )
+        assert published[field]["minLength"] == 1

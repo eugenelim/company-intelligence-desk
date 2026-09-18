@@ -515,8 +515,15 @@ def test_a_lease_that_lapsed_during_the_callers_transaction_is_not_appendable(
 
     time.sleep(3)
 
-    still_frozen, really_dead = worker_conn.execute(
-        "SELECT now() = %s, lease_expires_at < clock_timestamp() FROM steps WHERE step_id = %s",
+    # `expiry` is read here too, because the guard below needs it. Without that
+    # guard this check degrades silently: a stall longer than the window
+    # between the owner's commit and the `SELECT 1` puts the frozen timestamp
+    # past expiry, where the *defective* `> now()` predicate also refuses — so
+    # it would pass with the bug present, having quietly become one more row of
+    # the absolute-past table above.
+    still_frozen, really_dead, expiry = worker_conn.execute(
+        "SELECT now() = %s, lease_expires_at < clock_timestamp(), lease_expires_at "
+        "FROM steps WHERE step_id = %s",
         (frozen, leased_step.step_id),
     ).fetchone()
     assert still_frozen, (
@@ -524,6 +531,12 @@ def test_a_lease_that_lapsed_during_the_callers_transaction_is_not_appendable(
         "exercising the frozen-clock caller it exists for"
     )
     assert really_dead, "the lease did not actually lapse; the wait was too short"
+    assert frozen < expiry, (
+        "the caller's transaction opened *after* the lease had already expired "
+        f"({frozen} is past {expiry}), so a transaction-timestamp predicate "
+        "would refuse this append too — the check would pass with the defect "
+        "present instead of exercising it"
+    )
 
     # Rolled back in `finally`, and that is not tidiness. This check has to
     # leave its transaction open to mean anything, so on the failure it exists
@@ -545,33 +558,6 @@ def test_a_lease_that_lapsed_during_the_callers_transaction_is_not_appendable(
         worker_conn.rollback()
 
 
-@pytest.mark.parametrize(
-    "malformed",
-    ["tool. invoked", "step.\tstarted", "tool.\u00a0invoked", "step.\u200bstarted"],
-)
-def test_a_type_carrying_interior_whitespace_is_refused_rather_than_collapsed(
-    worker_conn: psycopg.Connection, leased_step: LeasedStep, malformed: str
-) -> None:
-    """Refused, deliberately, rather than normalised into a different name.
-
-    Collapsing interior padding would turn `'run.comp leted'` into a reserved
-    name the caller never sent — a normaliser that manufactures a legitimate
-    type is worse than one that refuses a malformed one. Refusing it is also
-    what lets the refused-name rule be a claim about *every* spelling: trimming
-    handles the edges, this handles the middle, and nothing is left that
-    renders as a canonical name while being a different string.
-    """
-    with pytest.raises(event_log.MalformedEventType):
-        event_log.append_step_event(
-            worker_conn,
-            run_id=leased_step.run_id,
-            step_id=leased_step.step_id,
-            lease_epoch=leased_step.lease_epoch,
-            type=malformed,
-            principal="worker-1",
-        )
-
-
 def test_a_padded_admitted_type_cannot_escape_the_idempotency_index(
     worker_conn: psycopg.Connection,
     owner_conn: psycopg.Connection,
@@ -586,7 +572,7 @@ def test_a_padded_admitted_type_cannot_escape_the_idempotency_index(
     Canonicalising before the insert is what puts the variant back inside it.
     """
     key = "derived-key-for-one-tool-call"
-    first = event_log.append_step_event(
+    event_log.append_step_event(
         worker_conn,
         run_id=leased_step.run_id,
         step_id=leased_step.step_id,
@@ -607,11 +593,29 @@ def test_a_padded_admitted_type_cannot_escape_the_idempotency_index(
             idempotency_key=key,
         )
 
+    # Read back the *padded* append under its own key, not the canonical one.
+    # This asserted the stored type of `first`, whose argument was already
+    # canonical — so it held under any change to how padding is treated, which
+    # is precisely the regression this check sits under. The padded variant is
+    # the only row that evidences the canonicalisation.
+    padded_seq = event_log.append_step_event(
+        worker_conn,
+        run_id=leased_step.run_id,
+        step_id=leased_step.step_id,
+        lease_epoch=leased_step.lease_epoch,
+        type="tool.invoked\t",
+        principal="worker-1",
+        idempotency_key="a-second-tool-call",
+    )
     stored = owner_conn.execute(
         "SELECT type FROM events WHERE run_id = %s AND seq = %s",
-        (leased_step.run_id, first),
+        (leased_step.run_id, padded_seq),
     ).fetchone()[0]
-    assert stored == "tool.invoked"
+    assert stored == "tool.invoked", (
+        f"a tab-padded `tool.invoked` stored as {stored!r}, so it sits outside "
+        "`events_tool_invoked_idempotency_idx` and the derived key dedups "
+        "nothing for that spelling"
+    )
 
 
 def test_the_fence_predicate_names_liveness_and_ownership(
@@ -667,14 +671,25 @@ def test_the_fence_predicate_names_liveness_and_ownership(
         "policy.decision\u3000",
     ],
 )
-def test_no_spelling_of_a_refused_type_reaches_the_log(
+def test_a_padded_spelling_of_a_refused_type_reaches_the_reserved_name_rule(
     worker_conn: psycopg.Connection, leased_step: LeasedStep, variant: str
 ) -> None:
-    """The refusal is decided on a normalised form.
+    """Padding of the forgiven kinds trims away, and the name is then refused.
 
-    It compared the raw argument, so a trimmed or case-varied spelling of a
-    refused name was admitted and stored verbatim — a negative rule narrower
-    than the rule it states, and a live bypass for any reader that normalises.
+    **This table is examples, not the guarantee, and its old name claimed
+    otherwise.** It used to be called
+    `test_no_spelling_of_a_refused_type_reaches_the_log` — a claim universally
+    quantified over spellings, evidenced by an enumeration of characters that
+    happened to be in the trim class. It was green in round 5 against U+00AD,
+    U+180E, U+2800 and a Cyrillic homoglyph, because a table of inputs cannot
+    establish a statement about all inputs. The guarantee now lives in
+    `test_every_stored_type_matches_the_canonical_shape` and in the CHECK it
+    reads; these cases only pin that the *trimming* still behaves.
+
+    Every variant here refuses as a privilege failure, because trimming leaves
+    a string equal to a reserved name. Spellings that do **not** trim away are
+    a different refusal with a different type — see
+    `test_a_type_outside_the_canonical_shape_is_refused`.
     """
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         event_log.append_step_event(
@@ -685,6 +700,111 @@ def test_no_spelling_of_a_refused_type_reaches_the_log(
             type=variant,
             principal="worker-1",
         )
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        # Round 5 reproduced every one of these straight through round 4's
+        # denylist, as `app_worker` on a live lease it owned. They are here as
+        # regression examples; the closure is the shape rule, not this list.
+        "policy.decision\xad",  # U+00AD SOFT HYPHEN
+        "policy.decision\u180e",  # U+180E MONGOLIAN VOWEL SEPARATOR
+        "policy.decision\u2800",  # U+2800 BRAILLE PATTERN BLANK
+        "policy.decision\u2066",  # U+2066 LEFT-TO-RIGHT ISOLATE
+        "policy.decision\ufe0f",  # U+FE0F VARIATION SELECTOR-16
+        "policy.decision\u034f",  # U+034F COMBINING GRAPHEME JOINER
+        "\u202epolicy.decision",  # U+202E RLO — reverses rendering
+        "\u061cpolicy.decision",  # U+061C ARABIC LETTER MARK
+        "run.completed\u2800",
+        # Not whitespace at all, and the reason a denylist was the wrong shape:
+        # Cyrillic es and o, rendering identically to the reserved name.
+        "poli\u0441y.decision",
+        "p\u043elicy.decision",
+        # Interior padding, refused rather than collapsed.
+        "tool. invoked",
+        "step.\tstarted",
+        # A pure-padding argument trims to the empty string, which used to be
+        # stored as an untyped event.
+        "   ",
+        "",
+        # Shapes the grammar refuses on structure rather than on characters.
+        ".policy.decision",
+        "policy.decision.",
+        "policy..decision",
+        "Policy.Decision\xad",
+    ],
+)
+def test_a_type_outside_the_canonical_shape_is_refused(
+    worker_conn: psycopg.Connection, leased_step: LeasedStep, variant: str
+) -> None:
+    """The closure, by examples: anything not plain dotted lowercase ASCII.
+
+    Two rounds tried to close this by enumerating invisible characters and both
+    were walked through. The rule is now positive — a canonical form must be a
+    dotted run of lowercase ASCII alphanumerics — so a character nobody
+    enumerated is refused by default. The homoglyph cases are the ones that
+    show why: they are not whitespace, so no denylist of spaces could have
+    reached them.
+
+    The refusal carries `MalformedEventType`, distinct from the privilege
+    failure a reserved *name* raises, so the log distinguishes "you may not
+    write that type" from "that is not a type".
+    """
+    with pytest.raises(event_log.MalformedEventType):
+        event_log.append_step_event(
+            worker_conn,
+            run_id=leased_step.run_id,
+            step_id=leased_step.step_id,
+            lease_epoch=leased_step.lease_epoch,
+            type=variant,
+            principal="worker-1",
+        )
+
+
+def test_every_stored_type_matches_the_canonical_shape(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """The guarantee itself, asserted structurally rather than by enumeration.
+
+    A table of inputs cannot establish a claim about every spelling — that is
+    the lesson of rounds 3, 4 and 5, each of which found the previous round's
+    enumeration incomplete. This reads the constraint out of the catalogue and
+    proves it applies to the column, so a spelling nobody thought of is
+    refused whether or not anyone wrote a case for it.
+
+    Asserted against the schema owner, deliberately: the CHECK is what makes
+    the rule hold on paths that bypass the append functions entirely.
+    """
+    row = owner_conn.execute(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+        "WHERE conname = 'events_type_is_canonical'"
+    ).fetchone()
+    assert row is not None, (
+        "events.type carries no canonical-shape constraint; the reserved-name "
+        "rule is then only as complete as the trim class, which is the defect "
+        "rounds 4 and 5 both found"
+    )
+    assert "a-z0-9" in row[0], f"the constraint is not the shape rule: {row[0]}"
+
+    run_id = uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (run_id,))
+    try:
+        # As `ced_owner`, the strongest caller in the system, straight at the
+        # table. If this is admitted, no function-level rule can close it.
+        for forged in ("policy.decision\xad", "p\u043elicy.decision", ""):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with owner_conn.transaction():
+                    owner_conn.execute(
+                        "INSERT INTO events (run_id, seq, type, principal) "
+                        "VALUES (%s, 1, %s, 'owner')",
+                        (run_id, forged),
+                    )
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
 
 
 def test_an_admitted_type_is_stored_canonically(

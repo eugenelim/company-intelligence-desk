@@ -50,12 +50,20 @@ TERMINAL_EVENT_TYPES: Final = frozenset({"run.completed", "run.failed", RUN_CANC
 #: partial unique index in revision 0002 is scoped to it.
 TOOL_INVOKED: Final = "tool.invoked"
 
-#: The step-scoped vocabulary is deliberately **not** enumerated here or
-#: constrained in the schema. `walking-skeleton-agent-runtime` adds the types
-#: its toolset emits, and an enum frozen now would make each one a migration
-#: against a shipped spec. What the database enforces instead is the negative
-#: rule that matters: the worker path refuses the reserved type, and the
-#: run-lifecycle path accepts only the two names above.
+#: The step-scoped **vocabulary** is deliberately not enumerated here or in the
+#: schema. `walking-skeleton-agent-runtime` adds the types its toolset emits,
+#: and an enum frozen now would make each one a migration against a shipped
+#: spec. What the database enforces instead is the negative rule that matters:
+#: the worker path refuses the reserved type, and the run-lifecycle path
+#: accepts only the two names above.
+#:
+#: The **character shape** is constrained, and that is a different thing. Since
+#: review round 5, `events.type` carries a CHECK requiring a dotted run of
+#: lowercase ASCII alphanumerics (revision 0001). Any `foo.bar` name is still
+#: admitted without a migration, so the declined decision stands; what the
+#: shape buys is that the negative rule above is exhaustive by construction,
+#: because no invisible character or homoglyph spelling of a refused name can
+#: be stored at all. Two rounds of denylists failed at exactly that.
 #:
 #: Three named constants for step types lived here with no caller and were
 #: removed in review round 1 under `AGENTS.md` § Cut before adding rung 1. The

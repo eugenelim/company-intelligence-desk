@@ -13,12 +13,19 @@ from pydantic import BaseModel, Field
 
 from ced.domain.events import EventEnvelope
 
-#: The bound on both attribution fields, and it is in the contract too —
-#: AC-0009 asserts the served document agrees with `runs.yaml`, so these move
-#: together or the agreement check reds. Both fields are self-asserted on an
+#: The bound on both attribution fields. Both are self-asserted on an
 #: unauthenticated surface and land in unconstrained `text` columns, so
 #: unbounded they let one request persist an arbitrarily large string that
 #: every later read of the run returns.
+#:
+#: **The same number is published in `contracts/openapi/runs.yaml`, and
+#: AC-0009 does not compare the two.** This comment used to claim it did.
+#: AC-0009's check reduces both documents to a route table — paths, methods,
+#: `operationId`, parameters, `requestBodyRequired`, response statuses — and
+#: excludes `components.schemas` deliberately, so raising this constant while
+#: the YAML stayed at 256 would red nothing there. `tests/api` carries a
+#: separate check that the two agree; that check, not AC-0009, is what stops
+#: them drifting.
 ATTRIBUTION_MAX_LENGTH = 256
 
 

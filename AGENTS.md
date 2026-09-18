@@ -164,11 +164,20 @@ environment, and the standalone binary is:
 
 ```bash
 docker-compose -f deploy/compose.yaml up -d --build postgres minio
+until docker-compose -f deploy/compose.yaml exec -T postgres \
+      pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 ./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
 docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
-./.venv/bin/python -m pytest           # 3-3.5 min; `pytest` reports the count
+./.venv/bin/python -m pytest           # ~2.5-3 min; `pytest` reports the count
 docker-compose -f deploy/compose.yaml down -v
 ```
+
+The `until` line is not decoration. `up -d` returns when the containers have
+**started**, not when Postgres accepts connections, and on a fresh volume
+`initdb` plus the role-creation hook in `deploy/postgres-init/` run first —
+the healthcheck budgets up to 60 s for it. The worker step is gated by
+`depends_on: service_healthy`; the migration is not, so without the wait
+`alembic` races startup on exactly the clean clone this block is written for.
 
 **The schema has to exist before the workers start, which is why this is three
 commands and not two.** A single `up -d --build` starts the workers against an
@@ -184,8 +193,11 @@ this block on a fresh volume.
 suite runs at r7's real lease timings — TTL 60 s, heartbeat 20 s, poll 30 s, so
 it dominates that figure almost entirely — and it is why the figure is a range
 rather than a number: a survivor's poll offset is uniform on [0, 30 s), so
-consecutive runs measured 186 s and 205 s. Compressed timings would demonstrate
-the mechanism and not the 150-second number the criterion states.
+consecutive runs vary by tens of seconds. Measured at 156 s after round 5
+removed a subsumed fault-injection check; the two runs before that removal were
+186 s and 205 s, which is the spread to expect rather than a regression.
+Compressed timings would demonstrate the mechanism and not the 150-second
+number the criterion states.
 **This is the only place a suite duration is published.** Three files used to
 carry figures that contradicted each other, one of them a sub-suite longer than
 the whole; the rest now describe the shape and leave the number here. The workers also run on

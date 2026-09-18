@@ -39,26 +39,40 @@ WORST_CASE_SECONDS = CRITERION_REACQUISITION_BOUND_SECONDS
 #: AC-0011 clause 2's bound: reacquisition within one poll interval **of the
 #: lease surrender**. Named for that quantity: it was `DRAIN_BOUND_SECONDS`,
 #: which after the amendment described the wrong clause — the drain's own bound
+#: is `POOL_HEARTBEAT_SECONDS`.
+REACQUIRE_BOUND_SECONDS = POLL_SECONDS
+
 #: The pool class the Compose workers poll, set in `deploy/compose.yaml`.
 #: These are the only rows those containers can claim, which is what keeps them
 #: away from the default-class row `tests/api` asserts on — the containers run
 #: continuously while every suite runs, so sharing a class made an unrelated
 #: assertion racy. Mirrored here rather than imported because the value is a
-#: deployment choice, not a code constant; `test_the_workers_poll_the_partition`
-#: is what stops the two drifting.
+#: deployment choice, not a code constant;
+#: `test_the_running_workers_poll_the_partition_the_fixtures_insert_at` is what
+#: stops the two drifting.
 CONTAINER_POOL_CLASS = "fault-injection"
-
-#: is `POOL_HEARTBEAT_SECONDS`.
-REACQUIRE_BOUND_SECONDS = POLL_SECONDS
 
 #: Headroom for container scheduling, applied to the *helper's* timeout and
 #: never to an assertion. Review round 1 found AC-0011 asserting
 #: `elapsed <= POLL_SECONDS + OBSERVATION_MARGIN_SECONDS` while the helper
 #: failed at exactly that value — so the assertion was satisfied by every
 #: value the helper could return, and the criterion's own 30 s was asserted
-#: nowhere. Every wait below now uses a timeout strictly greater than the bound
-#: it asserts, so the assertion is the thing that reds.
+#: nowhere.
+#:
+#: **Round 5 found that defect reintroduced twice, by the round-4 commit that
+#: was fixing the same shape elsewhere.** Both times the margin was added to an
+#: assertion whose helper already carried it. So the rule is restated as an
+#: arithmetic one: an assertion may add at most `OBSERVER_STEP_SECONDS`, never
+#: this constant, and each helper's timeout must strictly exceed whatever is
+#: asserted after it.
 OBSERVATION_MARGIN_SECONDS = 20
+
+#: What the observer's own polling can add to a measured interval — the helpers
+#: below sleep this long between reads, so a returned figure can overshoot the
+#: true one by up to one step. This is the *only* slack an assertion may carry,
+#: and it is three orders of magnitude smaller than the headroom above, which
+#: is why conflating the two made two assertions unfailable.
+OBSERVER_STEP_SECONDS = 0.5
 
 
 def docker(*args: str) -> subprocess.CompletedProcess[str]:
@@ -117,7 +131,7 @@ def wait_until_claimed(
         last = observe(conn, step_id)
         if last.owner is not None and last.state == "leased":
             return last
-        time.sleep(0.5)
+        time.sleep(OBSERVER_STEP_SECONDS)
     pytest.fail(f"step {step_id} was not claimed within {timeout} s; last saw {last}")
 
 
@@ -149,7 +163,7 @@ def wait_for_reacquisition(
         last = observe(conn, step_id)
         if last.owner is not None and last.owner != previous_owner:
             return last, time.monotonic() - started
-        time.sleep(0.5)
+        time.sleep(OBSERVER_STEP_SECONDS)
     pytest.fail(
         f"step {step_id} was not reacquired within {timeout} s "
         f"(still owned by {last.owner!r}); last saw {last}"

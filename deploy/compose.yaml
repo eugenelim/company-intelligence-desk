@@ -1,9 +1,16 @@
 # The local substrate for the walking skeleton. Local only, throwaway, no data
 # of value. There is no AWS in this spec's test path and no cloud credential.
 #
-# Use `docker-compose -f deploy/compose.yaml up -d`. The Compose CLI *plugin*
-# (`docker compose`) is not installed in the development environment this was
-# verified in; the standalone binary is.
+# **Bring-up is three commands, not one, and they live in `AGENTS.md` § The
+# local substrate.** This header used to restate `up -d`, which starts the
+# workers against an empty database: they die on their first claim and
+# `restart: "no"` below keeps them dead, leaving a stack that looks healthy
+# while every fault-injection check fails its two-worker precondition. The
+# canonical order is in that section; it is not repeated here, because two
+# copies is how this one came to contradict it.
+#
+# The Compose CLI *plugin* (`docker compose`) is not installed in the
+# development environment this was verified in; the standalone binary is.
 services:
   postgres:
     # Digest-pinned: a mutable tag lets the substrate a recorded result was

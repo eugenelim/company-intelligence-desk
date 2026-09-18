@@ -102,21 +102,17 @@ _NON_STEP_SQL_LIST = _sql_list(NON_STEP_EVENT_TYPES)
 #: schema capturing an unqualified relation name.
 _DEFINER_SEARCH_PATH = "SET search_path = pg_catalog, pg_temp"
 
-#: Every space and zero-width form a type name could be padded or salted with.
-#: `btrim` with one argument strips **only** U+0020, so the normalised refusal
-#: below admitted `E'policy.decision\t'`, `E'policy.decision\u00a0'` and
-#: `E'\u200bpolicy.decision'` — the reserved authorization type, written by the
-#: one role forbidden it, and stored verbatim so that it renders identically to
-#: the canonical name. Reproduced as `app_worker` against the running
-#: substrate; the dedup consequence is worse than the audit one, because
-#: `events_tool_invoked_idempotency_idx` is partial on `type = 'tool.invoked'`
-#: and a single tab puts a row outside the index that makes the derived key
-#: dedup at all.
+#: The padding this normaliser is willing to *forgive* on the way in. It is a
+#: convenience, not a security boundary, and it is deliberately incomplete —
+#: `_TYPE_SHAPE` below is what actually closes the rule.
 #:
-#: `\s` covers the ASCII set; the rest are the Unicode spaces, the zero-width
-#: and bidi format characters, and the BOM. Postgres regexps take `\uwxyz`
-#: escapes, and `standard_conforming_strings` is on, so the backslashes reach
-#: the regex engine rather than the string parser.
+#: **Two rounds of review were spent learning that a denylist cannot close
+#: this.** `btrim` with one argument strips only U+0020, so round 3's rule
+#: admitted a tab. Round 4 replaced it with the class below, and round 5
+#: reproduced U+00AD, U+180E, U+2800, U+2066, U+FE0F and U+034F straight
+#: through it — and then a Cyrillic homoglyph, which is not whitespace at all
+#: and which no enumeration of invisible characters could ever have caught.
+#: Every addition to a denylist is an invitation to find the next omission.
 _TYPE_SPACE_CLASS = (
     r"\s"
     r"\u00a0\u1680"
@@ -125,15 +121,36 @@ _TYPE_SPACE_CLASS = (
     r"\u3000\ufeff"
 )
 
+#: **The closure, stated positively: a type is a dotted run of lowercase ASCII
+#: alphanumerics.** Anything else is refused, so a character nobody thought to
+#: enumerate is refused by default rather than admitted by default. That is the
+#: whole difference from the class above.
+#:
+#: This is *not* the step-scoped vocabulary enumeration T4 declined
+#: (`src/ced/domain/events.py`): it constrains the character set, not the set of
+#: names, so `walking-skeleton-agent-runtime` adds whatever `foo.bar` types its
+#: toolset emits without touching a migration. What it buys is that the
+#: negative reserved-name rule becomes exhaustive *by construction* — every
+#: spelling that survives canonicalisation is plain ASCII, so it is either
+#: equal to a refused name or visibly different from one, and every admitted
+#: `tool.invoked` spelling lands inside `events_tool_invoked_idempotency_idx`,
+#: which is the dedup guarantee `worker-runtime.md` § The fence-detection
+#: window declares non-optional.
+#:
+#: Also enforced as a CHECK on `events.type` in revision 0001, so it holds on
+#: every path including direct DML by the schema owner, not only on the two
+#: append functions. Verified against a direct owner insert.
+_TYPE_SHAPE = r"^[a-z0-9]+([._-][a-z0-9]+)*$"
+
 
 def _canonical_type(arg: str) -> str:
     """The one normalised form, used to decide *and* to store.
 
-    Surrounding padding is removed and case is folded. Interior padding is
-    deliberately **not** removed: collapsing it would rewrite
-    `'run.comp leted'` into a name the caller did not send, and a normaliser
-    that invents a legitimate type is worse than one that refuses a malformed
-    one. `append_step_event` refuses what is left instead.
+    Surrounding padding of the forgiven kinds is removed and case is folded.
+    Interior padding is deliberately **not** removed: collapsing it would
+    rewrite `'run.comp leted'` into a name the caller did not send, and a
+    normaliser that invents a legitimate type is worse than one that refuses a
+    malformed one. `append_step_event` refuses whatever fails `_TYPE_SHAPE`.
     """
     return (
         f"lower(regexp_replace({arg}, "
@@ -255,14 +272,15 @@ def upgrade() -> None:
             -- negative while closing the padded and case-varied spellings of a
             -- refused name.
             --
-            -- The normaliser was `lower(btrim(...))`, which strips only
-            -- U+0020, so one tab reopened the whole rule. It is now
-            -- `_canonical_type`, and the two clauses below are what make the
-            -- claim exact: the first refuses a refused name in any padding or
-            -- case, the second refuses any name still carrying a space or
-            -- zero-width character *inside* it. Together they mean no spelling
-            -- of a refused name reaches `events`, without enumerating the
-            -- admitted vocabulary — which is still T4's declined decision.
+            -- **The order matters, and so does which clause does the work.**
+            -- The shape clause below is the closure; this equality clause only
+            -- names *which* canonical strings are reserved. Two rounds were
+            -- spent trying to close this with a denylist of invisible
+            -- characters, and round 5 walked U+00AD, U+2800 and a Cyrillic
+            -- homoglyph through the last one. A positive shape refuses an
+            -- unenumerated character by default, which is the only way this
+            -- rule can be exhaustive without enumerating the vocabulary T4
+            -- declined to enumerate.
             IF {_canonical_type("p_type")} IN ({_NON_STEP_SQL_LIST}) THEN
                 -- session_user, not current_user: inside a definer function
                 -- current_user is ced_owner, which would name the wrong
@@ -273,25 +291,27 @@ def upgrade() -> None:
                     USING ERRCODE = 'insufficient_privilege';
             END IF;
 
-            -- A name that still carries a space or zero-width character after
-            -- trimming cannot be stored: it would render as a canonical name
-            -- it is not. Refused rather than collapsed, because collapsing
-            -- `'run.comp leted'` would manufacture a reserved name the caller
-            -- never sent — and refusing it is what makes the clause above a
-            -- statement about every spelling rather than about padding.
-            IF {_canonical_type("p_type")} ~ '[{_TYPE_SPACE_CLASS}]' THEN
+            -- The closure. A canonical form that is not a dotted run of
+            -- lowercase ASCII alphanumerics is refused: an unenumerated
+            -- invisible character, a homoglyph, interior padding, and the
+            -- empty string a pure-padding argument trims down to. Refused
+            -- rather than collapsed, because collapsing `'run.comp leted'`
+            -- would manufacture a reserved name the caller never sent.
+            IF {_canonical_type("p_type")} !~ '{_TYPE_SHAPE}' THEN
                 RAISE EXCEPTION
-                    'append_step_event refuses a type carrying whitespace: % '
-                    '(caller %)', p_type, session_user
-                    -- `invalid_text_representation`, deliberately not
-                    -- `invalid_parameter_value`: the adapter already maps that
-                    -- one to `StepRunMismatch`, so reusing it would surface a
-                    -- malformed type as "step does not belong to run" and add
-                    -- another instance of the refusal-conflation this round
-                    -- found elsewhere. A malformed argument is not a privilege
-                    -- failure either, so it does not join the reserved-type
-                    -- refusal under `insufficient_privilege`.
-                    USING ERRCODE = 'invalid_text_representation';
+                    'append_step_event refuses a type outside the canonical '
+                    'shape: % (caller %)', p_type, session_user
+                    -- **`CED01`, a code this repository owns.** Round 4 used
+                    -- `invalid_parameter_value`, which the adapter already
+                    -- maps to `StepRunMismatch`, so a malformed type arrived
+                    -- as "step does not belong to run". The replacement,
+                    -- `invalid_text_representation`, was no better: 22P02 is
+                    -- what Postgres raises for *any* failed input cast on this
+                    -- call, so a non-UUID `run_id` surfaced as "the event type
+                    -- carries whitespace". Both were the refusal-conflation
+                    -- this file complains about elsewhere. A private code is
+                    -- the only spelling nothing else can produce.
+                    USING ERRCODE = 'CED01';
             END IF;
 
             IF p_step_id IS NULL THEN

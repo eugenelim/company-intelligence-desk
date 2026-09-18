@@ -758,13 +758,34 @@ is its commit, bound through the `contract-amendment` transition.
 **One line in `plan.md`'s Changelog for this amendment is false, and this is
 where a reader lands looking for the grounds.** That entry says "T5's `Tests`
 field updated for the second clause" and points here. The field was **not**
-updated: `plan.md` is hash-pinned at `edcaf7fe76b1…`, and editing it — even
-the Changelog — breaks `schedule check-current`, whose offered recovery clears
-the review retry counters this run has accumulated. So T5's `Tests` still
-describes the pre-amendment measurement method, and the shipped method is the
-one in § T7 re-run under the amendment below. The retraction was first recorded
-under § Review round 3 › What round 3 did NOT establish, which is not where the
-false line's own cross-reference sends anyone; round 4 moved it here.
+updated: T5's `Tests` still describes the pre-amendment measurement method,
+and the shipped method is the one in § T7 re-run under the amendment below.
+
+**Round 5 corrected why it was left, and the earlier reason given here was
+wrong.** This section used to say `plan.md` is hash-pinned and that editing it
+— even the Changelog — breaks `schedule check-current`, presenting the omission
+as a tooling impossibility. It is not. The amendment commit `3a75be9` edits
+`plan.md` in three places, the Changelog entry making this very claim among
+them, because a `contract-amendment` transition returns to
+`SPEC-PLAN-DRAFTING` and re-pins on the way back through `approve-plan`,
+`schedule` and `plan-locked`. What is true is narrower: the pin blocks edits
+*outside* such a transition, which is what round 3 measured and then
+over-generalised. Correcting the field was therefore available at the cost of a
+second amendment — a pre-EXECUTE review and two human gates — and the owner
+ruled on 2026-09-18 to leave it and restate this record instead. That is a
+choice with a cost, not an impossibility.
+
+**The divergence that leaves, stated plainly.** `Tests` is one of the plan's
+gate-read pinned fields, so T5's gate-read contract names a bound the shipped
+code deliberately does not assert: "reacquisition inside one poll interval"
+with no origin, the unguaranteeable reading this amendment rejected. Anyone
+reading T5's `Tests` as the method will be reading the retired one. A reviewer
+also cannot check the pin claim for themselves — the hash lives in work-loop
+state outside the tree, and no committed file contains it.
+
+The retraction was first recorded under § Review round 3 › What round 3 did NOT
+establish, which is not where the false line's own cross-reference sends
+anyone; round 4 moved it here.
 
 ### How the amendment's gates were satisfied
 
@@ -1077,11 +1098,22 @@ variant table carried only space-padded and case-varied spellings, so it could
 not have reddened for any of this; it now carries tab, newline, CR, VT, FF,
 NBSP, zero-width space, BOM, em space and ideographic space.
 
+**Round 5 superseded all of this, and the paragraph above overstated what it
+closed.** The fix was a denylist, and round 5 walked U+00AD, U+180E, U+2800,
+U+2066, U+FE0F and U+034F straight through it, then a Cyrillic homoglyph that
+no enumeration of invisible characters could reach. The dedup leg this section
+recorded as measured and closed was still open. See § Review round 5 › A
+denylist cannot close this rule, and two rounds were spent learning it.
+
 The interior-whitespace refusal first reused `invalid_parameter_value`, which
 the adapter already maps to `StepRunMismatch` — so a malformed type arrived as
 "step does not belong to run", adding a fresh instance of the very
-refusal-conflation this round found elsewhere. It has its own SQLSTATE and its
-own `MalformedEventType`.
+refusal-conflation this round found elsewhere. Round 4 moved it to
+`invalid_text_representation`, and round 5 found that no better: 22P02 is
+Postgres's generic cast-failure code, so a non-UUID `run_id` surfaced to the
+caller as a complaint about the event type. The code is now `CED01`, private to
+this repository, which is the first spelling nothing else on the call can
+produce.
 
 ### The pool claimed an invariant it cannot hold, and the overlap is ratified
 
@@ -1241,3 +1273,229 @@ rung 1.
   suite. The fence clock, the canonicaliser and the drain ordering were each
   reverted in place and the corresponding checks confirmed to red — the drain
   ordering redding alone. No wider mutation run was performed.
+
+## Review round 5 — the denylist finally failed, and two of round 4's fixes were unfalsifiable
+
+Three reviewers, twenty-five findings sustained by adjudication and one
+refuted. Every blocker was introduced or left open by round 4. This is the
+fifth consecutive round in which review found an assertion that cannot fail.
+
+### A denylist cannot close this rule, and two rounds were spent learning it
+
+Round 3 closed case and space padding on the reserved-type refusal. Round 4
+replaced `lower(btrim(...))` with a hand-enumerated class of whitespace and
+zero-width characters and recorded the rule as closing "every spelling". Round
+5 reproduced, independently in all three reviews and again by me:
+
+| Spelling | Round 4's rule |
+| --- | --- |
+| `policy.decision` + U+00AD soft hyphen | accepted, stored verbatim |
+| `policy.decision` + U+180E | accepted, stored verbatim |
+| `run.completed` + U+2800 braille blank | accepted, from the step path |
+| `policy.decision` + U+2066, U+FE0F, U+034F | accepted |
+| U+202E RLO + `policy.decision` | accepted — reverses rendering |
+| `policy.decision` with Cyrillic о or с | accepted, visually identical |
+| `tool.invoked` + U+00AD, twice, one derived key | both committed |
+
+The last row is the consequence that needs no assumption about readers: the
+partial index is predicated on the literal `type = 'tool.invoked'`, so a salted
+spelling lands outside the index that `worker-runtime.md` § The fence-detection
+window names as non-optional for the ratified two-worker overlap. Adjudication
+corrected the forged-audit leg's framing — the stored string is not *equal* to
+the reserved name, so equality readers are unaffected and that leg is a
+rendering concern — and left the dedup leg as the material one.
+
+**The homoglyph is why the architecture was wrong, not the enumeration.** A
+Cyrillic о is not whitespace; no denylist of invisible characters could ever
+have reached it. Each addition to such a list is an invitation to find the next
+omission, and three rounds obliged.
+
+The rule is now positive. A canonical form must be a dotted run of lowercase
+ASCII alphanumerics, and **`events.type` carries that as a CHECK** — so it
+holds on every path, not only the two append functions. Verified against a
+direct `INSERT` by `ced_owner`, the strongest caller in the system: the soft
+hyphen, the homoglyph and the empty string are all refused there too. That is
+what makes the negative reserved-name rule exhaustive *by construction*: every
+spelling that survives canonicalisation is plain ASCII, so it is either equal
+to a refused name or visibly different from one, and every admitted
+`tool.invoked` spelling lands inside the index.
+
+This is not the vocabulary enumeration T4 declined. It constrains the character
+set, not the set of names; a sibling spec adds any `foo.bar` type without
+touching a migration. `src/ced/domain/events.py` said the vocabulary was "not
+enumerated here or constrained in the schema", which the CHECK makes false as
+written — corrected in the same change, because a stale record is the defect
+this review keeps finding.
+
+Measured after the fix, as `app_worker` on a live lease it owns: trimmable
+padding of a reserved name refuses as `InsufficientPrivilege`; every
+unenumerated invisible character, both homoglyphs, interior padding, the
+pure-padding argument and the empty string refuse as `MalformedEventType`;
+`step.started` and `'  Step.Started  '` are admitted and stored as
+`step.started`.
+
+### Two of round 4's assertions could not fail, and one was in the check written to remove that shape
+
+`OBSERVATION_MARGIN_SECONDS` is 20 s of container-scheduling headroom, and its
+own docstring says it is "applied to the *helper's* timeout and never to an
+assertion", recording that round 1 found exactly this defect. Round 4 applied
+it to two assertions:
+
+- **AC-0011 clause 2** asserted `elapsed <= 30 + 20` while its helper fails at
+  30 + 20. Every value the helper can return satisfies it, so the criterion's
+  own 30 s was asserted nowhere on a criterion marked complete.
+- **The drain-versus-TTL check** asserted `surrender + 20 < 60`, i.e. under 40,
+  while its helper fails at 40 — in the test round 4 rewrote *specifically* to
+  fix an unfalsifiable bound, reproducing the fault in the other direction.
+
+The first is fixed by asserting against the observer's real poll step, which is
+0.5 s, not the 20 s headroom; the two quantities are now separate constants,
+because conflating them is what made both defects possible, and the sleeps in
+the helpers are tied to the constant that describes them. The comment claiming
+"each helper's timeout is strictly larger than the bound it precedes" was false
+and now states the arithmetic explicitly.
+
+The second was **deleted** rather than re-bounded, on adjudication's finding
+that re-bounding is the larger change: AC-0011 clause 1 already asserts
+`surrender < 20` under a 40 s timeout, which is falsifiable and strictly
+tighter than "far sooner than 60 s", so the check asserted less than its
+neighbour while looking independent. `AGENTS.md` § Cut before adding rung 1.
+
+### Round 4's other fixes, corrected
+
+- **The frozen-clock check could pass with the bug present.** It guarded that
+  the clock was frozen and the lease dead, but not that the lease was still
+  live when the caller's transaction opened. A stall past the 2 s window puts
+  the frozen timestamp beyond expiry, where the defective `> now()` predicate
+  also refuses — so the check would have degraded silently into one more row of
+  the absolute-past table it exists to go beyond. It now asserts
+  `frozen < lease_expires_at`.
+- **The partition guard pinned source text, not the containers.** It parsed
+  `deploy/compose.yaml`, which cannot catch the realistic failure: a container
+  keeps the environment it was created with, so a stack brought up before the
+  value changed keeps polling the old class while the file reads correctly and
+  the guard stays green — every other check in the file then times out and
+  blames the pool. It now reads `CED_POOL_CLASS` from the running containers
+  via `docker inspect`, and is defined ahead of the checks that depend on it so
+  the diagnostic reports first.
+- **The drain-ordering check could red with a false diagnosis.** The observer
+  connection inside the body thread was unbounded while the supervisor was
+  inside a 3 s join; a slow connect made `stop_body` return false and the
+  assertion read an empty list, reporting an ordering regression. The connect
+  is bounded at 1 s and the check now asserts the body was stopped and joined
+  before reading the observation, so a join timeout reds as itself.
+- **`MalformedEventType` was mapped from a code it did not own** — twice, as
+  recorded above. It is now `CED01`, matched by SQLSTATE rather than by
+  exception class, and the handler was **removed** from
+  `append_policy_decision`, which takes no type argument and so could only ever
+  have mislabelled. Ordering the new handler last is load-bearing:
+  `InvalidParameterValue` is a `DatabaseError` subclass, so placing the generic
+  clause first swallowed it and re-raised past its own handler, which would
+  have silently stopped `StepRunMismatch` ever being raised. Caught in
+  self-review and asserted against.
+- **Two records claimed AC-0009 gates the attribution bound.** It does not:
+  that check compares a route table and excludes `components.schemas` by
+  design, so the two published 256s could drift freely. Both comments are
+  corrected, and a separate construction check now compares them — deliberately
+  *not* an extension of AC-0009, because widening a ratified criterion's
+  artifact is not this delivery's call.
+- **The enumerated variant table claimed a universal property.** Its name,
+  `test_no_spelling_of_a_refused_type_reaches_the_log`, quantified over all
+  spellings while its evidence was sixteen characters that happened to be in
+  the trim class — which is why it was green against the round-5 bypass. It is
+  renamed to what it covers, and the guarantee is now asserted structurally
+  against the CHECK, so a spelling nobody enumerated is refused whether or not
+  anyone wrote a case for it.
+- **The attribution bound's positive control covered one field.** Only
+  `principal` was driven at the bound, so any `agent_role` maximum between 12
+  and 255 would have passed. Adjudication corrected the reviewer's scenario
+  here: a maximum of one would *not* have passed.
+- Smaller record corrections: the `CONTAINER_POOL_CLASS` comment had been
+  inserted into the middle of `REACQUIRE_BOUND_SECONDS`'s docstring, orphaning
+  a line so it documented the wrong constant and citing a test name that did
+  not exist; `TEST_POOL_CLASS`'s stated ground still described the
+  pre-round-4 deployment; the compose header still prescribed the single
+  `up -d` round 4 proved defective; the architecture map still described the
+  denylist; `pool.py`'s docstring enumerated five dispositions for six returns
+  and presented a derived 40 s threshold beside a measured figure with nothing
+  separating them.
+
+### The documented bring-up still raced, one step further in
+
+Round 4 split `up -d` into three commands so the schema exists before the
+workers start. Round 5 found the second step ungated: `up -d` returns when
+containers have started, not when Postgres accepts connections, and on a fresh
+volume `initdb` plus the role-creation hook run first — the healthcheck budgets
+up to 60 s. Only the worker step carries `depends_on: service_healthy`. The
+block now waits on `pg_isready` inline, where a reader copying it will get it.
+
+### One finding refuted
+
+The register (`workspace.toml`) files this spec under `approved` with
+`implementing` and `shipped` empty while `spec.md` reads `Implementing`.
+Adjudication refuted it as a delivery defect: nothing in this repository binds
+the two — no schema, transition or lint references `spec_queue` — and
+`spec.md`'s Follow-ons assign register changes to the owner. The observation
+stands and is acted on at closeout rather than as a code fix. Worth recording
+because the consequence is real: `workspace-status reconcile` currently returns
+an empty `canonical.active` and `canonical.ready`, so a resumed session could
+neither resume this spec nor start either sibling without the register moving
+first.
+
+### A process failure of mine, and what it cost
+
+Two of the three round-5 adjudications were machine-refused for artifact shape.
+The cause was my instruction: I told the adjudicators to open each verdict with
+`**N.**`, while the parser requires `**N. <title>**` — a single bold span
+closing after the title. I had hit this class of refusal in round 3 and
+specified it from memory rather than reading
+`STRICT_SUSTAINED_FINDING_LINE_RE`.
+
+Two consequences, both recorded rather than quietly absorbed:
+
+- **The round's fingerprint set is incomplete.** `review record` ran while only
+  the security adjudication was valid, and it *replaces* the fingerprint list
+  rather than appending, so re-recording the full set would bump the round and
+  retry counters again. The recorded set is 5 of 25. Cross-round repeat
+  detection for round 6 will therefore only compare against the security
+  findings; the quality and adversarial sets are compared by hand against the
+  persisted artifacts instead. **That is a weaker check, not an equivalent
+  one.** A reset would have restored it at the cost of the retry history the
+  owner's cap waiver was granted against, which is the worse trade.
+- **The engine and the cohort were briefly a round apart** — the cohort
+  recorded while the matching engine transition was rejected for an unsupported
+  flag, which is the exact split the tool's own error text warns about. Levelled
+  before any fix was written.
+
+The replacement adjudications, run with the grammar stated exactly, returned
+**different verdicts** from the refused pass on three findings: the AC-0009
+claim dropped from blocker to concern, the drain-versus-TTL check from blocker
+to advisory with its mechanism judged over-broad, and the SQLSTATE finding from
+concern to advisory. That is the second time replacement adjudications have
+changed verdicts, and it is the argument against the shortcut of editing a
+refused artifact until it parses.
+
+### What round 5 did NOT establish
+
+- **No spelling was proven impossible by exhaustion.** The CHECK is asserted
+  structurally and probed with examples; the guarantee rests on the regex being
+  what it reads as, not on having enumerated the complement of its character
+  class. What changed is the direction of the default: unenumerated input is
+  now refused rather than admitted.
+- **Normalisation of admitted names is unexamined for collation effects.**
+  `lower()` is applied before the shape check, and the container's collation
+  was not established. Over-refusal is the safe direction and the shape admits
+  only ASCII, so a fold *into* the admitted set cannot smuggle a non-ASCII
+  character through; a fold between two admitted ASCII names is not ruled out.
+- **The DDL guard is still defeatable from the environment.** `PGHOSTADDR`,
+  `PGSERVICE` and `PGSERVICEFILE` redirect libpq without appearing in the DSN
+  the guard parses. Sustained as a concern and **not fixed in this round** — it
+  needs the guard to decide on the effective target rather than the DSN, and
+  the obvious shortcut is wrong: `inet_server_addr()` returns the container's
+  bridge address on the legitimate substrate, so a loopback requirement would
+  refuse the one target the check exists for. Recorded as open.
+- **The stuck-body path remains undriven** and the `stop_grace_period`
+  interaction remains unexercised, unchanged from round 4.
+- **Mutation evidence covers the type rule and the drain ordering**, re-run
+  after this round's changes. The two bound corrections are verified by
+  arithmetic and by the suite passing, not by a mutation run.

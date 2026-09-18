@@ -81,7 +81,30 @@ def upgrade() -> None:
             -- Dense from 1 per run, allocated inside the append transaction.
             seq          bigint NOT NULL,
             occurred_at  timestamptz NOT NULL DEFAULT now(),
-            type         text NOT NULL,
+            -- **A dotted run of lowercase ASCII alphanumerics, and nothing
+            -- else.** This constrains the character *shape*, not the set of
+            -- names: the step-scoped vocabulary is still unenumerated, so a
+            -- sibling spec adds whatever `foo.bar` types it emits without a
+            -- migration. See `src/ced/domain/events.py`.
+            --
+            -- Here rather than only in the append functions, because it is the
+            -- structural closure. Two review rounds tried to close the
+            -- reserved-type rule with a denylist of invisible characters
+            -- inside revision 0002's functions, and each was walked through —
+            -- U+00AD, U+180E, U+2800, U+2066, U+FE0F, U+034F, and finally a
+            -- Cyrillic homoglyph no whitespace denylist could ever catch. A
+            -- CHECK on the column holds on every path, including direct DML by
+            -- the schema owner, which is the strongest caller there is. That
+            -- is what makes revision 0002's negative reserved-name rule
+            -- exhaustive by construction rather than by enumeration, and what
+            -- keeps every admitted `tool.invoked` spelling inside
+            -- `events_tool_invoked_idempotency_idx` — the dedup guarantee
+            -- `worker-runtime.md` § The fence-detection window calls
+            -- non-optional. It also refuses the empty string, which a
+            -- pure-padding argument used to canonicalise down to and store.
+            type         text NOT NULL
+                         CONSTRAINT events_type_is_canonical
+                         CHECK (type ~ '^[a-z0-9]+([._-][a-z0-9]+)*$'),
             -- Null for run-lifecycle events, which are appended by `api`
             -- before any step exists. r7 § Event log: the envelope's step_id
             -- and agent_role are null on that path.

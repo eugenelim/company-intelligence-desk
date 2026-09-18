@@ -42,13 +42,19 @@ pytestmark = pytest.mark.substrate
 
 #: Fast enough to keep the suite offline-quick, slow enough that the heartbeat
 #: fires at least once inside a step.
-#: A pool class the container workers do not poll. They are started with no
-#: `CED_POOL_CLASS`, so they take the default — and this suite runs with them
-#: up, inserting `runnable` rows at that same default. A container claim
-#: landing before the test's own `claim_one` made `lease is not None` or
-#: `epoch == 1` red for a reason unrelated to the code, and every row these
-#: tests abandoned was afterwards claimed and re-abandoned by a container.
-#: `pool_class` is the partition seam r7 change 3 already shipped.
+#: A pool class nothing else polls. `pool_class` is the partition seam r7
+#: change 3 already shipped, and there are now three users of it: the container
+#: workers poll `fault-injection` (set in `deploy/compose.yaml`, where the
+#: reason is recorded), this suite takes the class below, and the API and its
+#: own suite keep the column default.
+#:
+#: This comment used to say the containers ran with no `CED_POOL_CLASS` and
+#: took the default, which was the ground for partitioning *this* suite off
+#: them. That stopped being true when round 4 partitioned the containers
+#: instead, so the two partitions now do different work: the containers' one
+#: keeps them off the API suite's default-class rows, and this one keeps this
+#: suite's rows from being claimed by anything at all — including a stray
+#: worker someone starts by hand.
 TEST_POOL_CLASS = "in-process-tests"
 
 FAST = pool.PoolConfig(
@@ -626,7 +632,14 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
     def look() -> None:
         from ced.adapters.postgres.dsn import database_url
 
-        with psycopg.connect(database_url("migration")) as observer:
+        # **Bounded, and well inside the join window.** `stop_body` joins for
+        # one lease TTL, which is 3 s under `FAST`; an unbounded connect here
+        # could outlast it, leaving `stop_body` to return False, `_execute` to
+        # take the stuck-body branch, and the assertion below to read an empty
+        # list — reporting a production ordering regression when what actually
+        # happened was a slow connect. The assertion on `body.stopped` below is
+        # the other half of telling those two apart.
+        with psycopg.connect(database_url("migration"), connect_timeout=1) as observer:
             row = observer.execute(
                 "SELECT lease_expires_at > clock_timestamp() FROM steps WHERE step_id = %s",
                 (step_id,),
@@ -649,6 +662,15 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
     worker._execute(worker_conn, lease)
     drainer.join(timeout=10)
 
+    # Attribution first: if the body was never stopped and joined, the
+    # observation below is missing for a reason that has nothing to do with the
+    # ordering, and the message would blame the wrong thing.
+    assert body.stopped.is_set() and body.finished.is_set(), (
+        "the body was not stopped and joined within the drain's join window, "
+        "so `_execute` took the stuck-body branch — this is a join timeout, "
+        "not an ordering regression, and the observation below is absent "
+        f"rather than false (observed {live_when_asked_to_stop!r})"
+    )
     assert live_when_asked_to_stop == [True], (
         "the lease was already surrendered when the body was asked to stop, "
         "so the step was claimable beside a body that was still running — "

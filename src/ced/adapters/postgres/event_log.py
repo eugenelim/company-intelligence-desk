@@ -28,6 +28,7 @@ __all__ = [
     "DEADLOCK_ATTEMPTS",
     "DEADLOCK_BACKOFF_SECONDS",
     "Fenced",
+    "MALFORMED_EVENT_TYPE_SQLSTATE",
     "MalformedEventType",
     "StepRunMismatch",
     "RunAlreadyTerminal",
@@ -44,6 +45,12 @@ __all__ = [
 #: over ~350 ms in total, which is well inside the 200 ms `deadlock_timeout`
 #: the test container runs with and bounded enough not to hide a real ordering
 #: defect behind patience.
+#: The private SQLSTATE `append_step_event` raises when a type fails the
+#: canonical shape. In Postgres's user-defined range, so nothing in the server
+#: or the driver can produce it — which is the point, and the reason this is
+#: matched by code rather than by a `psycopg` exception class.
+MALFORMED_EVENT_TYPE_SQLSTATE = "CED01"
+
 DEADLOCK_ATTEMPTS = 3
 DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15, 0.30)
 
@@ -80,13 +87,21 @@ class StepRunMismatch(Exception):
 
 
 class MalformedEventType(Exception):
-    """The event type carries whitespace or a zero-width character inside it.
+    """The event type is not a dotted run of lowercase ASCII alphanumerics.
 
     Refused by `append_step_event` rather than normalised away, because
     collapsing interior padding would manufacture a name the caller never
-    sent. It carries its own SQLSTATE (`invalid_text_representation`) so that
-    it does not arrive as `StepRunMismatch`, which is a statement about the
-    step and run arguments disagreeing and nothing to do with the type.
+    sent. Covers an unenumerated invisible character, a homoglyph, interior
+    padding, and the empty string a pure-padding argument trims down to.
+
+    **Recognised by SQLSTATE `CED01`, which this repository owns**, and the
+    third code this refusal has had. `invalid_parameter_value` arrived as
+    `StepRunMismatch`, because the adapter already mapped it. Its replacement
+    `invalid_text_representation` was no better: 22P02 is what Postgres raises
+    for any failed input cast on the same statement, so a non-UUID `run_id`
+    surfaced to the caller as a complaint about the event type. A private code
+    is the only spelling no other failure on that call can produce, which is
+    what makes this mapping exact rather than merely distinct.
     """
 
 
@@ -206,10 +221,20 @@ def append_step_event(
                 return int(row[0])
         except psycopg.errors.SerializationFailure as exc:
             raise Fenced(str(exc).splitlines()[0]) from exc
-        except psycopg.errors.InvalidTextRepresentation as exc:
-            raise MalformedEventType(str(exc).splitlines()[0]) from exc
         except psycopg.errors.InvalidParameterValue as exc:
             raise StepRunMismatch(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.DatabaseError as exc:
+            # **Last, and that ordering is load-bearing.** `psycopg` has no
+            # class for a private SQLSTATE, so `CED01` arrives as a generic
+            # `DatabaseError` and has to be matched by code. But every specific
+            # handler above is a `DatabaseError` subclass, so putting this
+            # clause before them would swallow their exceptions and re-raise
+            # them past their own handlers — `StepRunMismatch` would stop being
+            # raised at all. Anything that is not `CED01` re-raises untouched;
+            # this must never become a catch-all for the family.
+            if exc.sqlstate != MALFORMED_EVENT_TYPE_SQLSTATE:
+                raise
+            raise MalformedEventType(str(exc).splitlines()[0]) from exc
 
     return retry_on_deadlock(call)
 
@@ -269,8 +294,6 @@ def append_policy_decision(
                 return int(row[0])
         except psycopg.errors.SerializationFailure as exc:
             raise Fenced(str(exc).splitlines()[0]) from exc
-        except psycopg.errors.InvalidTextRepresentation as exc:
-            raise MalformedEventType(str(exc).splitlines()[0]) from exc
         except psycopg.errors.InvalidParameterValue as exc:
             raise StepRunMismatch(str(exc).splitlines()[0]) from exc
 

@@ -121,13 +121,18 @@ components:
         principal:
           type: string
           minLength: 1
-          # Bounded here and in `StartRunRequest` together, because AC-0009
-          # asserts the two agree. Both fields are self-asserted attribution on
-          # an unauthenticated surface and are stored as unconstrained `text`,
-          # so without a bound one request can persist an arbitrarily large
-          # string that every later read of that run returns. 256 is chosen to
-          # be far above any real principal or role name and far below anything
-          # worth storing.
+          # The counterpart of `ATTRIBUTION_MAX_LENGTH` in
+          # `src/ced/api/models.py`; the two carry the same number and must be
+          # changed together. **AC-0009 does not compare them** — an earlier
+          # version of this comment said it did, but that check compares the
+          # route table and excludes `components.schemas` by design. The check
+          # that holds these two in step lives in `tests/api`.
+          #
+          # Both fields are self-asserted attribution on an unauthenticated
+          # surface and are stored as unconstrained `text`, so without a bound
+          # one request can persist an arbitrarily large string that every
+          # later read of that run returns. 256 is far above any real principal
+          # or role name and far below anything worth storing.
           maxLength: 256
           description: The initiating user. A run is attributed, never anonymous.
         agent_role:
