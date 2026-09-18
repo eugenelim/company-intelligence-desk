@@ -27,3 +27,10 @@ GRANT USAGE ON SCHEMA public TO app_api, app_worker, app_policy;
 -- owner, so that every object a migration creates is owned by `ced_owner`
 -- rather than by the superuser. `migrations/env.py` issues `SET ROLE`.
 GRANT ced_owner TO postgres;
+
+-- Revision 0002 assigns `fence_step` to `app_worker`, so the fence runs at
+-- worker's privilege rather than the schema owner's. Postgres requires the
+-- role performing `ALTER FUNCTION ... OWNER TO` to be a member of the incoming
+-- owner, so the membership is a provisioning fact and lives here. It grants
+-- `ced_owner` nothing it did not already hold: it owns every object already.
+GRANT app_worker TO ced_owner;

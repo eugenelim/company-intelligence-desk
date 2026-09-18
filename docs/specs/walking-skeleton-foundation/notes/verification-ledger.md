@@ -122,3 +122,74 @@ Appended per task as evidence lands.
   the correct call on a pattern the lint cannot distinguish from an address.
   `dsn.py` now assembles the URL from parts, so no credential-shaped literal is
   in the source. Nothing was added to the lint's skip list.
+
+### T4 — the event log appends densely, fenced, and refuses a forged decision
+
+Twenty-seven hypothesis checks in `tests/event_log`, all green, against the
+schema this delivery ships rather than the spike's own.
+
+- **AC-0002 — established.** With the step insert forced to fail by a
+  `step_id` that already exists — a real unique violation on the real
+  statement — the run row, the step row and the event are all absent, and the
+  connection is still usable afterwards. The happy path is asserted alongside
+  it so the negative case is not vacuously green. **No failure-injection
+  switch ships in production code**; an earlier draft had one in
+  `start_run`'s signature and it was removed.
+- **AC-0003 — established.** Eight concurrent writers, 25 appends each, on one
+  run: 200/200 events, `seq` dense from 1, zero duplicates, `runs.next_seq`
+  at 200, zero deadlocks and zero errors. Each writer also runs the claim
+  half — `FOR UPDATE SKIP LOCKED` on `steps` — so both paths contend on the
+  same rows in the designed order, which is what makes this a lock-ordering
+  result and not only an append result.
+- **AC-0004 — established.** Three appends at epoch 7 give `seq` 1..3; an
+  append at epoch 6 raises `Fenced`; the sequence is still `[1, 2, 3]` and
+  `next_seq` is still 3, so the rolled-back attempt consumed no number; and
+  the next legitimate append gets 4, not 5. This is the whole reason
+  `next_seq` is a row UPDATE.
+- **AC-0005 — established, on the shipped schema.** A real `worker`-role
+  connection is refused the reserved type with `InsufficientPrivilege`, and the
+  message names `app_worker` and not `ced_owner` — `session_user`, which is
+  spike P1's finding, pinned. The worker is separately refused `EXECUTE` on the
+  policy function, which is what makes the split a split rather than one
+  function being polite. `api` is refused both a step event and a decision, and
+  is restricted to the two run-lifecycle types; **no role holds a direct
+  `INSERT` on `events`**, which is what makes every other refusal load-bearing.
+  All three roles can still do their own job, asserted separately.
+- **r7 change 1 taken the second way, and checked.** `fence_step` is owned by
+  `app_worker`, verified in `pg_proc`, so the fence runs at worker's privilege
+  rather than the schema owner's. `app_policy` is refused
+  `SELECT ... FOR UPDATE` on `steps` directly, which is the check that the
+  fence genuinely had to be a function rather than a grant.
+- **AC-0006 — established, SQL level only.** A second `tool.invoked` carrying a
+  recorded derived key raises `UniqueViolation`, and consumes no sequence
+  number. The index's partiality is checked in both directions: the same key
+  under a different type is admitted, several keyless events are admitted, and
+  the same key in a different run is admitted. The *behavioural* half — a
+  duplicate terminating the step — is `walking-skeleton-agent-runtime`'s, per
+  r7 change 2's disposition.
+- **The lock-ordering rule is shown failing.** Mixed orders on one
+  `(run, step)` pair deadlock. A **uniformly** inverted order does **not** —
+  asserted, because Phase 0 sharpened the claim that way and a suite reading
+  "inverted order deadlocks" would send a reader after the wrong defect. The
+  designed order is clean under the same pressure. A structural check also
+  reads both append functions out of `pg_proc` and asserts the fence precedes
+  the `runs` allocation, so a future edit cannot silently invert it.
+- **Argued, not demonstrated:** spike P2 ran with no second locker on `steps`,
+  so `append_policy_decision` taking the fence in the same order as the worker
+  path preserves P2's proven ordering by argument. What is demonstrated here is
+  that a mixed order still deadlocks and the designed one does not.
+- **Not established:** the step-scoped event vocabulary is deliberately not
+  enumerated in the schema. The database enforces the negative rules — the
+  worker path refuses `policy.decision`, the run-lifecycle path accepts only
+  `run.requested` and `run.cancelled` — and an enum frozen now would make each
+  new sibling event type a migration against a shipped spec.
+- **Not established:** nothing in this spec appends a terminal event.
+  `append_run_event` admits exactly r7's two names, so `run.completed` and
+  `run.failed` have no writer here; the run state machine that produces them is
+  `walking-skeleton-evidence`'s. The terminal index and `is_terminal` exist for
+  the reader.
+- **Not established:** any managed-service behaviour, and any behaviour at the
+  1-second default `deadlock_timeout`. Local container at 200 ms.
+- **A revision-pinned test was found and fixed.** `test_upgrade_head_is_idempotent`
+  asserted `alembic current` started with `"0001"` and broke the moment
+  revision 0002 landed. It now compares `current` against `heads`.

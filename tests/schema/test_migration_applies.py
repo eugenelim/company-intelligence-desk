@@ -111,12 +111,27 @@ def _alembic(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _revision_ids(output: str) -> set[str]:
+    """Return the revision identifiers in an `alembic current`/`heads` listing.
+
+    Each line is `<rev> (head)` or `<rev>`, so the identifier is the first
+    token. Parsed rather than matched against a literal: an earlier version of
+    this test asserted `startswith("0001")` and broke the moment revision 0002
+    landed, which is a test pinned to a number nobody meant to freeze.
+    """
+    return {line.split()[0] for line in output.splitlines() if line.strip()}
+
+
 def test_upgrade_head_is_idempotent(require_substrate: None) -> None:
     """Re-running the migration is a no-op, not a second application."""
     result = _alembic("upgrade", "head")
-
     assert result.returncode == 0, result.stderr
-    assert _alembic("current").stdout.strip().startswith("0001")
+
+    current = _alembic("current")
+    heads = _alembic("heads")
+    assert current.returncode == 0, current.stderr
+    assert _revision_ids(current.stdout) == _revision_ids(heads.stdout)
+    assert _revision_ids(heads.stdout), "alembic reports no head revision"
 
 
 def test_downgrade_is_not_offered(require_substrate: None) -> None:
