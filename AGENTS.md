@@ -165,7 +165,7 @@ environment, and the standalone binary is:
 ```bash
 docker-compose -f deploy/compose.yaml up -d --build
 ./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
-./.venv/bin/python -m pytest           # the full suite, about 4 minutes
+./.venv/bin/python -m pytest           # the full suite, about 3 minutes
 docker-compose -f deploy/compose.yaml down -v
 ```
 

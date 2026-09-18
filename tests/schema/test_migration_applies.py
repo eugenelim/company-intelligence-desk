@@ -9,12 +9,15 @@ the exit code is only one of the things it asserts.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import psycopg
 import pytest
+
+from ced.adapters.postgres.dsn import database_url
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -82,12 +85,22 @@ def test_the_sequence_counter_is_not_a_bigserial(
         )
 
 
+@pytest.mark.parametrize("role", ["api", "worker", "policy"])
 def test_no_role_can_create_objects_in_the_public_schema(
-    api_conn: psycopg.Connection,
+    role: str, request: pytest.FixtureRequest
 ) -> None:
-    """Without this, any login role could create a shadowing object."""
+    """Without this, any login role could create a shadowing object.
+
+    Parametrised over all three roles. It covered `api` alone, which left
+    `app_worker` — the one role revision 0002 transiently grants and revokes
+    `CREATE` on the schema for — unasserted, so a failed or reordered revoke
+    would have been invisible.
+    """
+    conn: psycopg.Connection = request.getfixturevalue(f"{role}_conn")
+
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
-        api_conn.execute("CREATE TABLE shadow_probe (x int)")
+        conn.execute("CREATE TABLE shadow_probe (x int)")
+    conn.rollback()
 
 
 @pytest.mark.parametrize("role", ["api", "worker", "policy"])
@@ -101,13 +114,14 @@ def test_each_application_role_can_open_a_connection_and_read(
     assert conn.execute("SELECT current_setting('deadlock_timeout')").fetchone() == ("200ms",)
 
 
-def _alembic(*args: str) -> subprocess.CompletedProcess[str]:
+def _alembic(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Run the real `alembic` console script from the project's environment."""
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        env=None if env is None else {**os.environ, **env},
     )
 
 
@@ -190,3 +204,96 @@ def test_the_terminal_index_names_the_same_types_as_the_domain_vocabulary(
     assert predicate.count("'") // 2 == len(TERMINAL_EVENT_TYPES), (
         f"the index predicate names types the vocabulary does not: {predicate}"
     )
+
+
+def test_the_run_lifecycle_function_admits_exactly_the_domain_vocabulary(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """`RUN_LIFECYCLE_TYPES` is re-declared in the migration; join the two.
+
+    The domain module claims to hold "the vocabulary both sides agree on", and
+    agreement means checked. `RESERVED_EVENT_TYPE` is checked behaviourally by
+    the privilege-split suite and `TERMINAL_EVENT_TYPES` by the index check
+    above; this is the third, and it was missing.
+    """
+    from ced.domain.events import RUN_LIFECYCLE_TYPES
+
+    row = owner_conn.execute(
+        "SELECT prosrc FROM pg_proc p JOIN pg_namespace n "
+        "ON n.oid = p.pronamespace "
+        "WHERE n.nspname = 'public' AND p.proname = 'append_run_event'"
+    ).fetchone()
+    assert row is not None, "append_run_event is absent"
+    predicate = row[0].split("NOT IN (", 1)[1].split(")", 1)[0]
+
+    admitted = {piece.strip().strip("'") for piece in predicate.split(",")}
+    assert admitted == set(RUN_LIFECYCLE_TYPES), (
+        f"the migration admits {sorted(admitted)} while the domain module "
+        f"declares {sorted(RUN_LIFECYCLE_TYPES)}"
+    )
+
+
+def test_the_migration_applies_to_a_database_at_no_revision(
+    require_substrate: None, owner_conn: psycopg.Connection
+) -> None:
+    """QE-05 — every other check here reads a schema it did not create.
+
+    `require_substrate` skips unless `alembic_version` already exists, so
+    `upgrade head` is an Alembic-level no-op in this process and the
+    commit-nothing defect this module exists for would pass unseen. This
+    creates a throwaway database, migrates it from nothing, and asserts the
+    tables are there — so a revision that commits nothing reds.
+    """
+    name = "ced_migration_probe"
+    # CREATE DATABASE cannot run inside a transaction block.
+    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+        admin.execute(f"DROP DATABASE IF EXISTS {name}")
+        admin.execute(f"CREATE DATABASE {name}")
+    try:
+        probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
+        # The roles are cluster-wide, but the schema owner's grants are not:
+        # replay the provisioning file so the migration has an owner to
+        # SET ROLE to, exactly as the container init hook does.
+        init_sql = (REPO_ROOT / "deploy" / "postgres-init" / "01-roles.sql").read_text()
+        # Strip comment lines *before* splitting. Splitting first leaves each
+        # comment attached to the statement that follows it, which Postgres
+        # then tries to parse as SQL.
+        bare = "\n".join(
+            line
+            for line in init_sql.splitlines()
+            if line.strip() and not line.strip().startswith("--")
+        )
+        statements = [s.strip() for s in bare.split(";") if s.strip()]
+        with psycopg.connect(probe_url, autocommit=True) as probe:
+            for statement in statements:
+                # Role creation already happened cluster-wide; only the
+                # schema-scoped statements need replaying here.
+                if statement.upper().startswith(("CREATE ROLE", "GRANT CED_FENCE")):
+                    continue
+                probe.execute(statement)
+
+        before = _table_names(probe_url)
+        assert before == set(), f"the probe database was not empty: {before}"
+
+        result = _alembic("upgrade", "head", env={"CED_DATABASE_URL": probe_url})
+        assert result.returncode == 0, result.stderr
+
+        after = _table_names(probe_url)
+        assert EXPECTED_TABLES <= after, (
+            f"upgrade head exited 0 but left {sorted(after)} — the "
+            "commit-nothing defect this check exists for"
+        )
+    finally:
+        with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+            admin.execute(f"DROP DATABASE IF EXISTS {name}")
+
+
+def _table_names(url: str) -> set[str]:
+    with psycopg.connect(url) as conn:
+        return {
+            row[0]
+            for row in conn.execute(
+                "SELECT relname FROM pg_class "
+                "WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace"
+            ).fetchall()
+        }

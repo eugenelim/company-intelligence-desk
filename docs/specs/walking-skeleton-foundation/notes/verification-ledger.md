@@ -371,3 +371,150 @@ demonstrate the mechanism and not the number, and the number is the criterion.
   pass r7's own header already names as outstanding**, not to this spec, which
   is forbidden from designing around a ratified decision. Surfaced to the owner
   rather than silently adopted.
+
+## Review round 1 — two owner rulings, and how the stop was resolved
+
+Both `security-reviewer` and `adversarial-reviewer` adjudications classified
+`invalid (indeterminate-present)`. Neither indeterminate was machine-checkable,
+so the bounded evidence retry was unavailable and the unit stopped and surfaced.
+The owner chose the **steer** rung and ruled on both, 2026-09-18. The rulings
+are the authority that resolves the indeterminates; no replacement adjudication
+was run, because a steer is a redirection of this session rather than new
+evidence.
+
+| Indeterminate | What was missing | Owner ruling, 2026-09-18 |
+| --- | --- | --- |
+| `security-reviewer` finding 2 — `fence_step` owned by `app_worker` confers `DROP`/`ALTER` over the control that constrains that role | An owner ruling: r4 item 1's *preferred* option is what was implemented, so the finding contests a ratified decision, which the spec makes Ask-first | **A third, non-login owner for the fence** — neither of r4 item 1's two options. Recorded in ADR-0004, which supersedes r4 item 1's second option in part |
+| `adversarial-reviewer` finding 8 — six changed paths are named by no task's pinned `Touches` | Whether `Touches` containment binds provisioning and test-harness files, and whether the PR body would carry them | **Admit them as a PR `Bundled fixes:` section**, which is the finding's own stated remedy |
+
+Adjudication refuted 14 of 46 raw findings. Three would have introduced defects
+had they been applied as filed, and they are recorded here because the value of
+the gateway is exactly this:
+
+- Rewriting ADR-0001's `Superseded in part: ADR-0002 D5` to `D1` would have
+  **introduced** an ADR-S009 violation. Under RFC-0102 as the shape lint
+  implements it, in both supersession halves the cited D-ID belongs to the
+  *superseded* record — so ADR-0001 correctly cites its own D5.
+- `retry_on_deadlock`'s `assert last is not None` is followed by an
+  unconditional `raise`, so `python -O` cannot make it fall through and return
+  `None`.
+- The DSN-fragment rationale does hold. The identifier lint's email rule
+  requires a dot in the host, and Compose's `postgres` hostname has none, so the
+  four Compose URLs passing is the rule discriminating rather than the reason
+  failing.
+
+### Review round 1 — what the fixes established
+
+121 checks green, up from 87. The four sustained blockers are closed and each
+was **observed** failing before the fix rather than reasoned about.
+
+**The `pg_temp` capture — closed, and it was real.** Reproduced against the
+running substrate before the fix: as `app_worker`, a temp `events` table made
+`append_step_event` return `seq = 1` with the row in `pg_temp.events`,
+`public.events` empty and `public.runs.next_seq` advanced to 1 — a suppressed
+audit record plus the permanent hole the row-update counter exists to prevent.
+A temp `runs` seeded at 499 made the same call write `seq = 500` into the real
+table. After the fix — every relation schema-qualified and
+`search_path = pg_catalog, pg_temp` on all four definer functions — the same
+probes return `seq = 1`, leave 0 rows in `pg_temp`, and put 1 row in
+`public.events`. Eleven checks in `tests/event_log/test_definer_hardening.py`
+cover it, including the temp-`steps` variant that would have satisfied the
+fence for a lease the caller does not hold, and the policy-role variant that
+*denied* the authorization-audit path.
+**AC-0005 passed throughout both states.** It asserts the forgery refusal, and
+the fence beneath it was independently subvertible. That is the criterion-shaped
+failure this spec's own standard is meant to catch and did not.
+
+**The fence's owner — closed, by owner ruling.** ADR-0004 records a third,
+`NOLOGIN` owner, `ced_fence`, granted to no application role. Verified: as
+`app_worker`, `DROP FUNCTION`, `ALTER FUNCTION … SET search_path`,
+`ALTER FUNCTION … OWNER TO` and `CREATE OR REPLACE` on the fence are each
+`InsufficientPrivilege`; all four succeeded under r4 item 1's preferred
+ownership. `ced_fence` holds only `USAGE` on the schema and `SELECT`/`UPDATE`
+on `steps`, so r4's privilege narrowing is preserved rather than traded away.
+`GRANT app_worker TO ced_owner` is gone, which also removed the membership that
+let the owner-definer functions read a worker session's temporary tables.
+
+**The published ports — closed.** `docker ps` now reports
+`127.0.0.1:55432->5432/tcp` and the two MinIO ports likewise; it reported
+`0.0.0.0:…` before. The three "local only" comments in this repository are now
+implemented rather than merely asserted.
+
+**AC-0011 — closed, and the criterion is now asserted.** The old assertion used
+the same value as its helper's timeout, so it was satisfied by every value the
+helper could return, and the criterion's own 30 s was asserted nowhere. The
+supervisor now parks on a wake event that `request_stop` sets, so `SIGTERM` is
+observed at once instead of after up to one heartbeat. **Measured: 10.1 s**
+against a 30 s asserted bound and a 50 s helper timeout — so the assertion is
+what reds. It was 29.8 s before, under a bound that could not fail.
+
+**The pool's four unexercised paths — closed.** 13 checks in `tests/worker`
+drive completion→`release`, the failed-body branch, the fence-loss abandon and
+the terminal-run abandon in process through the `step_body` seam, plus
+`claim_one`, `renew`, `release`, its fenced no-op, and `verify_boot`. Timings
+are compressed **there and only there**; AC-0010 and AC-0011 stay at r7's real
+values in `tests/fault_injection`, because a compressed run demonstrates the
+mechanism and not the number. Every abandon path now joins its body, so "one
+step in flight per worker" holds on all four exits rather than two.
+
+**A new check was mutation-proved.** `test_the_migration_applies_to_a_database_at_no_revision`
+creates a throwaway database, replays the provisioning statements and migrates
+from nothing. With `connection.commit()` removed from `migrations/env.py` it
+**fails** naming the absent `events` table; restored, it passes. The old
+idempotency check ran against an already-migrated substrate, where
+`upgrade head` is an Alembic-level no-op, so the commit-nothing defect this
+module exists for would have passed unseen.
+
+### What these fixes did NOT establish
+
+- **`ced_fence` is verified on core Postgres only.** Nothing tests whether a
+  managed service's superuser surrogate behaves the same way about ownership.
+- **The retry branch is exercised against a stub, not a real deadlock.** A
+  40P01 through an append path is not reliably producible on demand — the
+  designed lock order is what prevents it — so the choice was a stub that
+  walks the branch or no coverage at all. `tests/event_log/test_lock_ordering.py`
+  produces real 40P01s, but below the retry, through raw row locks.
+- **AC-0003's deadlock assertion shows less than its old comment claimed.**
+  With `retry_on_deadlock` inside `append_step_event`, `assert deadlocks == []`
+  means *no deadlock survived the retry*. The ordering claim itself rests on
+  `test_lock_ordering.py`, where the contenders take raw locks and the
+  mixed-order case is shown deadlocking. The comment now says so.
+- **`UPDATE ON runs` remains table-level for both `api` and `worker`**, because
+  that is exactly what r7's identity table grants. r7 separately states that
+  `next_seq` is never bumped outside the two append paths, so that rule is
+  enforced **by convention above the grant, not by the grant**. AC-0003 and
+  AC-0004 therefore establish density under concurrent *appends* and not that
+  the column cannot be moved by a direct statement. Recorded rather than
+  narrowed: narrowing it unilaterally would deviate from ratified authority.
+  `app_api`'s table-wide `UPDATE` on **`steps`** *was* narrowed to `INSERT`,
+  because r7 grants that role only "`steps` enqueue" and the wider grant
+  reached `lease_epoch` and `owner` — the fence's own inputs.
+- **Mutual exclusion is not established.** `steps.owner` is one column, so the
+  old "exactly one owner" check could not fail once an owner existed, and
+  nothing observes whether two workers execute the same step. The test and this
+  ledger now claim only what holds: one owner recorded, claimed at epoch 1, and
+  a renewal rather than a re-take across a heartbeat.
+- **The worker appends no events.** Claim, heartbeat, fence loss, drain and
+  release all mutate the `steps` row and log a line; none appends to the event
+  log. The plan's pinned T5 `Tests` says AC-0010 reads reacquisition "from the
+  event log, not from a log line" — **the implementation reads the `steps` row
+  instead**, which is a substitution of the evidence source, named here rather
+  than left implied. The row is the stronger of the two available sources (a
+  log line records what a worker believed), but it is not what T5 names.
+- **The worker is crash-only.** A transient database error exits the process;
+  `restart: "no"` means capacity halves until an operator intervenes. In-loop
+  retry is machinery for a deployment this spec puts out of scope, so the
+  posture is recorded rather than built, and the ECS substitution covers
+  container kill and not process exit.
+- **The image is not reproducible.** Direct dependencies are exact-pinned and
+  the three images are now digest-pinned, but every transitive package resolves
+  fresh at build time with no lockfile and no integrity hashes. A hash-locked
+  resolution needs a tool the plan's dependency list does not carry, which is an
+  Ask-first boundary; not taken.
+- **No scanner covers CVEs, secrets or IaC misconfiguration.** There is no CI,
+  which `AGENTS.md` records as deliberate. An IaC scanner would have caught the
+  `0.0.0.0` publish that two human-shaped reviewers caught instead.
+- **`components.schemas` is still outside AC-0009.** The route table is
+  compared in full; the response-body schemas are not, so renaming a field in
+  `src/ced/api/models.py` would not red. Adjudication ruled the criterion's own
+  words cover served *routes*, and this is recorded as the gap it leaves.

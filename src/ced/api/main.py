@@ -18,7 +18,6 @@ from uuid import UUID
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
 
 from ced.adapters.postgres import event_log
 from ced.adapters.postgres.dsn import database_url
@@ -134,17 +133,6 @@ def read_events(
     _require_run(conn, run_id)
     envelopes = event_log.read_events(conn, run_id=run_id, after=after, limit=limit)
     return EventPage(run_id=run_id, events=[Event.of(envelope) for envelope in envelopes])
-
-
-@app.exception_handler(psycopg.errors.UniqueViolation)
-def _unique_violation(request: object, exc: psycopg.errors.UniqueViolation) -> JSONResponse:
-    """A collision is a conflict, not a server fault.
-
-    The detail deliberately omits the database message: it names roles,
-    functions and constraint identifiers, and this handler sits on the
-    internet-facing surface.
-    """
-    return JSONResponse(status_code=409, content={"detail": "conflict"})
 
 
 def run() -> None:

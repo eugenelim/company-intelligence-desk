@@ -156,6 +156,16 @@ def upgrade() -> None:
     # `policy`: read only. Its single write is the policy.decision append,
     #        which arrives in revision 0002 as a function call and gives it no
     #        table access at all.
+    #
+    # `UPDATE ON runs` is table-level for both `api` and `worker` because that
+    # is exactly what r7's identity table grants — "write `runs` (incl.
+    # `next_seq`)". It is wider than the append paths need: r7 also states that
+    # `next_seq` is never bumped outside those two paths, and that rule is
+    # enforced by convention above this grant rather than by the grant. What
+    # AC-0003 and AC-0004 establish is therefore density under concurrent
+    # *appends*, not that the column cannot be moved by a direct statement.
+    # Recorded here and in the verification ledger rather than narrowed, because
+    # narrowing it unilaterally would deviate from ratified authority.
     op.execute("GRANT SELECT ON runs, steps, events TO app_api, app_worker, app_policy")
     op.execute(
         "GRANT SELECT ON agent_role, integration_registry, entitlements "
@@ -163,7 +173,12 @@ def upgrade() -> None:
     )
     op.execute("GRANT INSERT, UPDATE ON runs  TO app_api")
     op.execute("GRANT UPDATE         ON runs  TO app_worker")
-    op.execute("GRANT INSERT, UPDATE ON steps TO app_api, app_worker")
+    # `api` gets INSERT only. r7's identity table grants it "`steps` enqueue",
+    # and table-level UPDATE would additionally reach `lease_epoch` and `owner`
+    # — the fence function's own inputs — from the internet-facing role, which
+    # r7 does not grant and no code path needs.
+    op.execute("GRANT INSERT         ON steps TO app_api")
+    op.execute("GRANT INSERT, UPDATE ON steps TO app_worker")
 
 
 def downgrade() -> None:

@@ -25,9 +25,15 @@ from uuid import UUID
 import psycopg
 import pytest
 
-from ced.worker.pool import DERIVED_REACQUISITION_BOUND_SECONDS
+from ced.worker.pool import (
+    DERIVED_REACQUISITION_BOUND_SECONDS,
+)
+from ced.worker.pool import (
+    HEARTBEAT_SECONDS as POOL_HEARTBEAT_SECONDS,
+)
 
 from .conftest import (
+    DRAIN_BOUND_SECONDS,
     OBSERVATION_MARGIN_SECONDS,
     WORST_CASE_SECONDS,
     container_is_running,
@@ -43,9 +49,6 @@ pytestmark = pytest.mark.substrate
 #: plus margin; a longer wait here would hide a worker that never polls.
 CLAIM_TIMEOUT_SECONDS = 45
 
-#: r7 § Step execution: a drain recovers "in one poll interval".
-POLL_SECONDS = 30
-
 
 def _container_for(owner: str) -> str:
     """`CED_WORKER_ID` is the container's own name minus Compose's decoration."""
@@ -53,13 +56,21 @@ def _container_for(owner: str) -> str:
 
 
 def _restart(container: str) -> None:
-    """Put the killed worker back, so the next test starts from two again."""
+    """Put the killed worker back, and fail loudly here if it does not come.
+
+    Returning quietly on failure is what turned a restart problem into a
+    reacquisition failure in a later test.
+    """
     docker("start", container)
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         if container_is_running(container):
             return
         time.sleep(0.5)
+    pytest.fail(
+        f"{container} did not return to running within 60 s; the two-worker "
+        "precondition is broken for every later check"
+    )
 
 
 def test_a_killed_worker_has_its_step_reacquired_within_150_seconds(
@@ -128,17 +139,22 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
             owner_conn,
             step_id,
             first_owner,
-            POLL_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            DRAIN_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
         )
     finally:
         _restart(victim)
 
     assert reacquired.owner != first_owner
-    assert elapsed <= POLL_SECONDS + OBSERVATION_MARGIN_SECONDS
+    # The criterion's own bound, and the helper's timeout is strictly larger,
+    # so this assertion is what reds rather than the helper timing out.
+    assert elapsed <= DRAIN_BOUND_SECONDS, (
+        f"drain took {elapsed:.1f} s, outside AC-0011's one poll interval "
+        f"({DRAIN_BOUND_SECONDS} s)"
+    )
     print(
         f"\nAC-0011: {first_owner} drained; {reacquired.owner} reacquired step "
-        f"{step_id} after {elapsed:.1f} s (one poll interval is "
-        f"{POLL_SECONDS} s)"
+        f"{step_id} after {elapsed:.1f} s (bound is one poll interval, "
+        f"{DRAIN_BOUND_SECONDS} s)"
     )
 
 
@@ -164,7 +180,7 @@ def test_the_drain_is_faster_than_waiting_out_the_lease(
             owner_conn,
             step_id,
             claimed.owner,
-            POLL_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            DRAIN_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
         )
     finally:
         _restart(victim)
@@ -180,11 +196,15 @@ def test_a_step_is_claimed_by_exactly_one_worker_at_a_time(
     running_workers: list[str],
     pending_step: tuple[UUID, UUID],
 ) -> None:
-    """`FOR UPDATE SKIP LOCKED` with two workers polling the same class.
+    """One owner recorded on the row, and a renewal rather than a re-take.
 
-    Both workers are live and polling; the step must land with one of them and
-    carry exactly one owner. Without this the recovery tests could pass while
-    both workers ran the same step.
+    **This does not establish mutual exclusion.** `steps.owner` is a single
+    column, so "carries exactly one owner" cannot fail once an owner exists,
+    and nothing here observes whether two workers are executing the same step.
+    What it does establish is that a fresh step is claimed at epoch 1 and that
+    across a heartbeat the owner and epoch are unchanged while
+    `lease_expires_at` advances — a renewal, not a re-take. Review round 1
+    corrected an earlier docstring and ledger entry that claimed more.
     """
     _run_id, step_id = pending_step
 
@@ -192,11 +212,19 @@ def test_a_step_is_claimed_by_exactly_one_worker_at_a_time(
 
     assert claimed.owner in ("worker-a", "worker-b")
     assert claimed.epoch == 1, "a fresh step should be claimed at epoch 1"
-    # Read again after a heartbeat interval: ownership must not oscillate.
-    time.sleep(25)
+    # Poll for the renewal rather than sleeping past one cadence. A fixed
+    # sleep(25) against a 20 s heartbeat on a Docker host is the shape that
+    # fails once a quarter and gets rerun instead of diagnosed.
+    deadline = time.monotonic() + 3 * POOL_HEARTBEAT_SECONDS
     later = observe(owner_conn, step_id)
-    assert later.owner == claimed.owner
-    assert later.epoch == claimed.epoch
-    assert later.lease_expires_at > claimed.lease_expires_at, (
-        "the heartbeat did not renew the lease"
-    )
+    while time.monotonic() < deadline:
+        later = observe(owner_conn, step_id)
+        if later.lease_expires_at > claimed.lease_expires_at:
+            break
+        time.sleep(1)
+    else:
+        pytest.fail("the heartbeat did not renew the lease")
+
+    assert later.owner == claimed.owner, "ownership oscillated across a renewal"
+    assert later.epoch == claimed.epoch, "the lease was re-taken, not renewed"
+    assert later.lease_expires_at > claimed.lease_expires_at

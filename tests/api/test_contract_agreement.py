@@ -23,8 +23,9 @@ import yaml
 
 from .conftest import Client
 
-pytestmark = pytest.mark.substrate
-
+# NOT module-wide: `test_the_contract_file_describes_three_routes` reads only
+# the committed YAML and is free in the offline gate. Only the checks that need
+# a running server carry the mark.
 CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "openapi" / "runs.yaml"
 
 _METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
@@ -78,6 +79,7 @@ def test_the_contract_file_describes_three_routes(
     assert len(table) == 3, sorted(table)
 
 
+@pytest.mark.substrate
 def test_the_served_routes_match_the_committed_contract(
     committed: dict[str, Any], served: dict[str, Any]
 ) -> None:
@@ -85,6 +87,7 @@ def test_the_served_routes_match_the_committed_contract(
     assert _route_table(served) == _route_table(committed)
 
 
+@pytest.mark.substrate
 def test_the_documents_agree_on_title_and_version(
     committed: dict[str, Any], served: dict[str, Any]
 ) -> None:
@@ -93,6 +96,7 @@ def test_the_documents_agree_on_title_and_version(
     assert served["info"]["version"] == committed["info"]["version"]
 
 
+@pytest.mark.substrate
 def test_the_documents_declare_the_same_openapi_major_version(
     committed: dict[str, Any], served: dict[str, Any]
 ) -> None:
@@ -101,15 +105,15 @@ def test_the_documents_declare_the_same_openapi_major_version(
     assert served_major == committed_major
 
 
+@pytest.mark.substrate
 def test_the_comparison_notices_a_removed_route(
     committed: dict[str, Any], served: dict[str, Any]
 ) -> None:
     """The check, shown failing. A contract test never seen failing is not one.
 
     A deliberately mutated copy of the served document must not compare equal.
-    Mutating the copy rather than the application keeps the mutation out of the
-    shipped code — the same reason AC-0216's mutation evidence is produced by
-    patching in the test process.
+    The mutation is applied to the copy and never to the application, so no
+    mutation switch ships in the served surface.
     """
     mutated = {**served, "paths": {**served["paths"]}}
     mutated["paths"].pop("/runs/{run_id}/snapshot")
@@ -117,6 +121,7 @@ def test_the_comparison_notices_a_removed_route(
     assert _route_table(mutated) != _route_table(committed)
 
 
+@pytest.mark.substrate
 def test_the_comparison_notices_a_renamed_query_parameter(
     committed: dict[str, Any], served: dict[str, Any]
 ) -> None:
@@ -131,6 +136,7 @@ def test_the_comparison_notices_a_renamed_query_parameter(
     assert _route_table(mutated) != _route_table(committed)
 
 
+@pytest.mark.substrate
 def test_the_comparison_notices_a_renamed_operation_id(
     committed: dict[str, Any], served: dict[str, Any]
 ) -> None:
@@ -143,6 +149,7 @@ def test_the_comparison_notices_a_renamed_operation_id(
     assert _route_table(mutated) != _route_table(committed)
 
 
+@pytest.mark.substrate
 def test_every_response_status_the_contract_declares_is_served(
     committed: dict[str, Any], served: dict[str, Any]
 ) -> None:

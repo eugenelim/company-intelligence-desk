@@ -94,10 +94,20 @@ def test_an_unknown_run_is_404_not_an_empty_page(api_server: Client) -> None:
     assert api_server.get(f"/runs/{missing}/events").status == 404
 
 
-def test_a_malformed_body_is_refused(api_server: Client) -> None:
-    """422, per the contract, and no run is created."""
+def test_a_malformed_body_is_refused(
+    api_server: Client, owner_conn: psycopg.Connection
+) -> None:
+    """422, per the contract, and no run is created.
+
+    The second clause is asserted rather than stated. It was stated only, in a
+    suite whose standard is recording what a check does not establish.
+    """
+    before = owner_conn.execute("SELECT count(*) FROM runs").fetchone()
+
     assert api_server.post("/runs", {"principal": ""}).status == 422
     assert api_server.post("/runs", {}).status == 422
+
+    assert owner_conn.execute("SELECT count(*) FROM runs").fetchone() == before
 
 
 def test_a_malformed_run_id_is_refused_rather_than_looked_up(

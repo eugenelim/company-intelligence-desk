@@ -29,7 +29,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==9.1.1",
-    "pytest-asyncio==1.4.0",
     "ruff==0.16.8",
     "mypy==2.3.1",
     # Test-only. AC-0009 reads the hand-authored OpenAPI contract, and there is
@@ -76,7 +75,6 @@ warn_return_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
 # Integration and fault-injection suites need the Compose substrate; the unit
 # and architecture suites do not. `-m "not substrate"` is the offline subset.
 markers = [

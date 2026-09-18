@@ -25,6 +25,8 @@ from ced.domain.events import (
 )
 
 __all__ = [
+    "DEADLOCK_ATTEMPTS",
+    "DEADLOCK_BACKOFF_SECONDS",
     "Fenced",
     "RunAlreadyTerminal",
     "append_policy_decision",
@@ -40,8 +42,8 @@ __all__ = [
 #: over ~350 ms in total, which is well inside the 200 ms `deadlock_timeout`
 #: the test container runs with and bounded enough not to hide a real ordering
 #: defect behind patience.
-_DEADLOCK_ATTEMPTS = 3
-_DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15, 0.30)
+DEADLOCK_ATTEMPTS = 3
+DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15, 0.30)
 
 
 class Fenced(Exception):
@@ -87,13 +89,13 @@ def retry_on_deadlock[T](operation: Callable[[], T]) -> T:
     worker insisting on work it no longer owns.
     """
     last: psycopg.errors.DeadlockDetected | None = None
-    for attempt in range(_DEADLOCK_ATTEMPTS):
+    for attempt in range(DEADLOCK_ATTEMPTS):
         try:
             return operation()
         except psycopg.errors.DeadlockDetected as exc:
             last = exc
-            if attempt + 1 < _DEADLOCK_ATTEMPTS:
-                time.sleep(_DEADLOCK_BACKOFF_SECONDS[attempt])
+            if attempt + 1 < DEADLOCK_ATTEMPTS:
+                time.sleep(DEADLOCK_BACKOFF_SECONDS[attempt])
     assert last is not None
     raise last
 

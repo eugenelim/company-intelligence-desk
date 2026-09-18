@@ -2,8 +2,20 @@
 
 Pure rules. Nothing here opens a connection — the two append paths live in
 `ced.adapters.postgres.event_log`, and the database, not this module, is what
-refuses a forged policy decision. This module holds the vocabulary both sides
-agree on so that the SQL and the application cannot disagree about a name.
+refuses a forged policy decision.
+
+This module holds the vocabulary both sides agree on. **"Agree" means checked,
+not asserted**, and the three shared names are checked in three different ways:
+
+  * `RESERVED_EVENT_TYPE` — behaviourally, by `tests/event_log/test_privilege_split.py`,
+    which passes this constant into the database and asserts the refusal.
+  * `RUN_LIFECYCLE_TYPES` and `TERMINAL_EVENT_TYPES` — structurally, by
+    `tests/schema/test_migration_applies.py`, which reads the migration's
+    function body and the partial index out of the catalogue and compares them
+    against these values.
+
+Review round 1 added the second of those, because `RUN_LIFECYCLE_TYPES` was
+re-declared independently in the migration with nothing joining the two.
 """
 
 from __future__ import annotations
@@ -44,9 +56,10 @@ TOOL_INVOKED: Final = "tool.invoked"
 #: against a shipped spec. What the database enforces instead is the negative
 #: rule that matters: the worker path refuses the reserved type, and the
 #: run-lifecycle path accepts only the two names above.
-STEP_STARTED: Final = "step.started"
-STEP_COMPLETED: Final = "step.completed"
-STEP_FAILED: Final = "step.failed"
+#:
+#: Three named constants for step types lived here with no caller and were
+#: removed in review round 1 under `AGENTS.md` § Cut before adding rung 1. The
+#: sibling spec adds the names its toolset actually emits.
 
 
 @dataclass(frozen=True)

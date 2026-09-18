@@ -20,7 +20,7 @@ from uuid import UUID
 import psycopg
 import pytest
 
-from ced.worker.pool import CRITERION_REACQUISITION_BOUND_SECONDS
+from ced.worker.pool import CRITERION_REACQUISITION_BOUND_SECONDS, POLL_SECONDS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "deploy" / "compose.yaml"
@@ -29,7 +29,17 @@ WORKER_CONTAINERS = ("deploy-worker-a-1", "deploy-worker-b-1")
 
 #: AC-0010's bound, imported so the number has one home rather than two.
 WORST_CASE_SECONDS = CRITERION_REACQUISITION_BOUND_SECONDS
-#: A little headroom for container scheduling, named rather than folded in.
+
+#: AC-0011's bound: "within one poll interval".
+DRAIN_BOUND_SECONDS = POLL_SECONDS
+
+#: Headroom for container scheduling, applied to the *helper's* timeout and
+#: never to an assertion. Review round 1 found AC-0011 asserting
+#: `elapsed <= POLL_SECONDS + OBSERVATION_MARGIN_SECONDS` while the helper
+#: failed at exactly that value — so the assertion was satisfied by every
+#: value the helper could return, and the criterion's own 30 s was asserted
+#: nowhere. Every wait below now uses a timeout strictly greater than the bound
+#: it asserts, so the assertion is the thing that reds.
 OBSERVATION_MARGIN_SECONDS = 20
 
 
@@ -42,9 +52,15 @@ def container_is_running(name: str) -> bool:
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def running_workers(require_substrate: None) -> list[str]:
-    """Skip with an actionable message when the worker containers are absent."""
+    """Skip with an actionable message when the worker containers are absent.
+
+    Per test, not per module. It was module-scoped, so a worker that failed to
+    restart after an earlier test left every later one waiting out its full
+    timeout for an owner change that one worker cannot produce — reported as a
+    reacquisition failure two tests away from its cause.
+    """
     missing = [name for name in WORKER_CONTAINERS if not container_is_running(name)]
     if missing:
         pytest.skip(

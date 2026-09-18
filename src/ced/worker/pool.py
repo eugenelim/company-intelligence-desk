@@ -242,9 +242,16 @@ class Worker:
         self.config = config
         self.step_body = step_body or sleep_step_body
         self._stop = threading.Event()
+        #: Set whenever something happened worth looking at — the step body
+        #: finished, or a stop was requested. The supervisor parks on this
+        #: rather than on `thread.join(heartbeat)`, which is what makes
+        #: `SIGTERM` observable immediately instead of up to one heartbeat
+        #: later. AC-0011 measures that difference.
+        self._wake = threading.Event()
 
     def request_stop(self) -> None:
         self._stop.set()
+        self._wake.set()
 
     def install_signal_handlers(self) -> None:
         def handle(signum: int, frame: FrameType | None) -> None:
@@ -255,6 +262,18 @@ class Worker:
         signal.signal(signal.SIGINT, handle)
 
     def run_forever(self) -> None:
+        """Poll, claim, execute. Crash-only on a database failure.
+
+        **There is no in-loop retry**, so a reset connection or a restarted
+        backend propagates out and the process exits. That is a recorded
+        posture rather than an oversight: in-loop retry is machinery for the
+        deployment this spec puts out of scope, and `AGENTS.md` § Cut before
+        adding rung 1 refuses an addition that is not genuinely needed. The
+        local cost is real and named — `deploy/compose.yaml` sets
+        `restart: "no"`, so capacity halves until an operator intervenes, and
+        the fault-injection suite's ECS substitution covers container kill and
+        not process exit.
+        """
         verify_boot(self.config)
         log.info("ready: %s polling class %s", self.config.worker_id, self.config.pool_class)
         with psycopg.connect(database_url("worker")) as conn:
@@ -266,10 +285,24 @@ class Worker:
                 self._execute(conn, lease)
 
     def _execute(self, conn: psycopg.Connection, lease: Lease) -> None:
-        """Run the step body with the heartbeat renewing alongside it."""
+        """Run the step body with the heartbeat renewing alongside it.
+
+        The supervisor waits on `self._wake`, not on the body thread, for two
+        reasons. A completed body is released at once rather than after the
+        remaining heartbeat interval; and `SIGTERM` reaches `_expire_now`
+        immediately, so a drained step returns inside one poll interval, which
+        is what AC-0011 asserts.
+
+        Every exit path joins the body before returning. Two of them did not,
+        and the module's "one step in flight per worker" claim was best-effort
+        on exactly those two — harmless with a cooperative sleep, and not
+        harmless once a sibling spec injects a real body.
+        """
         log.info("claimed step %s at epoch %s", lease.step_id, lease.epoch)
         body_stop = threading.Event()
+        body_done = threading.Event()
         outcome: list[str] = []
+        self._wake.clear()
 
         def body() -> None:
             try:
@@ -278,35 +311,62 @@ class Worker:
             except Exception:
                 log.exception("step %s failed", lease.step_id)
                 outcome.append("failed")
+            finally:
+                body_done.set()
+                self._wake.set()
 
         thread = threading.Thread(target=body, daemon=True)
         thread.start()
 
-        # The heartbeat runs on this thread, and a separate connection, so the
-        # renewal is not queued behind whatever the step body is doing.
+        def stop_body(reason: str) -> None:
+            """Stop the body and wait for it, so one step really is in flight."""
+            body_stop.set()
+            thread.join(timeout=self.config.lease_ttl_seconds)
+            if thread.is_alive():
+                # Named rather than ignored: a body that will not stop is a
+                # bug in the body, and the next claim would overlap it.
+                log.error(
+                    "step %s body did not stop within %ss after %s",
+                    lease.step_id,
+                    self.config.lease_ttl_seconds,
+                    reason,
+                )
+
+        # The heartbeat runs on a separate connection, so the renewal is not
+        # queued behind whatever the step body is doing.
         with psycopg.connect(database_url("worker")) as heartbeat_conn:
-            while thread.is_alive():
+            while True:
+                woken = self._wake.wait(timeout=self.config.heartbeat_seconds)
+                self._wake.clear()
+
                 if self._stop.is_set():
-                    # Graceful drain: expire the lease now and stop the body.
-                    # The step goes back within one poll interval.
+                    # Graceful drain: expire the lease now, then stop the body.
+                    # The step goes back within one poll interval rather than
+                    # after a whole lease TTL.
                     self._expire_now(heartbeat_conn, lease)
-                    body_stop.set()
-                    thread.join(timeout=self.config.lease_ttl_seconds)
+                    stop_body("drain")
                     return
-                thread.join(timeout=self.config.heartbeat_seconds)
-                if not thread.is_alive():
+
+                if body_done.is_set():
                     break
+
+                if woken:
+                    # Woken by something other than stop or completion; nothing
+                    # to renew for yet.
+                    continue
+
                 try:
                     run_state = renew(heartbeat_conn, self.config, lease)
                 except Fenced:
                     log.warning("fenced on step %s — abandoning", lease.step_id)
-                    body_stop.set()
+                    stop_body("fence loss")
                     return
                 if run_state in ("cancelled", "failed", "completed"):
                     log.info("run %s is %s — abandoning step", lease.run_id, run_state)
-                    body_stop.set()
+                    stop_body(f"run {run_state}")
                     return
 
+        thread.join(timeout=self.config.lease_ttl_seconds)
         release(conn, self.config, lease, outcome[0] if outcome else "failed")
 
     def _expire_now(self, conn: psycopg.Connection, lease: Lease) -> None:

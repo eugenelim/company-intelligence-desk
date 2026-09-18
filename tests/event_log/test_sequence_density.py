@@ -123,11 +123,14 @@ def test_the_sequence_is_dense_from_one_under_eight_concurrent_writers(
     errors = [e for o in outcomes for e in o.errors]
     deadlocks = [d for o in outcomes for d in o.deadlocks]
     assert errors == [], f"unexpected errors: {errors[:3]}"
-    # The designed order does not deadlock. Phase 0 sharpened this: a
-    # *uniformly* inverted order does not deadlock either, because every writer
-    # serialises on the same `runs` row. The hazard is one path inverting
-    # against another, which `test_lock_ordering` below demonstrates.
-    assert deadlocks == [], f"deadlocks under the designed order: {deadlocks[:3]}"
+    # **What this assertion now shows: no deadlock survived the retry** under
+    # the designed order. `retry_on_deadlock` sits inside `append_step_event`,
+    # so a 40P01 reaches this list only after three attempts all deadlock. That
+    # is weaker than "the designed order does not deadlock", and the comment
+    # used to claim the stronger thing. The ordering claim itself is carried by
+    # `test_lock_ordering.py`, whose contenders take raw row locks below the
+    # retry — including the mixed-order case, which is shown deadlocking.
+    assert deadlocks == [], f"deadlocks survived the retry: {deadlocks[:3]}"
 
     seqs = sequence_of(owner_conn, run_id)
     expected = WRITERS * APPENDS_PER_WRITER
@@ -211,14 +214,14 @@ def test_a_fence_loss_is_not_retried_as_a_deadlock(
     """
     run_id, step_ids = run_with_one_step_per_writer
 
+    # Called directly: `append_step_event` already carries the wrapper, so
+    # wrapping it again here tested two layers and named one.
     with pytest.raises(event_log.Fenced):
-        event_log.retry_on_deadlock(
-            lambda: event_log.append_step_event(
-                worker_conn,
-                run_id=run_id,
-                step_id=step_ids[0],
-                lease_epoch=999,
-                type="step.progress",
-                principal="worker-1",
-            )
+        event_log.append_step_event(
+            worker_conn,
+            run_id=run_id,
+            step_id=step_ids[0],
+            lease_epoch=999,
+            type="step.progress",
+            principal="worker-1",
         )
