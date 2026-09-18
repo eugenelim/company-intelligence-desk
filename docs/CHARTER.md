@@ -174,11 +174,34 @@ returns the same result.
 - **Decision history** lives in [`adr/`](adr/).
 - **Current product state** lives in [`product/`](product/).
 - **Current architecture state** lives in [`architecture/`](architecture/).
-- **Conventions for how we work** live in [`CONVENTIONS.md`](CONVENTIONS.md).
+- **What belongs where in `docs/`** is mapped in [`README.md`](README.md).
+- **How work is done** lives in [`../AGENTS.md`](../AGENTS.md) § Development
+  workflow, with the loop's rationale in [`CONVENTIONS.md`](CONVENTIONS.md).
 - **Governance** — roles, decision-making, voting — would live in a
   `GOVERNANCE.md` if the project ever needs one. It does not exist; most small
   projects never need it, and governance ceremony a project does not need
   produces theater rather than clarity.
+
+## The shape of this charter
+
+Two departures from the default charter shape are authorized for this
+repository by [RFC-0001](rfc/0001-initial-project-charter.md):
+
+- **§ Domain exists at all.** A charter normally carries mission, scope and
+  principles only. This one adds a domain section because the project has two
+  domains a reader would otherwise conflate — the domain it is *about*
+  (governed multi-agent applications) and the domain it *demonstrates through*
+  (public-company diligence).
+- **A principle may carry a short normative body.** The default shape is one
+  sentence plus a one-sentence elaboration with a concrete example. A principle
+  here may carry a short normative body where the rule genuinely does not
+  compress into one sentence — a reserved-change rule or a least-privilege
+  invariant, for instance. Prefer the single sentence; the body is the
+  exception, not the shape.
+
+Mission, scope, and foundational-principle changes are reserved to the RFC
+route. Wording, clarification, examples, typos, broken links, and recording an
+accepted decision are normal pull requests regardless of this file's pathname.
 
 ## When to revise
 

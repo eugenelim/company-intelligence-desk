@@ -4,8 +4,8 @@
 
 Nothing described in this folder is built. `docs/architecture/` otherwise holds
 current state; this subtree is admitted under the designed-but-unbuilt rule in
-[`docs/CONVENTIONS.md`](../../CONVENTIONS.md) § 5a, which requires this marker
-and a link to the governing decision.
+[`docs/architecture/README.md`](../README.md#designed-but-unbuilt), which
+requires this marker and a link to the governing decision.
 
 ## What this design is
 

@@ -64,8 +64,10 @@ control was chosen, what evidence it rests on, and what it does not cover.
 
 ```
 docs/
+  README.md           what belongs where, and which parts must match reality
   CHARTER.md          mission, scope, principles — changes go through an RFC
-  CONVENTIONS.md      how work is done here
+  CONVENTIONS.md      why the work loop has the shape it does
+  adr/                why a past choice was made
   rfc/                proposals that change the charter or governance
   product/
     intents/          what the system must achieve, and who fixed what
