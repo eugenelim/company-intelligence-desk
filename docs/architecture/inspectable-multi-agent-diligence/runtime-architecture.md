@@ -8,8 +8,23 @@ pool are specified in
 [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md); an r8
 consistency pass folding both in is outstanding.
 **Last updated:** 2026-09-11
-**Sign-off:** outstanding. Open gaps are recorded under *Known at ship*; the
-Phase 0 spikes in *Rollout* gate ratification.
+**Sign-off:** **RATIFIED 2026-09-18** by the owner (`eugenelim`). This is the
+authoritative record; other documents cite it rather than restating it.
+
+**What was ratified, and what it accepts.** This document as revised, together
+with [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md),
+which specifies the worker and pool this design left as "the framework is
+invoked inside a step". Ratification is **with the five gaps under *Known at
+ship* open**, exactly as § Known at ship asks — they are accepted limits of
+the design, not a task list, and signing off does not close them. The Phase 0
+spikes that gated ratification all ran; one was falsified and changed the
+design rather than the plan.
+
+**What was not ratified.** The companion documents carry their own status.
+[`assistant-mediated-operation`](../../product/intents/assistant-mediated-operation.md)
+is `Draft` and its two structural gaps are a separate design effort. The
+thirteen decisions in `worker-runtime.md` § Decisions required are settled;
+its Phase 1 exit criteria are owed, not met.
 **Evidence:** [`prompt-injection-defence-survey.md`](../../product/research/prompt-injection-defence-survey.md)
 
 > **Scope:** execution topology, data ownership, identity and authorization,
@@ -154,8 +169,9 @@ alternatives are rejected.
 
 ### Non-goals
 
-- ~~**A general-purpose agent platform.** One execution plane; ingestion is a
-  named future plane with a defined seam.~~ **Superseded 2026-09-18** by the
+- **A general-purpose agent platform — superseded 2026-09-18.** This non-goal
+  read *"One execution plane; ingestion is a named future plane with a defined
+  seam."* It is superseded by the
   owner's charter amendment ([`CHARTER.md`](../../CHARTER.md) § Amendments):
   the project *is* an executable substrate, with diligence as its proving use
   case. What survives of this non-goal is narrower and still binding — **one
@@ -168,9 +184,17 @@ alternatives are rejected.
 - **Exactly-once tool execution.** ADK resumability is at-least-once; idempotency
   keys instead.
 - **Agent-authored UI.** Typed domain artifacts only.
-- **Multi-tenant isolation in MVP.** Single-tenant, single-operator; workspace is
-  an organizational scope, not a security boundary. Load-bearing: it is also why
-  authorization is coarse and self-approval is the default.
+- **Multi-tenant isolation in MVP.** Single-principal, single-operator; a
+  workspace is a **UI view** and never a security boundary. Load-bearing: it is
+  also why authorization is coarse and self-approval is the default. The
+  target shape once a second principal exists is structural isolation in one
+  database — Postgres RLS with `FORCE ROW LEVEL SECURITY`, an owner-scope
+  column, and scope-qualified object keys — **not** API-level read filtering,
+  which would be an application-layer control guarding a data boundary. The
+  two irreversible pieces (key derivation and the owner-scope columns) are
+  taken now; the rest is deferred. See
+  [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
+  § Principal scope.
 - **Detection-based injection defence.** Excluded on evidence. Cheap local checks
   are a layer, never the boundary.
 - **Prompt and context caching.** Deliberately unused because it makes stating
@@ -605,8 +629,12 @@ URLs and content-addressed locators.
 
 The fragment must therefore either **exclude prefix constraints on any argument
 whose consumer parses it**, or constrain such arguments *after canonicalisation
-against the interpretation the callee performs*. This is unresolved and is a
-Phase 0 deliverable: the containment property test must include an
+against the interpretation the callee performs*. **Resolved 2026-09-18** — it
+does both, and adds a third rule the two above omit: the canonical form is what
+the callee receives, so validator and callee cannot hold different opinions
+about the same string. See
+[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
+§ Authority containment. The test below is still owed: the containment property test must include an
 interpreted-argument case, not only a well-typed unauthorised call. `initiating_user.entitlements` is expressed in the same fragment, which
 the base case requires — it is itself a `⊆` check. A role version in use by an
 in-flight run is immutable; `policy-author` writes create new versions that bind
@@ -621,15 +649,41 @@ evidence.
 
 OIDC at the ingress; a single authenticated operator principal in MVP; every run
 stamped with its initiator; the event log recording the principal on every policy
-decision and human action. Workspace is an organizational scope, not an isolation
-boundary. Adding a second user with narrower rights is a change to *authorization*
-configuration — **tenancy isolation does not exist and would be new work**.
+decision and human action. A workspace is a **UI view**, never an isolation
+boundary — **tenancy isolation does not exist and would be new work**.
+
+**Amended 2026-09-18 on one point.** This previously said that adding a second
+user with narrower rights is "a change to *authorization* configuration". That
+is the shape the design now rejects: an application-layer filter guarding a
+data boundary, where a missed filter is a silent disclosure. The target is
+structural — Postgres RLS with `FORCE ROW LEVEL SECURITY` (required, because
+RLS does not apply to a table's owner without it, and the `policy.decision`
+split runs through owner-owned `SECURITY DEFINER` functions), an owner-scope
+column, and the scope-qualified object keys below. Admitting a second
+principal is therefore **new work, not reconfiguration**. See
+[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
+§ Principal scope.
 
 ### Object store contract
 
 Portability requires pinning the API subset implemented across S3, GCS, Azure
 Blob, and MinIO: `PUT`, `GET`, `HEAD`, `DELETE`, `LIST` with prefix, plus
 server-side encryption at rest. No S3-specific feature may become load-bearing.
+
+**Keys are scope-qualified, not bare content hashes — amended 2026-09-18.**
+`key = <owner_scope>/<content_hash>`, with `public` as an explicit named scope
+holding SEC material and anything else deliberately shared. A bare
+content-addressed key is an existence oracle the moment a second principal
+exists: hash a candidate document, probe the key, learn that someone else
+holds it. That is harmless for public filings and is not harmless for the
+non-public sources the integration registry now admits. The derivation is
+baked into locators, `snapshot_id` and the reconstruction goal's byte
+matching, so changing it later invalidates recorded snapshot IDs that
+historical runs must never see change — which makes this one of the few
+choices that must be made before the corpus exists rather than when tenancy
+is built. Content addressing is unchanged *within* a scope. See
+[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
+§ Principal scope.
 
 ### Trust boundaries
 

@@ -111,7 +111,7 @@ eugenelim — decides domain scope for the diligence surface.
 - How should a restatement be surfaced to a reader comparing periods? This is
   the domain question; its storage counterpart is the next bullet.
 - How are amended filings represented in storage? *Proposed in `runtime-architecture.md`
-  § Context, evidence, and reproducibility; open until owner sign-off.*
+  § Context, evidence, and reproducibility; settled by the **2026-09-18 owner sign-off** recorded in `runtime-architecture.md` § Sign-off.*
 
 ## Projection
 

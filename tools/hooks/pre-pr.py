@@ -20,6 +20,12 @@ What it runs:
     into (``.claude/``, ``.agents/``, ``.kiro/`` …) — same for
     ``lint-knowledge.py`` above. Skipped cleanly when there are no active
     specs (or the work-loop isn't installed).
+  - ``lint-adr-shape.py <docs/adr>`` — the ``new-adr`` skill's shape check
+    (metadata, D-IDs, supersession pairing) over every decision record.
+    Skipped cleanly when ``docs/adr`` doesn't exist yet or the skill isn't
+    installed; wired for real once the directory holds at least one ADR
+    (it exits 1 on an empty record directory, so gating on it any earlier
+    would fail every PR).
 
 It deliberately runs **none** of the source project's own artifact linters —
 those enforce that project's conventions on its own tree and
@@ -54,12 +60,12 @@ _SKILL_ROOTS = (
 )
 
 
-def _find_work_loop_script(name: str) -> Path | None:
-    """Locate one of the work-loop's ``scripts/`` under whichever adapter skill
-    root the pack was installed into. Returns ``None`` when the work-loop isn't
-    present (the dependent check is then skipped, not failed)."""
+def _find_skill_script(skill: str, name: str) -> Path | None:
+    """Locate one of *skill*'s ``scripts/`` under whichever adapter skill root
+    the pack was installed into. Returns ``None`` when the skill isn't present
+    (the dependent check is then skipped, not failed)."""
     for root in _SKILL_ROOTS:
-        candidate = Path(root) / "work-loop" / "scripts" / name
+        candidate = Path(root) / skill / "scripts" / name
         if candidate.is_file():
             return candidate
     return None
@@ -115,7 +121,7 @@ def main() -> int:
     # by the work-loop's Capture-learnings step, so the gate that validates it
     # ships too — nothing to wire by hand.
     knowledge_file = Path("docs/knowledge/patterns.jsonl")
-    lint_knowledge = _find_work_loop_script("lint-knowledge.py")
+    lint_knowledge = _find_skill_script("work-loop", "lint-knowledge.py")
     if not knowledge_file.is_file():
         print("pre-pr: (no docs/knowledge/patterns.jsonl — skipping knowledge lint)")
     elif lint_knowledge is None:
@@ -130,7 +136,7 @@ def main() -> int:
         _run("knowledge lint", [py, str(lint_knowledge)])
 
     # --- Work-loop caps gate (ships with `core`) -----------------------------
-    loop_cohort = _find_work_loop_script("loop-cohort.py")
+    loop_cohort = _find_skill_script("work-loop", "loop-cohort.py")
     state_files = sorted(Path("docs/specs").glob("*/state.json"))
     if loop_cohort is None:
         print("pre-pr: — loop-cohort.py not found — skipping work-loop caps check")
@@ -175,6 +181,26 @@ def main() -> int:
                     )
                     sys.exit(1)
                 print(f"pre-pr: ✓ loop-cohort check {spec_dir} ({phase})")
+
+    # --- ADR shape lint gate (ships with the `new-adr` skill) ----------------
+    # Not wired until the first ADR lands: `lint-adr-shape.py` exits 1 on a
+    # record directory holding no decision record, so gating on it before
+    # `docs/adr` holds a record would fail every PR. `docs/adr/0001-*` exists
+    # now, so this checks every ADR's shape (metadata, D-IDs, supersession
+    # pairing) on every PR from here on.
+    adr_dir = Path("docs/adr")
+    lint_adr_shape = _find_skill_script("new-adr", "lint-adr-shape.py")
+    if not adr_dir.is_dir():
+        print("pre-pr: (no docs/adr — skipping ADR shape lint)")
+    elif lint_adr_shape is None:
+        # stderr, not stdout: docs/adr exists but nothing checked it.
+        print(
+            "pre-pr: — lint-adr-shape.py not found under any known skills root "
+            "— docs/adr was NOT checked",
+            file=sys.stderr,
+        )
+    else:
+        _run("ADR shape lint", [py, str(lint_adr_shape), str(adr_dir)])
 
     # --- Wire your own gate here ---------------------------------------------
     # This is your project's pre-PR gate. Add your lint / typecheck / test

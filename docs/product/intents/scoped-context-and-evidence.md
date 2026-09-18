@@ -70,7 +70,7 @@ eugenelim — decides the context and evidence contract.
   agent, company, task, and as-of date. This list is a starting point, not a
   settled tuple.
 - Which data should be immutable versus versioned? *Proposed in `runtime-architecture.md`
-  § Context, evidence, and reproducibility; open until owner sign-off.*
+  § Context, evidence, and reproducibility; settled by the **2026-09-18 owner sign-off** recorded in `runtime-architecture.md` § Sign-off.*
 - How does the context model relate to the chosen runtime's native session and
   memory primitives? *Proposed in `runtime-architecture.md` § Ownership split — the
   context service is an application capability, not the framework's own session
@@ -79,7 +79,7 @@ eugenelim — decides the context and evidence contract.
 - What retrieval model is required for the initial public filings?
 - How are citation locators represented and verified, and do they survive
   evidence re-ingestion or re-indexing? *Proposed in `runtime-architecture.md` § Context,
-  evidence, and reproducibility; open until owner sign-off.*
+  evidence, and reproducibility; settled by the **2026-09-18 owner sign-off** recorded in `runtime-architecture.md` § Sign-off.*
 - What storage choices are sufficient without overbuilding? *Proposed in
   `runtime-architecture.md` § Structure and § Object store contract; open until owner
   sign-off.*

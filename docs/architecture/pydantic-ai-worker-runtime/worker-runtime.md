@@ -7,7 +7,10 @@ Constraint authority:
 § Constraint amendments (owner-amended 2026-09-17).
 
 **Author(s):** eugenelim
-**Status:** Draft — revision r3, after two independent review passes
+**Status:** **Accepted** — revision r4, ratified 2026-09-18 alongside
+`runtime-architecture.md`; see that document's *Sign-off* for scope. Accepted
+does not mean built: the header's STATUS above stays PLANNED, and the Phase 1
+exit criteria are owed
 **Last updated:** 2026-09-18
 **Reviewers:** eugenelim (owner). **This is a single-operator project and the
 author is the reviewer** — the independent pass came from a forked-context
@@ -110,7 +113,7 @@ the design that amendment requires.
   stops integration A's adapter code from obtaining integration B's
   credential. Whether to buy real isolation — per-integration `AssumeRole`
   behind an in-process broker that never returns a scope the compiling role
-  did not declare — is D12.
+  did not declare — is DR12.
 - **The framework is containable.** No `pydantic_ai` import exists outside
   `agents/` and `adapters/`, proven by the same dependency-direction test that
   already guards `adapters/` for AWS SDK imports. Zero imports under the domain
@@ -122,7 +125,7 @@ the design that amendment requires.
   never written to the event log or the evidence store, as a *storage*
   property, so reasoning parts are excluded before persisting and the replay
   is faithful to everything else. That weakening is deliberate — the r7
-  guarantee is charter-adjacent and is not this document's to relax. See D8,
+  guarantee is charter-adjacent and is not this document's to relax. See DR8,
   which remains open only on *how* the exclusion is enforced, not whether.
   Spike 7 H3 demonstrated byte-identity on a stripped-equivalent history of
   two messages; the realistic-shape round trip is a Phase 1 criterion.
@@ -150,7 +153,7 @@ the design that amendment requires.
   request-count limit is pre-call; the token limit is evaluated as usage
   accrues, so the final request can overshoot by its own output before the
   limit trips. *There is no ceiling above the step — see § Decisions required,
-  D6.*
+  DR6.*
 
 ### Non-goals
 
@@ -176,10 +179,11 @@ the design that amendment requires.
   This will look like leaving throughput on the table; § The pool says why it
   is not.
 - **Changing the event log, the envelope, the lease protocol, or the run state
-  machine.** No column changes and no data migration. **Three qualifications, all
+  machine.** No column changes and no data migration. **Four qualifications, all
   in § Changes this design asks of r7:** one additive expression index (which
-  makes the idempotency key actually dedup), one additive nullable column
-  (`steps.pool_class`), and grant changes on `policy-writer` and `api`. **And this is not the same as "no format
+  makes the idempotency key actually dedup), additive nullable columns
+  (`steps.pool_class` and `owner_scope`), a change to the object-store key
+  derivation, and grant changes on `policy-writer` and `api`. **And this is not the same as "no format
   change":** payload objects written by a Pydantic AI
   step are message-history JSON in a vendor format that an ADK runtime cannot
   read, so a rollback after runs have executed strands their replay. § Rollout
@@ -499,7 +503,7 @@ expiry and a 150-second recovery for a problem that a readiness check catches
 in milliseconds. So the order is fixed:
 
 1. **Acquire workload credentials.** The ECS task role, via the
-   `CredentialProvider` reading (D3). Ambient — no static key, per the ratified
+   `CredentialProvider` reading (DR3). Ambient — no static key, per the ratified
    constraint.
 2. **Open and verify both database connections** — the `worker` role and the
    `policy-writer` role. *A worker without the policy connection cannot
@@ -563,7 +567,7 @@ That is one column and one predicate. What it buys is the ability to run
 high-sensitivity integrations on a **separate ECS service with a different
 task role**, which is the only form of credential isolation that actually
 holds — a separate process cannot reach another process's ambient chain. It is
-therefore the structural answer to the limit recorded in D12, and it is why
+therefore the structural answer to the limit recorded in DR12, and it is why
 accepting blast-radius-only scoping in the worker is tolerable rather than
 permanent.
 
@@ -579,8 +583,8 @@ credentials are delivered — two Secrets Manager paths, or two IAM-auth tokens 
 task role obtains both. That does not defeat the split (P1 proves the
 *database* refuses `worker` the reserved event type regardless), but it does
 mean the split's strength rests on the database grant rather than on
-credential separation. This is the provisioning-level form of D2, and it is the
-concrete reason D2 is a real question rather than a wording choice.
+credential separation. This is the provisioning-level form of DR2, and it is the
+concrete reason DR2 is a real question rather than a wording choice.
 
 ### End to end: one run, from click to published report
 
@@ -718,6 +722,252 @@ suspension with the same shape — payload object written first, fenced append
 second, lease released, a *different* worker resuming from bytes. And the
 stream is a projection over committed events throughout, so run duration and
 connection duration stay independent.
+
+### Authority containment — three gates, not one formula
+
+r7 states containment as a single biconditional:
+
+```
+authorized ⟺ args ∈ agent_role.ceiling
+           ∧ args ∈ initiating_user.entitlements
+           ∧ agent_role.ceiling ⊆ parent_role.ceiling
+```
+
+That conflates three checks that happen at three different times, against three
+different authorities, and it has one unresolved soundness gap. Separating them
+is what makes the gap addressable.
+
+```
+may_exist(role)    ⟺ role.ceiling ⊆ author.authoring_entitlement
+                      — at AUTHORING time, recorded on the role version
+may_run(role, run) ⟺ role.ceiling ⊆ parent_role.ceiling
+                    ∧ role.ceiling ⊆ initiating_user.entitlements
+                      — at SPAWN, recorded as an event
+may_act(call)      ⟺ args ∈ role.ceiling
+                    ∧ args ∈ initiating_user.entitlements
+                      — at CALL, recorded as the policy.decision
+```
+
+Three gates, three recorded proofs. **Authoring bounds what may exist;
+execution bounds what may run.** They are independent and both must hold — a
+role authored legitimately still cannot run beyond the initiating user, and a
+role within the current user's rights still cannot run if it was never
+legitimately authored.
+
+#### Gate 1 — `may_exist`, the gap the substrate created
+
+r7 checks containment at spawn only, because roles are authored by a trusted
+human. The moment a second principal authors a role, **authoring is a
+privilege-escalation primitive**: write a role with a wide ceiling, get it
+spawned, act beyond your own rights.
+
+`may_exist` closes it with the no-amplification rule the charter already
+ratifies in principle 5 — **an author may only grant what they hold.** The
+base case matches the runtime one: `policy-author` is human-operated with no
+runtime identity holding it, so it is the root of the authoring tree and its
+entitlement is set out of band, by database grant, never authored inside the
+system.
+
+**Narrowing an author's entitlement does not retroactively invalidate roles.**
+The `may_exist` proof is recorded at authoring time against the entitlement
+then in force, and role versions are immutable. That is safe because
+`may_run` and `may_act` still gate execution against the *current* initiating
+user — so a role that should no longer be reachable becomes unreachable at
+execution, without a cascading revalidation pass over a corpus of role
+versions. Authoring history stays a fact; execution stays current.
+
+#### Gate 3 — `may_act`, and the prefix constructor that is not safe
+
+r7's decidable fragment is closed enumerations, string prefixes, numeric
+ranges and set membership, combined as a **conjunction of independent
+per-argument predicates**. No disjunction, no cross-argument relation — that
+closure is what makes per-attribute containment decidable.
+
+The fragment is set-sound and **semantically unsafe in exactly one
+constructor**. A *prefix* predicate is a well-defined operation on strings,
+and containment between two prefixes is decidable. The failure is that the
+callee does not treat the argument as a string — it **parses** it — and string
+prefix corresponds to no containment relation in the parsed domain:
+
+| Ceiling | Value that passes | What the callee sees |
+| --- | --- | --- |
+| `startswith("https://www.sec.gov")` | `https://www.sec.gov.attacker.example/` | host `www.sec.gov.attacker.example` |
+| `startswith("/evidence/")` | `/evidence/../../etc/passwd` | a path outside the root |
+
+Both report sound. This bites directly: the SEC egress allowlist is
+hostname-based and tool arguments carry URLs and locators.
+
+**This is a studied failure mode, not a hypothetical.** A survey of 16 URL
+parsing libraries across Python, Node, Go, Java, .NET, PHP, Ruby, Perl, cURL
+and browsers found five categories of inconsistency — scheme confusion,
+slashes, backslashes, percent-encoding, and other variants — and the
+validator-versus-fetcher differential is the documented mechanism behind
+SSRF allowlist bypasses and behind CVE-2020-5902, where a proxy and a backend
+each canonicalised a URL and disagreed. `[high]` confidence: multiple
+independent author groups, reproduced across implementations.
+
+**The resolution: constrain the argument in the domain the callee interprets
+it in.** Three rules, and the third is the one most designs miss.
+
+1. **Arguments carry a domain type**, declared in the integration registry's
+   `arg_schema`: `opaque-string`, `url`, `fs-path`, `content-locator`, `enum`,
+   `number`, `date`. The domain type determines both which predicates are
+   expressible and which canonicaliser runs.
+2. **Prefix is expressible only on `opaque-string`**, and an argument may be
+   `opaque-string` only where the registry declares the callee does not parse
+   it. On interpreted types the predicates are over *parsed components*:
+
+   | Type | Expressible predicates |
+   | --- | --- |
+   | `url` | `scheme_in{…}` · `host_eq(h)` · `host_in_domain(d)` · `path_within(p)` on the normalised path |
+   | `fs-path` | `within(root)` after full normalisation — never string prefix |
+   | `content-locator` | membership in the **runtime-minted** set for this step (the same requirement DR13 imposes) |
+
+3. **The canonical form is what gets passed on.** Canonicalising for the check
+   and handing the adapter the original string rebuilds the differential
+   inside our own process. The runtime parses once, checks the parsed value,
+   and passes the **canonical** value to the adapter, which must not re-parse
+   the original. One parser, one representation, no second opinion.
+
+**`host_in_domain` absorbs a disjunction into a primitive, deliberately.**
+"`sec.gov` or any subdomain of it" is a disjunction, and the fragment bans
+disjunction because it would break structural containment. Making it a single
+constructor keeps the ban intact while expressing what allowlists actually
+need: containment is `host_in_domain(a) ⊆ host_in_domain(b)` iff `a == b` or
+`a` is a subdomain of `b`, which is decidable. **The domain argument may not
+be a public suffix** — `host_in_domain("gov")` must be refused at authoring
+time, or the constructor silently admits the internet.
+
+**What the canonicaliser must do**, because each omission is a known bypass:
+IDNA-normalise the host to punycode (defeating homograph lookalikes),
+lowercase the host and not the path, percent-decode before dot-segment removal
+and refuse a value that still contains an encoded separator afterwards, drop
+default ports, and reject a URL whose parse is ambiguous rather than guessing.
+For `fs-path`, normalisation resolves symlinks — a name-only normalisation
+admits a link pointing outside the root.
+
+**Containment stays decidable, and gets easier.** Predicates over parsed
+components are exact match, set membership, decidable domain containment, or
+numeric range over typed fields, and `⊆` is computed per field. Removing
+prefix from interpreted types removes the only constructor whose set semantics
+and callee semantics diverged.
+
+#### What remains unsolved
+
+**Compositional authorization across turns.** r7 records it as unsolved in the
+literature and accepts it; nothing here changes that. Each call is authorized
+against the ceiling independently, and a *sequence* of individually-authorized
+calls can achieve an effect no single call would be permitted. Named, not
+solved.
+
+**This section is design, not evidence.** The fragment's soundness is argued,
+not demonstrated. r7 already requires the containment property test to include
+an **interpreted-argument** case rather than only a well-typed unauthorised
+call; that requirement now has a specific shape — the test asserts that each
+table row above is refused, that the adapter receives the canonical form, and
+that a public-suffix domain argument is refused at authoring time. It is
+Phase 1 exit criterion 8.
+
+### Principal scope — building T0, targeting T3
+
+The substrate is chartered general-purpose in shape and **single-author in
+operation**. This section records what that costs to change later, and takes
+the two decisions that get more expensive with every run executed.
+
+**The question was malformed and is restated.** The intent asked *"Should a
+workspace become a hard isolation boundary?"* — but `workspace` belongs to
+[`multi-workspace-inspectable-experience`](../../product/intents/multi-workspace-inspectable-experience.md),
+where it means a **UI view**. Asking whether a view should be a security
+boundary is why the question sat open. The unit is a **principal scope** — who
+owns a run, an agent role, an integration — and it is independent of how many
+panes the UI has.
+
+**Tenancy is five questions, not one**, and they have different answers:
+
+| | Question | Today |
+| --- | --- | --- |
+| A | Can one principal **read** another's runs, evidence, artifacts? | Yes — the charter states this as current fact |
+| B | Can one **author** a role or integration acting with another's authority? | Undefined — this is the containment gap, not tenancy |
+| C | Can a step **reach** another principal's data at execution time? | Yes — homogeneous pool, shared credentials |
+| D | Is the evidence corpus shared? | Yes, deliberately — SEC filings are public |
+| E | Can one principal **exhaust** another's spend and rate budget? | Yes, **and partitioning cannot fix it** |
+
+E deserves its own note because the obvious remedy does not work. SEC's limit
+is *"10 requests per second regardless of the number of machines used"* — an
+aggregate obligation on the operator, which does not divide. Per-principal
+buckets are not available at any price; what tenancy can buy is per-principal
+**quotas inside** the shared bucket. The same holds for the Bedrock TPM
+budget.
+
+#### The target is T3, and it is not T2
+
+| | Shape | Verdict |
+| --- | --- | --- |
+| T0 | One principal | **Today** |
+| T1 | Many readers, one author | Nearly free — everyone already reads everything. Honest only while all readers are equally trusted |
+| T2 | Many principals, API-level read filtering | **Rejected.** An application-layer control guarding a data boundary is the class of control this project rejects everywhere else. A missed filter is a silent disclosure |
+| T3 | Structural, one database — RLS with `FORCE ROW LEVEL SECURITY`, owner-scope column, scope-qualified object keys, per-principal quotas inside the shared buckets | **Target.** The database refuses, rather than the application remembering to filter |
+| T4 | Execution partition — per-principal `pool_class`, separate worker services and task roles | Available on top of T3, and it is also the answer to DR12's credential limit, so it pays twice |
+| T5 | Database per principal | Rejected — kills the unified event log and the cross-run inspection the product exists to show |
+
+**T3 interacts with `SECURITY DEFINER`, and that is why `FORCE` is named.**
+The `policy.decision` split uses definer functions owned by a role that also
+owns the tables; row-level security is **not** applied to a table's owner
+unless `FORCE ROW LEVEL SECURITY` is set. Adopting RLS without it would
+produce a policy that silently does nothing on exactly the append paths that
+matter most.
+
+#### Decision 1 — scope-qualified content addressing, taken now
+
+Payload objects, evidence locators and `snapshot_id` are content-addressed:
+the key is derived from the hash of the bytes. With one principal that is
+correct and free. With two it becomes an **existence oracle** — a principal
+computes the hash of a candidate document and probes whether the key exists,
+learning that someone else holds it without reading it. Public filings make
+that meaningless; the integration registry's `sql-read` and `http-fetch` kinds
+mean the substrate can host sources where it is not.
+
+It is a one-way door: the derivation is baked into locators, into
+`snapshot_id`, and into the reconstruction goal's byte-matching, and re-keying
+later invalidates recorded snapshot IDs that historical runs must never see
+change.
+
+So keys are **scope-qualified from the first object written**:
+
+```
+key = <owner_scope>/<content_hash>        e.g.  public/sha256-…   ·   acme/sha256-…
+```
+
+`public` is an explicit named scope holding SEC material and anything else
+deliberately shared, so cross-principal dedup is retained exactly where it is
+wanted and nowhere else. Content addressing survives inside a scope —
+integrity verification, immutability and the dedup that matters are all
+unchanged. Today every write goes to one scope and the prefix is a constant.
+The cost now is a string concatenation; after Phase 2 it is a corpus migration
+plus invalidated snapshots.
+
+#### Decision 2 — `owner_scope` columns, taken now
+
+A nullable `owner_scope` column on `runs`, `steps`, `agent_role` and the
+integration registry, defaulting to the single MVP scope and read by nothing.
+The same move as `pool_class` and for the same reason: adding a column to
+empty or small tables is trivial, and backfilling ownership onto a corpus of
+executed runs *after* the fact is guesswork — there is no record of who owned
+a run that never recorded an owner.
+
+#### What is still blocked, and on what
+
+**Not tenancy — containment.** Question B above is the authoring-time
+containment gap: today `agent_role.ceiling ⊆ parent_role.ceiling` is checked
+at spawn and roles are authored by a trusted human, so a second author makes
+authoring a privilege-escalation primitive. T3 does not fix that and was never
+going to; it is the next blocker.
+
+**And the product tension is real.** Inspectability *is* the product, and the
+charter's "every authenticated principal can read every run" is the demo, not
+an oversight. T3 subtracts from it. Whatever lands must keep a deliberate
+**public scope** whose runs stay open to everyone, or the reference
+implementation quietly stops referencing anything.
 
 ### Configuration: two kinds, deliberately not one
 
@@ -871,7 +1121,7 @@ split is MECE on *what*, not on *where*.
 | P5 | **Deadline and cancellation ownership** — `step_deadline` timer, the cancellation token, the transport-level timeout | Must outlive and out-scope the thing it bounds. A runtime cannot reliably cancel itself |
 | P6 | **Step-attempt disposition** — transient vs terminal, counting *step* attempts, what becomes a failed step vs a re-runnable one, lease-expiry count as the DLQ substitute | r7 has no DLQ primitive; this is where that gap is answered. Distinct from R14, which owns *in-run* model and tool retries — P6 counts how many times a step is tried, R14 caps what happens inside one try |
 | P7 | **Drain and rolling replacement** — stop claiming, release or finish in flight | Deploy-time concern; invisible to a step |
-| P8 | **Workload credential acquisition** — the task role, and both database roles | Process-scoped, not step-scoped. See D2 |
+| P8 | **Workload credential acquisition** — the task role, and both database roles | Process-scoped, not step-scoped. See DR2 |
 | P9 | **Fairness across queued runs** — no run starves while another fans out | Requires seeing the queue, which a step cannot |
 | P10 | **Pool telemetry** — claims, lease losses, queue depth, claim latency | The operational signals that are about the fleet rather than about an analysis |
 
@@ -943,7 +1193,7 @@ accumulates special cases until it is neither generic nor legible.
 | --- | --- | --- | --- |
 | A1 | **Run state machine and its projections** | `api` + `worker` | The runtime returns an outcome (R21); this decides what the run becomes |
 | A2 | **Pre-release checks** — 100% claim provenance, and the rest of the release gate | `worker` | Domain rules. Their *result* is what makes the approval gate conditional. Invoked by R8b |
-| A3 | **Publication** — the transition, and the typed artifact published | `api` + `worker` | See D1 for whether the agent triggers it |
+| A3 | **Publication** — the transition, and the typed artifact published | `api` + `worker` | See DR1 for whether the agent triggers it |
 | A4 | **Context-package assembly rules** — which admitted types, from which evidence, for which role class | `worker` | R6 *executes* an assembly; this decides what a correct one is. Invoked by R8b |
 | A5 | **Role-class semantics** — that a quarantined role resolves no integrations and carries a stricter input class | `worker` | The runtime enforces the declaration; this authors it |
 | A6 | **Step planning** — validating a coordinator's plan and materialising child step rows with their containment proofs | `api` (first step) + `worker` (all others) | See § End to end, GAP 1 |
@@ -1103,29 +1353,30 @@ that into r7 is part of the consistency pass this document triggers, not a
 separate decision.
 
 **What the amendment deliberately did not do.** It authorized the shape; it
-closed none of the governance gaps the shape creates. Three remain open, and
-the charter names them rather than letting ratification imply they are handled:
+closed none of the three governance gaps the shape creates. Two have since
+been designed and one remains open:
 
-1. **Tenancy isolation does not exist.** r7 is explicit that a workspace is an
-   organizational scope and not a security boundary. Many agents authored by
-   many people needs it, and r7 already says adding it would be new work — so
-   a *multi-author* substrate is not authorized by this amendment even though a
-   *multi-agent* one is.
-2. **Containment must move from spawn time to authoring time.** Today
-   `agent_role.ceiling ⊆ parent_role.ceiling` is checked at spawn, and roles
-   are authored by a trusted human. If a *user* authors a role, containment
-   must also be enforced against that author's own entitlements at write time
-   — otherwise authoring is a privilege-escalation primitive. This is the gap
-   that turns a studio from a UI into a security problem.
-3. **Authored instruction text is a new untrusted-input class.** A prompt
-   written by someone who is not the system's author has a different trust
-   profile from the operator's own prompt. r7's direct-injection control —
-   bounding what the agent may *do* rather than screening what it is told — is
-   still the right one, but it was reasoned about for a single operator.
+1. **Principal-scope isolation — designed, not built.** The target is
+   structural isolation in one database and the two irreversible pieces are
+   taken; see § Principal scope. What is not built is RLS itself, the quota
+   policy, and the trigger for admitting a second principal.
+2. **Authoring-time containment — designed, not built.** `may_exist` is the
+   third gate and the no-amplification rule bounding it; see § Authority
+   containment. This is the gap that turns a studio from a UI into a security
+   problem, and it is the reason a *multi-agent* substrate is authorized while
+   a *multi-author* one is not yet.
+3. **Authored instruction text is a new untrusted-input class — still open.**
+   A prompt written by someone who is not the system's author has a different
+   trust profile from the operator's own prompt. r7's direct-injection control
+   — bounding what the agent may *do* rather than screening what it is told —
+   is still the right one, but it was reasoned about for a single operator,
+   and nothing above changes that. **This is the remaining blocker for a
+   multi-author surface.**
 
-Until all three are closed, the substrate is **general-purpose in shape and
+Until all three are *built*, the substrate is **general-purpose in shape and
 single-author in operation**, and that distinction should be stated wherever
-the platform capability is described.
+the platform capability is described. Designing a gap closed is not closing
+it, and the two designed above still carry no executable evidence.
 
 ### The approval gate: the state machine decides, the framework suspends
 
@@ -1144,7 +1395,7 @@ toolset **only when a check failed**. On a clean run there is no gated tool, no
 `DeferredToolRequests`, and no human in the path. Phase 1 carries this as an
 exit criterion: *a clean run publishes with zero human interaction.*
 
-**Publication is an executor transition (A3), not a tool — D1, settled.** The
+**Publication is an executor transition (A3), not a tool — DR1, settled.** The
 agent's only lever is a contentless `request_approval()` that suspends the
 step; it cannot publish, and the published artifact is the application's typed
 artifact rather than any tool argument. What follows is the flagged path.
@@ -1170,7 +1421,7 @@ share a transaction:
    step becomes runnable again. On **rejection**, `approval.rejected` is
    appended carrying the approver's reason, and the step also becomes runnable
    — the reason is returned as the deferred tool result and the agent revises
-   (D5). **Capped at three cycles per step**, after which the step fails with
+   (DR5). **Capped at three cycles per step**, after which the step fails with
    a recorded cause.
 5. **A different worker** claims it, loads the messages from the payload store,
    constructs a fresh `Agent` from the same role version, and resumes with
@@ -1188,7 +1439,7 @@ saved work. And `require_distinct_approver` and the recorded approver principal
 are unchanged, because they were never in the agent layer.
 
 **What happens on rejection is an open decision — see § Decisions required,
-D5.** Resuming the conversation with a denial delivered as a tool result lets
+DR5.** Resuming the conversation with a denial delivered as a tool result lets
 the model simply call the action again, which is the "authorization boundary
 becomes a negotiation" pattern this design forbids two sections earlier. r7's
 transition is `awaiting_approval → running` on "approver returns for revision",
@@ -1235,7 +1486,7 @@ automatically harmless is the retry it enables: a validation failure triggers
 the framework's automatic retry, which re-prompts the model over
 attacker-authored filing text with a framework-authored error string — an
 in-framework negotiation loop over untrusted content, at the boundary r7 ranks
-second. See § Decisions required, D9.
+second. See § Decisions required, DR9.
 
 **The deterministic fail-closed parser stays, outside the agent.** This will
 read as duplication to the next engineer and it is not. Typed output is a
@@ -1318,7 +1569,7 @@ So the honest claim is that the worker now handles the slice lease expiry could
 never reach, and falls back to lease expiry for the slice it cannot. **Whether
 to add an out-of-loop watchdog — a separate thread, or a supervisor that
 self-terminates the task when no heartbeat has been *attempted* within
-2 x TTL — is an open decision, D4.** The r7 page stays as backstop either way.
+2 x TTL — is an open decision, DR4.** The r7 page stays as backstop either way.
 
 **The transport-level fallback is specified now, not deferred.** Because
 asyncio cancellation cannot be trusted to stop a synchronous botocore request,
@@ -1371,7 +1622,7 @@ third-party package between our credentials and the provider.
 
 ### Changes this design asks of r7
 
-**Eight.** Each is a narrowing or an addition, none is a reversal, and they are
+**Twelve.** Each is a narrowing or an addition, none is a reversal, and they are
 collected here so that ratifying this document is not a way of editing r7 by
 implication.
 
@@ -1395,31 +1646,48 @@ implication.
 2. **A partial unique index on `(run_id, idempotency_key)`** over the
    `tool.invoked` events, without which a derived idempotency key dedups
    nothing. This is a schema addition — small, additive, expand-only.
-3. *Proposed, pending D3:* **`CredentialProvider` is satisfied by the `Model`
+3. **An additive, nullable `steps.pool_class` column** defaulting to the single
+   MVP class, plus one predicate on the claim query. **No change to lease
+   semantics**, `lease_epoch` fencing, or `SKIP LOCKED` ordering — spike P2's
+   result is unaffected because the predicate narrows the candidate set and
+   does not reorder locks.
+4. **A nullable `owner_scope` column** on `runs`, `steps`, `agent_role` and
+   the integration registry, defaulting to the single MVP scope and read by
+   nothing. Additive, expand-only.
+5. **Scope-qualified object keys** — `<owner_scope>/<content_hash>` in place
+   of a bare content hash, with `public` as a named scope. r7 § Object store
+   contract pins the API subset but not the key derivation; this fixes it
+   before the corpus exists. See § Principal scope.
+6. **A new non-terminal run state, `awaiting_input`**, with `input.requested`
+   and `input.supplied` events, so an agent can ask the operator a question
+   mid-run. r7's state machine has only `awaiting_approval`, which is a
+   terminal-check gate. See § End to end, GAP 2.
+7. **The decidable fragment is narrowed**: prefix predicates are expressible
+   only on arguments declared not to be parsed by their consumer, and
+   interpreted arguments carry a domain type whose predicates range over
+   parsed components. r7 leaves this open as a Phase 0 deliverable;
+   § Authority containment resolves it and the narrowing is what makes it
+   sound.
+8. **A third containment gate, `may_exist`**, checked at authoring time
+   against the author's own entitlement. r7's formula has two gates and
+   assumes a trusted author; a substrate with more than one author needs the
+   third or authoring becomes privilege escalation.
+9. **Per-integration credential scopes**, which make the worker process the
+   place where several distinct authorities are held at once. r7's Layer-1
+   identity table has one row per component and no notion of an authority
+   resolved per step.
+10. *Proposed, pending DR3:* **`CredentialProvider` is satisfied by the `Model`
    implementation at the model boundary**, rather than being a separate seam
    the model adapter calls into, because the framework resolves the ambient
    chain itself. r7's sentence needs amending either way, since as written
    this design does not satisfy it.
-4. *Proposed, pending D2:* **"No runtime identity holds both" read as a
+11. *Proposed, pending DR2:* **"No runtime identity holds both" read as a
    database-role property.** The worker process authenticates as `worker` for
    general writes and as `policy-writer` for the decision append — two roles,
    one OS process. r7's own structure diagram already places `PDP` inside the
    worker box and P1 proved the *database* split, so this resolves an
    ambiguity rather than contradicting a decision.
-5. **Per-integration credential scopes**, which make the worker process the
-   place where several distinct authorities are held at once. r7's Layer-1
-   identity table has one row per component and no notion of an authority
-   resolved per step.
-6. **An additive, nullable `steps.pool_class` column** defaulting to the single
-   MVP class, plus one predicate on the claim query. **No change to lease
-   semantics**, `lease_epoch` fencing, or `SKIP LOCKED` ordering — spike P2's
-   result is unaffected because the predicate narrows the candidate set and
-   does not reorder locks.
-7. **A new non-terminal run state, `awaiting_input`**, with `input.requested`
-   and `input.supplied` events, so an agent can ask the operator a question
-   mid-run. r7's state machine has only `awaiting_approval`, which is a
-   terminal-check gate. See § End to end, GAP 2.
-8. **`api` gains `cloudwatch:PutMetricData` on one namespace** to publish the
+12. **`api` gains `cloudwatch:PutMetricData` on one namespace** to publish the
    queue-depth scaling signal, and nothing else. Itemized because `api` is the
    most deliberately constrained identity in the system and every other grant
    change here is named. Deferred with the autoscaling policy it feeds — MVP
@@ -1431,12 +1699,12 @@ The review of this draft separated findings that the rubric determines — fixed
 in place — from those that need a choice. These are the choices. Each carries
 a recommendation; none has been applied.
 
-**D1 — Is publication a tool, or an executor transition? — SETTLED
+**DR1 — Is publication a tool, or an executor transition? — SETTLED
 2026-09-18: an executor transition, suspended by a contentless tool.**
 The end-to-end walkthrough resolved this by making the trade concrete. GAP 2
 already required a `request_user_input` tool that *suspends* without carrying
 any consequential payload — so the deferred mechanism is in the design
-regardless of D1, and the only remaining question was whether publication
+regardless of DR1, and the only remaining question was whether publication
 should *also* travel through it as content. It should not.
 
 **Publication is an A3 executor transition.** The suspension is a contentless
@@ -1452,7 +1720,7 @@ suspension is still a deferred tool, the step's conversation is saved and
 resumed rather than discarded and rebuilt, so what the approver sees and what
 resumes remain the same object.
 
-**D2 — Does one worker process holding both `worker` and `policy-writer`
+**DR2 — Does one worker process holding both `worker` and `policy-writer`
 credentials satisfy r7's identity invariant?**
 r7 says "no runtime identity holds both"; this design has one process able to
 authenticate as both. Note this gets *harder*, not easier, once integrations
@@ -1472,7 +1740,7 @@ which is not the threat the split was built for. r7's "no runtime identity
 holds both" is read as "no database role holds both" and amended accordingly
 (§ Changes, item 4).
 
-**D3 — Does the `CredentialProvider` seam survive? — SETTLED 2026-09-18: not
+**DR3 — Does the `CredentialProvider` seam survive? — SETTLED 2026-09-18: not
 at the model boundary; it moves to integrations.**
 Resolved by checking the other providers rather than by preference. Pydantic
 AI's `GoogleCloudProvider` resolves **Application Default Credentials** — the
@@ -1487,9 +1755,9 @@ So the **`Model` / provider layer is the credential seam at the model
 boundary**, and r7's sentence is amended to say so (§ Changes, item 3). The
 `CredentialProvider` *concept* does not disappear — it relocates to the place
 that now needs it, the per-integration credential scopes of R4, where the
-commissioned broker (D12) owns it.
+commissioned broker (DR12) owns it.
 
-**D4 — Out-of-loop watchdog, or accept the narrowed 3am claim? — SETTLED
+**DR4 — Out-of-loop watchdog, or accept the narrowed 3am claim? — SETTLED
 2026-09-18: the watchdog already exists and is free.**
 Writing § How workers are provisioned resolved this. The ECS **liveness
 probe** is an out-of-process observer by construction — the agent polling it
@@ -1503,11 +1771,11 @@ That covers the blocking-call slice the in-loop timer cannot. The r7 page
 stays as backstop, and no new component is introduced — which is why this
 settles rather than defers.
 
-**D5 — What happens when an approval is rejected? — SETTLED 2026-09-18:
+**DR5 — What happens when an approval is rejected? — SETTLED 2026-09-18:
 resume the conversation with the reason, capped at three cycles.**
-D1's resolution dissolved most of this. The objection to resuming was that
+DR1's resolution dissolved most of this. The objection to resuming was that
 delivering a denial as a tool result lets the model simply call the action
-again — the negotiation pattern forbidden at the PDP. **Under D1 the model
+again — the negotiation pattern forbidden at the PDP. **Under DR1 the model
 cannot publish at all**; it can only call `request_approval()`. Re-asking is
 therefore not a bypass, it is the intended rework loop, and r7's own
 transition (`awaiting_approval → running`, "approver returns for revision")
@@ -1522,7 +1790,7 @@ attempts is a signal, not a retry. The cap is arbitrary and is recorded as
 such — it exists so the loop is bounded, and Phase 1 should replace it with an
 observed number.
 
-**D6 — Is there a spend ceiling above the step? — SETTLED 2026-09-18: three
+**DR6 — Is there a spend ceiling above the step? — SETTLED 2026-09-18: three
 ceilings, and the step one is genuinely pre-call.**
 Checking `UsageLimits` field semantics changed the answer. Most limits
 (`request_limit` aside) are evaluated *as usage accrues*, so they cannot stop
@@ -1543,15 +1811,16 @@ runs a counting pass and enforces **before the request is sent**, and
   which is the point — it is the control that still works when the application
   is the thing malfunctioning.
 
-**D7 — Is analytical quality re-baselined at Phase 1? — SETTLED 2026-09-18:
+**DR7 — Is analytical quality re-baselined at Phase 1? — SETTLED 2026-09-18:
 yes.**
 Spike 4's A/B comparison is re-run under the new stack at Phase 1 and becomes
 Phase 1 exit criterion 7. It cost $0.022 the first time; there is no argument
 for carrying an unmeasured parity assumption to save that. The re-run gains a
-second purpose under D13 — it now also measures what the *narrowed* admitted
+second purpose under DR13 — it now also measures what the *narrowed* admitted
 set costs, not just what the quarantine boundary costs.
 
-**D8 — Private model reasoning in the persisted message history.**
+**DR8 — Private model reasoning in the persisted message history. — SETTLED
+2026-09-18.**
 This one is a conflict with a charter-adjacent commitment, not a preference.
 r7 states that chain-of-thought is *never written* to the event log or evidence
 store and that the boundary is "a storage property rather than a filter applied
@@ -1578,7 +1847,7 @@ charter-adjacent and was not worth taking to avoid a two-line assertion. The
 recorded cost stands — the replay goal is "modulo excluded reasoning parts",
 and Phase 1 criterion 6 re-runs the round trip against a stripped history.
 
-**D9 — Retries on the quarantined agent. — SETTLED 2026-09-18:
+**DR9 — Retries on the quarantined agent. — SETTLED 2026-09-18:
 `retries={'tools': 0, 'output': 0}`.**
 Pydantic AI budgets tool retries and *output-validation* retries separately and
 allows both to be set to zero, at which point a validation failure raises
@@ -1593,7 +1862,7 @@ Planning roles keep the framework default of 1, because their inputs are
 admitted types rather than untrusted prose, so a retry there re-prompts over
 content we minted.
 
-**D10 — Is there an upgrade gate beyond the authorization suite? — SETTLED
+**DR10 — Is there an upgrade gate beyond the authorization suite? — SETTLED
 2026-09-18: the fixture corpus becomes the gate at Phase 2.**
 Deferred, with a named trigger rather than a vague one. While nothing is
 deployed, a framework upgrade that moves output quality costs a re-run; once
@@ -1602,7 +1871,7 @@ makes this cheap is already being built for fixture-mode replay and for the
 evaluation companion, so the gate is wiring, not new machinery. **Trigger:
 Phase 2 entry. Owner: `eugenelim`.**
 
-**D11 — Does the charter's platform exclusion get amended? — SETTLED
+**DR11 — Does the charter's platform exclusion get amended? — SETTLED
 2026-09-18.**
 It was, directly by the owner under a shaping-phase exception rather than by
 RFC. [`CHARTER.md`](../../CHARTER.md) § Amendments records it: the project is
@@ -1618,7 +1887,7 @@ happens at spawn time rather than authoring time, and the trust class of a
 prompt authored by a non-operator is still unsettled. They remain open work
 items, not resolved ones.
 
-**D12 — Is per-integration credential scoping isolation, or only blast
+**DR12 — Is per-integration credential scoping isolation, or only blast
 radius? — SETTLED 2026-09-18: blast radius, with a broker as follow-on
 work.**
 In one OS process with an ambient chain, integration A's adapter can obtain
@@ -1638,7 +1907,7 @@ against code that can read the process's own memory — for which the answer is
 with a different task role gives isolation a broker cannot. The `pool_class`
 column exists now so that answer stays available.
 
-**D13 — Is `trust_class` a declaration or a construction? — SETTLED
+**DR13 — Is `trust_class` a declaration or a construction? — SETTLED
 2026-09-18: a construction.**
 Applied as recommended. `trust_class: admitted-types` is honoured only for
 integrations whose output passes a deterministic parser the runtime owns;
@@ -1745,7 +2014,7 @@ entry denying `publish` until the pre-release-checks event is committed),
 which together amount to the executor transition this design chose, reached by
 a longer route. The one benefit — the suspension staying inside the
 conversation — is kept regardless, because `request_approval()` is still a
-deferred tool. Settled as D1.
+deferred tool. Settled as DR1.
 
 ## Risks
 
@@ -1828,7 +2097,7 @@ output. Spike 4's quality baseline, the only measurement of what the quarantine
 boundary costs, was produced under the old stack and **its numbers do not
 transfer.** Nothing is deployed, so the honest position is that quality is
 re-baselined at Phase 1 rather than defended now; whether Phase 1 should
-re-run spike 4's A/B comparison under the new stack is decision D7.
+re-run spike 4's A/B comparison under the new stack is decision DR7.
 
 **Phase 1 — walking skeleton, reworded.** r7's Phase 1 exit criteria stand with
 "one ADK step" replaced by "one Pydantic AI step": start a run; execute one step
@@ -1850,6 +2119,14 @@ a well-typed unauthorised tool call and observe refusal. **Six criteria are adde
 6. **Byte-identical round-trip over a realistic history** — one containing tool
    calls, tool returns, a retry part and a pending approval. Spike 7 established
    it only over two messages with no tool calls.
+7. **Re-baseline analytical quality** — spike 4's A/B comparison re-run under
+   the new stack, now also measuring what the narrowed admitted set costs
+   (DR7, DR13).
+8. **Containment property test with interpreted arguments** — each row of the
+   unsafe-prefix table refused, the adapter observed receiving the *canonical*
+   value rather than the original, and a public-suffix domain argument refused
+   at authoring time. r7 requires this test; § Authority containment gives it
+   its shape.
 
 **Rollback.** The framework swap touches **no schema and no stored data** — the
 events table, the envelope, the lease columns and the payload store are

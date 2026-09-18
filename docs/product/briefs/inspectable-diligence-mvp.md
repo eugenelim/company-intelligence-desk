@@ -236,14 +236,18 @@ Open, and **not owned by this brief**. None gates `Status: Ready`; each must be
 resolved before a slice depending on it is cut at `author-delivery-brief
 continue`.
 
-1. **Architecture proposed, not signed off.** `architect-design` has run and
-   produced a reviewed design at Draft; owner sign-off is outstanding, and
-   Phase 0 gates its ratification.
+1. **Architecture signed off 2026-09-18 — closed.** `architect-design` ran,
+   Phase 0 gated ratification and all six spikes ran (one falsified, changing
+   the design rather than the plan), and the owner ratified
+   `runtime-architecture.md` together with `worker-runtime.md`. Ratification
+   was explicitly *with* the five limits under r7 § Known at ship open; those
+   are accepted limits of the design, not outstanding work.
 2. **No offline contributor path — proposed, not settled.** The MVP requires a
    real Bedrock invocation. `runtime-architecture.md` § Local development proposes
    recorded-fixture replay, substituting exactly the model adapter and the fetch
    adapter, which is the seam set `portable-identity-first-runtime` § Excluded
-   names and closes. That intent's question stays open until owner sign-off.
+   names and closes. Settled by the 2026-09-18 sign-off; the contributor path
+   is recorded-fixture replay, implemented as a `ReplayModel`.
 3. **Success metrics absent.** No measure of whether the reference
    implementation actually teaches anyone anything. Owned by
    `adoptable-reference-implementation`'s second open question — "What must a

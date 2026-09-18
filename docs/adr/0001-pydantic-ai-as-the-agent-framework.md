@@ -1,17 +1,14 @@
-# ADR-0001 — Pydantic AI as the agent framework
+# ADR-0001: Pydantic AI as the agent framework
 
 - **Status:** Accepted
 - **Date:** 2026-09-17
-- **Deciders:** eugenelim (owner)
-- **Supersedes:** the inception constraint *"The agent runtime uses Google ADK"*
-  (ratified 2026-09-09)
-- **Constraint authority:**
-  [`portable-identity-first-runtime`](../product/intents/portable-identity-first-runtime.md)
-  § Constraint amendments
-- **Design:**
-  [`worker-runtime.md`](../architecture/pydantic-ai-worker-runtime/worker-runtime.md)
-- **Evidence:** [`spikes/README.md`](../../spikes/README.md) § Spike 7 — 10/10
-  hypothesis checks under a least-privilege role
+- **Areas:** framework, runtime, model-provider
+- **Reversibility:** high
+- **Decision-makers:** eugenelim (owner)
+- **Supersedes:** none
+- **Supersedes in part:** none
+- **Superseded by:** none
+- **Superseded in part:** none
 
 ## Context
 
@@ -20,6 +17,13 @@ The project ratified **Google ADK** as the agent runtime at inception, and
 r7 built around it — as a *step-level reasoning library* behind a stable seam,
 never as the system of record. That ownership split was chosen deliberately and
 is not what this decision changes.
+
+This decision supersedes the inception constraint *"The agent runtime uses
+Google ADK"* (ratified 2026-09-09) — a constraint amendment, not an ADR
+supersession, since no prior ADR recorded that constraint. The amendment is
+authorized by
+[`portable-identity-first-runtime`](../product/intents/portable-identity-first-runtime.md)
+§ Constraint amendments.
 
 Two of r7's own grounded facts made ADK the wrong library for that role, and
 both were established by reading its published source tree rather than from its
@@ -49,27 +53,27 @@ extension points are unstable.
 
 ## Decision
 
-**Use Pydantic AI as the agent framework, at the same position in the
+We will use Pydantic AI as the agent framework, at the same position in the
 architecture ADK occupied: a step-level reasoning library invoked inside a
-leased step, never the system of record.**
+leased step, never the system of record.
 
 The ownership split is unchanged. The application continues to own the run
 state machine, the durable event log, the lease protocol, checkpoints and
 authorization decisions.
 
-Three of the framework's first-class mechanisms are adopted for seams the
-previous design had to hand-build or route around:
-
-- **`Model`** replaces `BaseLlm` as the portability contract. Production is
+- **D1:** Pydantic AI is the agent framework, occupying the same
+  step-level-reasoning-library position ADK occupied; the application keeps
+  owning the run state machine, the durable event log, the lease protocol,
+  checkpoints and authorization decisions.
+- **D2:** `Model` replaces `BaseLlm` as the portability contract. Production is
   `BedrockConverseModel`, constructed with a model id and nothing else;
-  fixture mode is a `ReplayModel` subclass. **LiteLLM leaves the hot path.**
-- **`WrapperToolset.call_tool`** is where the policy decision point performs
-  argument-value authorization, with the `policy.decision` event committing
-  before the invocation.
-- **`DeferredToolRequests` / `deferred_tool_results`** carries the human
+  fixture mode is a `ReplayModel` subclass. LiteLLM leaves the hot path.
+- **D3:** `WrapperToolset.call_tool` is where the policy decision point
+  performs argument-value authorization, with the `policy.decision` event
+  committing before the invocation.
+- **D4:** `DeferredToolRequests` / `deferred_tool_results` carries the human
   approval gate across a process boundary.
-
-The pinned version is **`pydantic-ai` 2.44.0**.
+- **D5:** The pinned version is `pydantic-ai` 2.44.0.
 
 ## Evidence
 
@@ -94,7 +98,7 @@ criteria.
 
 ## Consequences
 
-**Positive.**
+**Positive:**
 
 - A named supply-chain risk is retired rather than mitigated — one fewer
   third-party package between our credentials and the model provider.
@@ -106,7 +110,7 @@ criteria.
 - The approval gate and the fixture-mode replay adapter both land on documented
   extension points rather than improvised ones.
 
-**Negative, and accepted.**
+**Negative, and accepted:**
 
 - **The vendor's next major is permissible now.** V2.0 went stable 2026-06-23
   and the published three-month floor before a next major has passed. Mitigated
@@ -132,52 +136,80 @@ criteria.
   structured-output mechanics and the retry model. Spike 4's quality baseline
   was measured under the old stack and does not transfer.
 
-**Neutral.**
+**Neutral:**
 
 - No column change and no data migration. Two additive schema asks are carried
   in the design doc's § Changes this design asks of r7 — one expand-only
   partial unique index for idempotency, and a grant change on `policy-writer`.
-  Until Phase 2 the rollback
-  unit is a `git revert` plus re-pinning `google-adk` and `litellm`. After
-  Phase 2, payload objects written by a Pydantic AI step are in a format an ADK
-  runtime cannot read, so a rollback would strand replay of runs executed in
-  between — which is an argument for doing this before Phase 2, not an argument
-  that rollback is free.
+  Until Phase 2 the rollback unit is a `git revert` plus re-pinning `google-adk`
+  and `litellm` — cheap, which is why **Reversibility** above is rated `high`.
+  After Phase 2, payload objects written by a Pydantic AI step are in a format
+  an ADK runtime cannot read, so a rollback would strand replay of runs
+  executed in between — which is an argument for doing this before Phase 2,
+  not an argument that rollback is free, and it is the trigger named below.
+
+**Revisit if:** the message-history/schema asymmetry stops holding (reconstruction
+begins reading vendor-serialized payloads directly instead of typed application
+events), or Phase 2 ships stateful runs before the rollback-strands-replay risk
+above is otherwise retired, or the message-history schema asymmetry combines
+with a vendor major-version bump to break the contract tests at either seam.
 
 ## Alternatives considered
 
-**Keep ADK and LiteLLM.** Already spiked green, already ratified, zero cost
-today. Rejected because both recorded risks are structural rather than
-incidental: the LiteLLM dependency exists *because* ADK has no Bedrock model
-class, and the inspection surface would keep being built against a seam the
-vendor has already broken once.
+- **Keep ADK and LiteLLM:** already spiked green, already ratified, zero cost
+  today. Rejected because both recorded risks are structural rather than
+  incidental: the LiteLLM dependency exists *because* ADK has no Bedrock model
+  class, and the inspection surface would keep being built against a seam the
+  vendor has already broken once.
+- **Application-owned Bedrock Converse adapter behind ADK's `BaseLlm`:**
+  removes LiteLLM without changing framework. Rejected because it removes only
+  one of the two problems and creates a component we then own forever, while
+  the session seam — the one that touches quality attribute 1 — is untouched.
+- **Pydantic AI plus a durable-execution engine (DBOS):** Postgres-backed, and
+  we already run Postgres. Rejected because it moves durable control-flow
+  state into a vendor checkpoint format, which *is* reconstruction-critical,
+  and because it trades machinery already exercised by spikes 3, P1 and P2 for
+  machinery that is not. Recorded in the design doc with its three specific
+  costs.
 
-**Application-owned Bedrock Converse adapter behind ADK's `BaseLlm`.** Removes
-LiteLLM without changing framework. Rejected because it removes only one of the
-two problems and creates a component we then own forever, while the session
-seam — the one that touches quality attribute 1 — is untouched.
+## References
 
-**Pydantic AI plus a durable-execution engine (DBOS).** Postgres-backed, and we
-already run Postgres. Rejected because it moves durable control-flow state into
-a vendor checkpoint format, which *is* reconstruction-critical, and because it
-trades machinery already exercised by spikes 3, P1 and P2 for machinery that is
-not. Recorded in the design doc with its three specific costs.
+- Design: [`worker-runtime.md`](../architecture/pydantic-ai-worker-runtime/worker-runtime.md)
+- Constraint authority:
+  [`portable-identity-first-runtime.md`](../product/intents/portable-identity-first-runtime.md)
+  § Constraint amendments
+- Evidence: [`spikes/README.md`](../../spikes/README.md) § Spike 7 — 10/10
+  hypothesis checks under a least-privilege role
+- Prior runtime architecture:
+  [`runtime-architecture.md`](../architecture/inspectable-multi-agent-diligence/runtime-architecture.md)
+  r7
 
 ## Open
 
 This ADR settles the framework. It does **not** settle:
 
-- The ten open decisions collected in
-  [`worker-runtime.md`](../architecture/pydantic-ai-worker-runtime/worker-runtime.md)
-  § Decisions required (D1–D10).
+- **Nothing in § Decisions required remains open.** All thirteen (DR1–DR13)
+  were settled by 2026-09-18 — several by checking vendor behaviour rather
+  than by preference — and the design doc records each with its date and
+  grounds. This ADR is not the authority for any of them.
+- **Nothing.** All four spec-readiness gaps recorded in
+  [`portable-identity-first-runtime`](../product/intents/portable-identity-first-runtime.md)
+  § Spec-readiness pressure test are closed as of 2026-09-18 — principal-scope
+  isolation and authoring-time containment designed, human-interaction
+  semantics routed to
+  [`assistant-mediated-operation`](../product/intents/assistant-mediated-operation.md),
+  and the architecture signed off. Specs may now cite these answers as settled.
+  What remains is **evidence, not design**: the Phase 1 exit criteria.
+- **One commissioned follow-on:** the credential broker (DR12), tracked in
+  `workspace.toml` `[backlog].open`.
 
-**Settled elsewhere since this ADR was written.** D12 — per-integration
+**Settled elsewhere since this ADR was written.** DR12 — per-integration
 credential scoping is blast radius, not isolation — was accepted on 2026-09-18
 with a **credential broker commissioned as a follow-on design**, tracked in
-`workspace.toml` `[backlog].open`. D13 — `trust_class` — was settled the same
+`workspace.toml` `[backlog].open`. DR13 — `trust_class` — was settled the same
 day as a *construction*: admitted-type output is validated by a deterministic
 parser the runtime owns, and an integration that cannot meet it is
-quarantine-only. D11 — whether the project may
+quarantine-only. DR11 — whether the project may
 be a general-purpose agent runtime at all — was settled on 2026-09-18 by a
 direct owner amendment to [`CHARTER.md`](../CHARTER.md) § Amendments, under a
 shaping-phase exception to the RFC route that expires at Phase 2. The project

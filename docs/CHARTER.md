@@ -112,8 +112,10 @@ neither list, that is a signal to refine this section rather than drift.
 **What the system is today.** It is built for a single operator. Any workspace or
 grouping it exposes is an organizational scope with no isolation behind it: every
 authenticated principal can read every run and its evidence. Supporting a second
-principal requires isolation work that does not exist. Whether a workspace
-*should* become a hard boundary is an open question owned by
+principal requires isolation work that does not exist. The open question is **not** whether a
+*workspace* should become a hard boundary — a workspace is a UI view, owned by
+`product/intents/multi-workspace-inspectable-experience.md`. It is what a
+**principal scope** should isolate, owned by
 `product/intents/portable-identity-first-runtime.md`, and this charter does not
 answer it — but the current state is a fact an adopter must not have to infer.
 

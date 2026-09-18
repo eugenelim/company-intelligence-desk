@@ -4,6 +4,16 @@ Foundation intents recording what Company Intelligence Desk must achieve,
 written before any architecture existed. Those still in shaping are registered in
 `workspace.toml` `[backlog].open`; see § Status.
 
+**Six foundation intents plus one framed later.**
+[`assistant-mediated-operation`](assistant-mediated-operation.md) was framed on
+2026-09-18, after the architecture existed rather than before it, when the
+owner described the assistant as control over the application and its data. It
+is `Draft`, carries **no** inception constraints — it postdates the 2026-09-09
+ratification the constraints block transcribes — and depends on two of the six
+rather than standing beside them. The rules below apply to it unchanged; only
+its provenance differs, and that difference is recorded rather than smoothed
+over.
+
 This file states the three rules that apply to all six, so they are not restated
 six times and cannot drift apart.
 

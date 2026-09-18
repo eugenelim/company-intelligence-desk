@@ -20,3 +20,16 @@ output_dir = "docs/architecture"
 # docs/product/research/<slug>/ — committed desk-research output, distinct from
 # findings/ (governance registers) and from gitignored personal scratch.
 output_dir = "docs/product/research"
+
+[design]
+# Experience-design artifacts: journey maps, service blueprints, screen flows.
+# Repo-root-relative. Written here rather than a personal vault because the
+# agentic experience is part of the reference implementation an adopter reads,
+# not private working material.
+output_dir = "docs/ux"
+
+[product]
+# Intents land at <output_dir>/intents/<slug>.md. This records the convention
+# the repository already follows (six foundation intents predate this file)
+# rather than introducing a new one.
+output_dir = "docs/product"
