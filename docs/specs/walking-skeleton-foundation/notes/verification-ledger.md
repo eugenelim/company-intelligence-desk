@@ -274,11 +274,12 @@ demonstrate the mechanism and not the number, and the number is the criterion.
   the surviving worker's poll happened to fall shortly after the lease expired.
   A single measurement below a bound does not establish the bound; what is
   established is that recovery happened with no operator action and inside it.
-- **AC-0011 — established, and distinct.** `docker stop -t 30` (SIGTERM).
-  **Observed: 29.8 s**, inside one 30-second poll interval. A third check
-  asserts the drain is *faster* than the 150 s host-loss path, because a drain
-  that happened to take 150 s would satisfy AC-0010's bound while telling an
-  operator nothing about whether the graceful path works at all.
+- **AC-0011 — SUPERSEDED by review rounds 2 and 3, see § Review round 3.**
+  As first recorded: *"`docker stop -t 30` (SIGTERM). Observed: 29.8 s, inside
+  one 30-second poll interval."* Every part of that is now retired — the
+  injection method (`docker stop` is synchronous with exit, so the clock never
+  contained the drain), the number, and the criterion wording it was measured
+  against. The current measurement is in § Review round 3.
 - **Established: one owner *recorded*, and a renewal rather than a re-take.**
   With both workers live and polling the same class, a fresh step is claimed at
   epoch 1 by one of them, and across a heartbeat the owner and epoch are
@@ -723,6 +724,21 @@ interval and measured from lease expiry. The end-to-end total stays **reported**
 and is no longer asserted, because it is the sum of two separately bounded
 quantities and asserting the sum hides which one moved.
 
+**Correction to this section's own claim.** It said the amendment was "a
+narrowing of one clause and a strengthening of another, not a relaxation".
+Under the reading the amendment itself adopts — measuring from signal delivery
+— that is not true of the end-to-end quantity: the amended pair admits one
+heartbeat plus one poll interval, **50 seconds**, where the retired single-
+interval wording admitted 30, and the total moved from asserted to reported.
+What *is* true is that each clause is now bounded separately and each bound is
+tighter than the mechanism's behaviour, and that the retired wording bounded a
+quantity the mechanism could exceed. The 50-second worst case is **accepted**:
+it is the sum of two separately bounded quantities, and the measured values are
+0.04 s and 19.2 s. The claim as first written was defensible only against r7's
+lease-expiry origin, which is the looser reading this section rejects. Amending
+the spec paragraph itself would need another `contract-amendment`; adjudication
+ruled the ledger the correct seam for the correction.
+
 Rejected alternatives, both offered to the owner: leaving the criterion pinned
 and accepting a gate that reds about once in every `poll / drain` runs on
 healthy code; and raising the number with a stated drain allowance, which keeps
@@ -807,3 +823,173 @@ disbelieving it.
 One more, in a test that had been green for two rounds: a connection check
 asserted `SELECT count(*) FROM runs == 0`, coupling it to whatever had run
 before it. It now asserts the read succeeds.
+
+## Review round 3 — what two rounds of review had not reached
+
+27 raw findings, **25 sustained** and 3 refuted. The pattern this round: round 1
+hardened *how* the definer functions resolve names, round 2 hardened *what* they
+authorise, and round 3 found that the thing they authorise against — the epoch —
+is not a secret. It also found that three of the measurements this ledger
+published were measuring something other than what they claimed.
+
+### The fence proved knowledge, not possession
+
+`fence_step` matched on `(step_id, lease_epoch)` alone. `steps.lease_epoch` is
+`NOT NULL DEFAULT 0`, so a step no worker had ever leased was fenced at 0 —
+and `app_policy`, whose only capability is one `EXECUTE` grant, wrote a
+`policy.decision` against such a step with `principal='attacker-chosen-principal'`.
+Reproduced before the fix. Round 2's run/step coherence check does not help:
+the never-claimed step does belong to the run.
+
+Two independent legs, needing different authority:
+
+- **`app_policy` held `SELECT` on `runs`, `steps` and `events`**, which let it
+  read a live step's epoch. Those grants **exceeded r7's Layer-1 identity
+  table**, which gives `policy-writer` "`runs.next_seq` bump + insert
+  `policy.decision` events only" with no read column, and contradicted r4 item
+  1's stated aim that the role "gains no table access at all". Revoking them is
+  an alignment, not a decision, and it is done. `app_policy` now holds no
+  `SELECT` on any table; `verify_boot` issues only `SELECT session_user` on that
+  connection, which still works.
+- **Epoch 0 on an unclaimed step needs no read at all**, so the revoke does not
+  close the path. Closing it required the fence to prove a *live, owned* lease,
+  which goes beyond r7 § Event log's epoch-only pseudocode for the append path.
+  **Owner decision 2026-09-18, recorded in ADR-0005.** The adjudicated remedy
+  deliberately does *not* bind the fence to the calling identity — `app_policy`
+  holds no `UPDATE ON steps` and `claim_one` writes only the worker's id into
+  `owner`, so that half would have disabled the policy path outright.
+
+Verified after the fix: never-claimed at epoch 0 refused, expired lease refused,
+released lease refused, ownerless lease refused, wrong epoch refused, live owned
+lease at the right epoch still accepted.
+
+**Named residual.** A step that genuinely holds a live lease at a low epoch is
+still appendable by a caller that can name its `step_id`. `app_policy` can no
+longer enumerate step ids, so reaching that state means being handed the pair —
+which is the legitimate call path. Not closable without changing r7's
+policy-role identity.
+
+### Three published measurements were measuring the wrong thing
+
+**`now()` was frozen on the observing connection.** `owner_conn` is not
+autocommit, the first read auto-begins a transaction nothing commits, and
+`now()` is `transaction_timestamp()`. Measured: identical `now()` values 2.5 s
+apart while `clock_timestamp()` advanced, connection `INTRANS`. So
+`lease_expires_at <= now()` could never become true, the surrender was
+unobservable, and the helper could only ever report reacquisition.
+
+Consequences, all of which held:
+
+- Clause 1 was comparing drain **plus the survivor's poll** against the
+  20-second heartbeat, so it would have reddened on healthy code in roughly a
+  third of runs — with a message blaming the drain.
+- Clause 2's interval started at the instant a new owner was already seen, so
+  it could not fail.
+- **This ledger's own diagnosis was wrong.** It said the surrender was
+  "observable only until the survivor reclaims" and could "close inside any
+  poll granularity". That was a misreading of a stopped clock as a race. The
+  earlier timeout that prompted it had the same cause.
+
+Fixed by comparing against `clock_timestamp()`, and every read comparison in the
+suites now uses it — three more in `tests/worker` were correct only by accident
+of being the first statement in a fresh transaction.
+
+**Re-measured, and each clause now measures its own quantity.** Clause 1: the
+lease stopped being held **0.04 s** after `SIGTERM`, observed as *the surrender
+itself* rather than as reacquisition, against a bound of under one heartbeat.
+Clause 2: reacquired **19.2 s** after that surrender, against one poll interval.
+End-to-end 19.2 s, reported and not asserted. The 0.04 s is the number the
+frozen clock had been hiding behind the survivor's poll.
+
+### Assertions that could not fail, in tests written to remove them
+
+- `test_the_drain_is_faster_than_waiting_out_the_lease` asserted `elapsed < 150`
+  under a 50-second helper timeout — the exact shape round 1 removed from
+  AC-0011, left in its sibling, in the same file as a comment stating the rule
+  it violated. It now asserts one poll interval, which its timeout can exceed.
+- The quiesce predicate was wrong in both directions: `owner IS NOT NULL` also
+  matched rows `release` had finished, because `release` never clears `owner`,
+  so the fixture slept a heartbeat for nothing; and the count ran *before* the
+  delete in the same read-committed transaction, so a claim committing between
+  the two statements was counted as zero and then deleted, skipping the wait in
+  exactly the case it exists for. The wait is now derived from the delete's own
+  `RETURNING` rows.
+- The completion-versus-drain ordering check called `body.finished.wait(timeout=0)`
+  before `_execute` had started the body thread — a no-op — so which branch ran
+  depended on whether the body finished during `psycopg.connect`. It now injects
+  a body that requests the stop as it returns, so both conditions are true on
+  the supervisor's first wake by construction.
+- `test_several_keyless_events_are_admitted` asserted nothing at all. It now
+  asserts the dense sequence the case is about.
+
+### Two more defects in round 2's own fix
+
+- **The drain discarded an outcome the body had recorded.** `body_done` was
+  tested before the join, so a body completing in the window between that test
+  and the join had its `completed` dropped and the lease surrendered — the
+  survivor then re-executed a finished step. Fixed by capturing the flag
+  *before* `body_stop` is set. The first attempt at this fix read the flag after
+  `stop_body` returned, which is true for every cooperative body — stopping it
+  is what made it finish — and so released every drained step instead of
+  surrendering it. Three container checks caught that immediately.
+- **The stuck-body drain surrendered the lease anyway.** `_expire_now` ran
+  regardless of whether the body could be joined, so a body ignoring its stop
+  event left the step claimable while still running — the overlap the design
+  trades capacity to avoid. The lease is now left to expire on its own in that
+  case, and the module docstring states the four exits and what each does
+  instead of claiming a blanket invariant.
+
+### Records corrected
+
+- Four sites naming the superseded `fence_step` owner, including
+  `docs/architecture/README.md`, whose Durable-Output closeout is that its names
+  match the repository.
+- `spikes/README.md` was still publishing the retracted 29.8-second AC-0011
+  figure with the injection method round 2 replaced and against the
+  pre-amendment wording, plus a stale check tally. The row now states both
+  clauses and their methods; the tally is gone, because it moved three times
+  during review and a stale number is worse than none.
+- The § Observations AC-0011 entry now carries the supersession marker its
+  neighbour uses.
+- § Contract amendment's "not a relaxation" claim is corrected above: the
+  amended pair admits 50 seconds end-to-end where the retired wording admitted
+  30, and that is accepted rather than denied.
+
+### What round 3 did NOT establish, and one correction it could not make
+
+- **The plan's amendment Changelog says "T5's `Tests` field updated for the
+  second clause". It was not, and the line is wrong.** `approve-plan` refuses an
+  edit to a completed task's pinned section — correctly — so T5's `Tests` still
+  describes the pre-amendment method. **Correcting the Changelog was attempted
+  and reverted**: plan.md is hash-pinned, the edit broke the scheduled baseline,
+  and the offered recovery clears the retry counters and the stasis baseline,
+  which is a re-approval in substance and a worse loss than the wrong sentence.
+  The amended method lives in `spec.md` AC-0011 and in this section. Recorded
+  here rather than fixed there.
+- **`app_worker` can still satisfy the run/step coherence check**, because it
+  holds table-level `INSERT, UPDATE ON steps` — which r7's identity table grants
+  — and can repoint its own step's `run_id` or insert a step under another run.
+  Round 2's record called that path "Closed"; that holds for `app_policy` only.
+  `events` carries no composite reference to `steps(run_id, step_id)`, so the
+  invariant is procedural, and narrowing the grant would deviate from ratified
+  authority.
+- **Run-lifecycle attribution is self-asserted.** `POST /runs` takes
+  `principal` and `agent_role` from the request body and they become the
+  `run.requested` event's recorded attribution. The surface is loopback-only and
+  unauthenticated by design — r7 puts OIDC at the ingress, and that ingress is
+  the out-of-scope Follow-on this spec's § Follow-ons names. Until it exists,
+  the log records who the caller *said* they were.
+- **Clause 1's in-process bound covers the stop-before-the-body-starts window**,
+  not the mid-step `SIGTERM` the criterion states. The mid-step drain path
+  asserts the lease expired and the body joined, with no timing. The container
+  measurement now bounds the mid-step case, so this is a redundancy gap rather
+  than an absence.
+- **Image freshness is an unguarded precondition of AC-0010 and AC-0011.** The
+  suite checks only that the containers are running. It ran green once against
+  an image predating the round-2 pool changes; the rebuild and the source
+  inspection are manual steps this session performed, not assertions the suite
+  makes. Adjudication ruled a standing fixture gate out of bounds against T5's
+  pinned `Tests` and rung 1, so the precondition is recorded rather than
+  enforced.
+- **The stuck-body path is still undriven.** It needs a deliberately
+  uncooperative body, and T5's pinned `Tests` promises a sleeping one.

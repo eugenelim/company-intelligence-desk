@@ -36,8 +36,11 @@ WORKER_CONTAINERS = ("deploy-worker-a-1", "deploy-worker-b-1")
 #: AC-0010's bound, imported so the number has one home rather than two.
 WORST_CASE_SECONDS = CRITERION_REACQUISITION_BOUND_SECONDS
 
-#: AC-0011's bound: "within one poll interval".
-DRAIN_BOUND_SECONDS = POLL_SECONDS
+#: AC-0011 clause 2's bound: reacquisition within one poll interval **of the
+#: lease surrender**. Named for that quantity: it was `DRAIN_BOUND_SECONDS`,
+#: which after the amendment described the wrong clause — the drain's own bound
+#: is `POOL_HEARTBEAT_SECONDS`.
+REACQUIRE_BOUND_SECONDS = POLL_SECONDS
 
 #: Headroom for container scheduling, applied to the *helper's* timeout and
 #: never to an assertion. Review round 1 found AC-0011 asserting
@@ -162,21 +165,35 @@ def quiet_substrate(owner_conn: psycopg.Connection) -> None:
 
     What is actually true: a worker already inside `_execute` for a row that no
     longer exists discovers the fence at its next heartbeat and not before. So
-    if this fixture deleted a *claimed* step, it waits one heartbeat plus a
-    margin for that discovery; if it deleted nothing claimed, no worker can be
-    mid-step and it returns at once. The wait is therefore conditional on
-    having caused the problem, which keeps the common case fast without
-    pretending the dirty case is free.
+    if this fixture deleted a step that was **leased with a live lease**, it
+    waits one heartbeat plus a margin for that discovery; otherwise no worker
+    can be mid-step and it returns at once. The wait is conditional on having
+    caused the problem, and the condition is read from the DELETE's own
+    `RETURNING` rows so it cannot disagree with what was deleted.
     """
     with owner_conn.transaction():
         owner_conn.execute("DELETE FROM events")
-        claimed = owner_conn.execute(
-            "SELECT count(*) FROM steps WHERE owner IS NOT NULL"
-        ).fetchone()
+        # The wait is derived from what the DELETE itself removed, and the
+        # predicate means "a worker is executing this row right now".
+        #
+        # Two things were wrong before. `owner IS NOT NULL` also matched rows
+        # `release` had finished, because `release` clears `state` and the
+        # expiry but never `owner` — so the fixture slept a heartbeat when no
+        # worker could be mid-step. And the count ran *before* the DELETE in
+        # the same read-committed transaction, where each statement takes its
+        # own snapshot: a claim committing between the two was counted as zero
+        # and then deleted, skipping the wait in exactly the case it exists for.
+        removed = owner_conn.execute(
+            "DELETE FROM steps "
+            " WHERE state = 'leased' "
+            "    OR owner IS NOT NULL "
+            "RETURNING state, lease_expires_at > clock_timestamp()"
+        ).fetchall()
         owner_conn.execute("DELETE FROM steps")
         owner_conn.execute("DELETE FROM runs")
 
-    if claimed is not None and claimed[0]:
+    in_flight = [row for row in removed if row[0] == "leased" and row[1]]
+    if in_flight:
         # One heartbeat for the holder to discover the fence, plus margin.
         time.sleep(POOL_HEARTBEAT_SECONDS + 5)
 
@@ -226,8 +243,16 @@ def wait_for_lease_surrender(
     """
     deadline = started + timeout
     while time.monotonic() < deadline:
+        # `clock_timestamp()`, never `now()`. `now()` is
+        # `transaction_timestamp()`, and this connection is not autocommit — the
+        # first read auto-begins a transaction that nothing here commits, so
+        # `now()` is pinned to an instant *before* the step was claimed and
+        # `lease_expires_at <= now()` could never become true. The surrendered
+        # branch below was unreachable for that reason, not because the window
+        # is narrow; READ COMMITTED still advanced row visibility, which is why
+        # the owner change was observable while the clock was not.
         row = conn.execute(
-            "SELECT lease_expires_at <= now(), owner FROM steps WHERE step_id = %s",
+            "SELECT lease_expires_at <= clock_timestamp(), owner FROM steps WHERE step_id = %s",
             (step_id,),
         ).fetchone()
         if row is not None:

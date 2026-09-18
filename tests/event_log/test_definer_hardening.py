@@ -332,7 +332,9 @@ def test_the_refused_set_matches_the_migration_constant(
         "WHERE n.nspname = 'public' AND p.proname = 'append_step_event'"
     ).fetchone()
     assert row is not None
-    refused = row[0].split("p_type IN (", 1)[1].split(")", 1)[0]
+    # The guard compares a normalised form, so the marker is the normalising
+    # call rather than the bare parameter (ADR-0005's sibling fix).
+    refused = row[0].split("lower(btrim(p_type)) IN (", 1)[1].split(")", 1)[0]
     names = {piece.strip().strip("'") for piece in refused.split(",")}
 
     expected = {RESERVED_EVENT_TYPE, *RUN_LIFECYCLE_TYPES, *TERMINAL_EVENT_TYPES}
@@ -375,3 +377,152 @@ def test_the_fence_owner_holds_no_standing_create_on_the_schema(
         "       has_schema_privilege('ced_fence', 'public', 'USAGE')"
     ).fetchone()
     assert row == (False, True)
+
+
+# ── ADR-0005: the fence proves possession, not knowledge of the epoch ───────
+
+
+def test_a_never_claimed_step_is_not_appendable(
+    policy_conn: psycopg.Connection,
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+) -> None:
+    """The forgery ADR-0005 closes, on both fenced paths.
+
+    `steps.lease_epoch` is `NOT NULL DEFAULT 0`, so before ADR-0005 a step no
+    worker had ever leased was fenced at 0 — and `app_policy`, whose only
+    capability is one `EXECUTE` grant, wrote a `policy.decision` against it
+    with a caller-chosen `principal` and `agent_role`. Observed, not theorised.
+    """
+    run_id, step_id = uuid.uuid4(), uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (run_id,))
+        owner_conn.execute(
+            "INSERT INTO steps (step_id, run_id) VALUES (%s, %s)", (step_id, run_id)
+        )
+    try:
+        with pytest.raises(event_log.Fenced):
+            event_log.append_policy_decision(
+                policy_conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=0,
+                principal="attacker-chosen-principal",
+                agent_role="forged-role",
+            )
+        with pytest.raises(event_log.Fenced):
+            event_log.append_step_event(
+                worker_conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=0,
+                type="step.started",
+                principal="worker-1",
+            )
+        row = owner_conn.execute(
+            "SELECT next_seq, (SELECT count(*) FROM events WHERE run_id = %s) "
+            "FROM runs WHERE run_id = %s",
+            (run_id, run_id),
+        ).fetchone()
+        assert row == (0, 0)
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+
+@pytest.mark.parametrize(
+    ("label", "mutation"),
+    [
+        ("an expired lease", "lease_expires_at = clock_timestamp() - interval '1 s'"),
+        ("a released lease", "lease_expires_at = NULL"),
+        ("a drained lease", "lease_expires_at = clock_timestamp()"),
+        ("an ownerless lease", "owner = NULL"),
+    ],
+)
+def test_a_lease_that_is_not_live_and_owned_is_not_appendable(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    leased_step: LeasedStep,
+    label: str,
+    mutation: str,
+) -> None:
+    """Each adjacent state the epoch-only fence admitted, now refused.
+
+    `release` nulls the expiry and the drain sets it to `now()`; neither is a
+    live lease, and the correct epoch is no longer sufficient on its own.
+    """
+    with owner_conn.transaction():
+        owner_conn.execute(
+            f"UPDATE steps SET {mutation} WHERE step_id = %s", (leased_step.step_id,)
+        )
+
+    with pytest.raises(event_log.Fenced):
+        event_log.append_step_event(
+            worker_conn,
+            run_id=leased_step.run_id,
+            step_id=leased_step.step_id,
+            lease_epoch=leased_step.lease_epoch,
+            type="step.started",
+            principal="worker-1",
+        )
+
+
+def test_the_fence_predicate_names_liveness_and_ownership(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """A structural check, so the behavioural ones above have a named cause."""
+    row = owner_conn.execute(
+        "SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+        "WHERE n.nspname = 'public' AND p.proname = 'fence_step'"
+    ).fetchone()
+    assert row is not None, "fence_step is absent"
+    body = row[0]
+
+    assert "owner IS NOT NULL" in body, "the fence does not require an owner"
+    assert "lease_expires_at > now()" in body, "the fence does not require liveness"
+
+
+@pytest.mark.parametrize(
+    "variant", ["run.completed ", "RUN.COMPLETED", " Run.Cancelled ", "POLICY.DECISION"]
+)
+def test_no_spelling_of_a_refused_type_reaches_the_log(
+    worker_conn: psycopg.Connection, leased_step: LeasedStep, variant: str
+) -> None:
+    """The refusal is decided on a normalised form.
+
+    It compared the raw argument, so a trimmed or case-varied spelling of a
+    refused name was admitted and stored verbatim — a negative rule narrower
+    than the rule it states, and a live bypass for any reader that normalises.
+    """
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        event_log.append_step_event(
+            worker_conn,
+            run_id=leased_step.run_id,
+            step_id=leased_step.step_id,
+            lease_epoch=leased_step.lease_epoch,
+            type=variant,
+            principal="worker-1",
+        )
+
+
+def test_an_admitted_type_is_stored_canonically(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    leased_step: LeasedStep,
+) -> None:
+    """So no reader — here or in a sibling spec — has to normalise on the way out."""
+    event_log.append_step_event(
+        worker_conn,
+        run_id=leased_step.run_id,
+        step_id=leased_step.step_id,
+        lease_epoch=leased_step.lease_epoch,
+        type="  Step.Started  ",
+        principal="worker-1",
+    )
+
+    row = owner_conn.execute(
+        "SELECT type FROM events WHERE run_id = %s", (leased_step.run_id,)
+    ).fetchone()
+    assert row == ("step.started",)

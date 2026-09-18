@@ -31,10 +31,10 @@ from ced.worker.pool import (
 )
 
 from .conftest import (
-    DRAIN_BOUND_SECONDS,
     OBSERVATION_MARGIN_SECONDS,
     POLL_SECONDS,
     POOL_HEARTBEAT_SECONDS,
+    REACQUIRE_BOUND_SECONDS,
     WORST_CASE_SECONDS,
     container_is_running,
     docker,
@@ -157,7 +157,7 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
             owner_conn,
             step_id,
             first_owner,
-            DRAIN_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            REACQUIRE_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
             started=surrendered_at,
         )
     finally:
@@ -172,9 +172,9 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
         f"({POOL_HEARTBEAT_SECONDS} s) or more — the drain waited rather than "
         "acting on the signal"
     )
-    assert elapsed <= DRAIN_BOUND_SECONDS, (
+    assert elapsed <= REACQUIRE_BOUND_SECONDS, (
         f"reacquisition took {elapsed:.1f} s after the surrender, outside "
-        f"AC-0011's one poll interval ({DRAIN_BOUND_SECONDS} s)"
+        f"AC-0011's one poll interval ({REACQUIRE_BOUND_SECONDS} s)"
     )
     qualifier = (
         "the surrender itself"
@@ -188,7 +188,7 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
         f"(bound: under one heartbeat, {POOL_HEARTBEAT_SECONDS} s)."
         f"\nAC-0011 clause 2: {reacquired.owner} reacquired step {step_id} "
         f"{elapsed:.1f} s later (bound: one poll interval, "
-        f"{DRAIN_BOUND_SECONDS} s)."
+        f"{REACQUIRE_BOUND_SECONDS} s)."
         f"\nEnd-to-end {surrender + elapsed:.1f} s, reported not asserted."
     )
 
@@ -216,15 +216,21 @@ def test_the_drain_is_faster_than_waiting_out_the_lease(
             owner_conn,
             step_id,
             claimed.owner,
-            DRAIN_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            REACQUIRE_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
             started=signalled_at,
         )
     finally:
         _restart(victim)
 
-    assert elapsed < WORST_CASE_SECONDS, (
-        "the drain took as long as an unplanned host loss, so the two paths "
-        "are indistinguishable"
+    # Asserted against a bound the helper's timeout can actually exceed. This
+    # compared against the 150 s host-loss worst case under a 50 s helper
+    # timeout, so the helper always failed first and the assertion could never
+    # be the thing that reds — the same shape round 1 removed from AC-0011,
+    # left behind in its sibling.
+    assert elapsed < REACQUIRE_BOUND_SECONDS, (
+        f"the drained step took {elapsed:.1f} s to come back, outside one poll "
+        f"interval ({REACQUIRE_BOUND_SECONDS} s) — at that point the graceful "
+        "path is no better than waiting out the lease"
     )
 
 

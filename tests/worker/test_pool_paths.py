@@ -32,10 +32,28 @@ from ced.worker import pool
 
 pytestmark = pytest.mark.substrate
 
+# **Read comparisons use `clock_timestamp()`, never `now()`.** `now()` is
+# `transaction_timestamp()`, and these fixtures' connections are not
+# autocommit — so a read taken inside an already-open transaction compares
+# against the instant that transaction began, not the present. The
+# fault-injection suite had an assertion that could never be true for exactly
+# that reason, and the reads here were only correct by accident of being the
+# first statement in a fresh transaction.
+
 #: Fast enough to keep the suite offline-quick, slow enough that the heartbeat
 #: fires at least once inside a step.
+#: A pool class the container workers do not poll. They are started with no
+#: `CED_POOL_CLASS`, so they take the default — and this suite runs with them
+#: up, inserting `runnable` rows at that same default. A container claim
+#: landing before the test's own `claim_one` made `lease is not None` or
+#: `epoch == 1` red for a reason unrelated to the code, and every row these
+#: tests abandoned was afterwards claimed and re-abandoned by a container.
+#: `pool_class` is the partition seam r7 change 3 already shipped.
+TEST_POOL_CLASS = "in-process-tests"
+
 FAST = pool.PoolConfig(
     worker_id="test-worker",
+    pool_class=TEST_POOL_CLASS,
     lease_ttl_seconds=3,
     heartbeat_seconds=1,
     poll_seconds=1,
@@ -81,9 +99,9 @@ def runnable_step(owner_conn: psycopg.Connection) -> Iterator[tuple[UUID, UUID]]
     with owner_conn.transaction():
         owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (run_id,))
         owner_conn.execute(
-            "INSERT INTO steps (step_id, run_id, state, agent_role) "
-            "VALUES (%s, %s, 'runnable', 'coordinator')",
-            (step_id, run_id),
+            "INSERT INTO steps (step_id, run_id, state, agent_role, pool_class) "
+            "VALUES (%s, %s, 'runnable', 'coordinator', %s)",
+            (step_id, run_id, TEST_POOL_CLASS),
         )
     try:
         yield run_id, step_id
@@ -184,7 +202,12 @@ def test_a_second_claim_of_a_reacquired_step_invalidates_the_first_lease(
     worker_conn.commit()
 
     second = pool.claim_one(
-        worker_conn, pool.PoolConfig(worker_id="other-worker", lease_ttl_seconds=3)
+        worker_conn,
+        pool.PoolConfig(
+            worker_id="other-worker",
+            pool_class=TEST_POOL_CLASS,
+            lease_ttl_seconds=3,
+        ),
     )
     assert second is not None
     assert second.epoch == first.epoch + 1
@@ -240,7 +263,7 @@ def test_renew_is_fenced_on_epoch_and_on_owner(
     with pytest.raises(event_log.Fenced):
         pool.renew(worker_conn, FAST, stale)
 
-    impostor = pool.PoolConfig(worker_id="not-the-owner")
+    impostor = pool.PoolConfig(worker_id="not-the-owner", pool_class=TEST_POOL_CLASS)
     with pytest.raises(event_log.Fenced):
         pool.renew(worker_conn, impostor, lease)
 
@@ -435,7 +458,8 @@ def test_a_drain_expires_the_lease_and_joins_the_body(
     assert body.finished.is_set()
     # `SIGTERM` sets lease_expires_at = now(), so the next poll takes it.
     row = owner_conn.execute(
-        "SELECT lease_expires_at <= now() FROM steps WHERE step_id = %s", (step_id,)
+        "SELECT lease_expires_at <= clock_timestamp() FROM steps WHERE step_id = %s",
+        (step_id,),
     ).fetchone()
     assert row == (True,), "the drain did not expire the lease"
     assert _step_state(owner_conn, step_id)[0] == "leased"
@@ -492,7 +516,8 @@ def test_a_stop_requested_before_the_body_starts_is_not_lost(
     )
     assert body.finished.is_set(), "the body was not joined"
     row = owner_conn.execute(
-        "SELECT lease_expires_at <= now() FROM steps WHERE step_id = %s", (step_id,)
+        "SELECT lease_expires_at <= clock_timestamp() FROM steps WHERE step_id = %s",
+        (step_id,),
     ).fetchone()
     assert row == (True,), "the drain did not expire the lease"
 
@@ -509,15 +534,23 @@ def test_a_completed_body_is_released_even_when_a_stop_is_pending(
     — duplicate side effects once a real body replaces the sleep.
     """
     _run_id, step_id = runnable_step
-    body = make_body(block=False)
-    worker = pool.Worker(FAST, step_body=body)
+    worker: pool.Worker
 
+    def body_that_stops_the_worker(_lease: pool.Lease, _stop: threading.Event) -> None:
+        """Finish, then request the stop — so both are true on the first wake.
+
+        This is the ordering the check exists for, arranged rather than raced
+        for. An earlier version called `body.finished.wait(timeout=0)` before
+        `_execute` had even started the body thread, which is a no-op, and then
+        set `_stop` — so which branch ran depended on whether the body happened
+        to finish during `psycopg.connect`.
+        """
+        worker.request_stop()
+
+    worker = pool.Worker(FAST, step_body=body_that_stops_the_worker)
     lease = pool.claim_one(worker_conn, FAST)
     assert lease is not None
 
-    # Both the completion and the stop are pending before the first wait.
-    body.finished.wait(timeout=0)
-    worker.request_stop()
     worker._execute(worker_conn, lease)
 
     assert _step_state(owner_conn, step_id)[0] == "completed", (
@@ -557,6 +590,7 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
     # body and the step is claimable.
     assert body.stopped.is_set() and body.finished.is_set()
     row = owner_conn.execute(
-        "SELECT lease_expires_at <= now() FROM steps WHERE step_id = %s", (step_id,)
+        "SELECT lease_expires_at <= clock_timestamp() FROM steps WHERE step_id = %s",
+        (step_id,),
     ).fetchone()
     assert row == (True,)

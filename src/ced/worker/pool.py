@@ -17,12 +17,22 @@ means a fenced worker has exactly one thing to abandon, which is what makes
 "aborts without *additional* side effects" a simple statement rather than a
 coordination problem.
 
-The guarantee holds **while the step body honours its stop event**. Every exit
-path stops and joins the body before releasing or surrendering the lease; a body
-that ignores its stop event for a whole lease TTL cannot be joined, and rather
-than claim again alongside it the worker stops claiming altogether. That is a
-deliberate trade — losing one worker's capacity beats running two bodies on one
-step — and it is the case the sibling spec's real step body makes matter.
+**Every exit path stops and joins the body before the step can be taken by
+anyone else**, and the stuck-body case is handled by *not* surrendering:
+
+  * completion and failure — join, then `release`;
+  * fence loss and a terminal run — join, then return without touching the
+    row, because the step is already someone else's or the run is over;
+  * drain — join, then `_expire_now`. If the body could not be joined within a
+    lease TTL the lease is **left to expire on its own** instead, so the step
+    does not become claimable beside a body that is still running. The worker
+    then stops claiming.
+
+An earlier version surrendered the lease on the drain path regardless, which
+made the step claimable while the old body ran — the exact overlap this design
+trades capacity to avoid. The cost of the current behaviour is that a stuck
+body delays recovery of its step to one full lease TTL, which is the recovery
+path r7 already specifies for a worker that dies.
 
 **What this module does not do**, because no criterion in
 `walking-skeleton-foundation` needs it and the sibling specs own it:
@@ -382,13 +392,44 @@ class Worker:
                 if self._stop.is_set():
                     # Graceful drain. Stop and join the body *before*
                     # surrendering the lease, so the step is not claimable
-                    # while the old body still runs. The body is cooperative,
-                    # so this costs milliseconds; a body that ignores its stop
-                    # event delays the expiry rather than racing the survivor.
+                    # while the old body still runs.
+                    #
+                    # `finished_first` is captured before `body_stop` is set,
+                    # because the window between the `body_done` test above and
+                    # this line is exactly where a body can complete on its
+                    # own. It used to fall through to the surrender, discarding
+                    # a recorded `completed` and letting the survivor
+                    # re-execute a finished step — the round-2 defect narrowed
+                    # rather than removed.
+                    # Captured *before* `body_stop` is set, and nothing else
+                    # will do: after `stop_body` returns, `body_done` is set on
+                    # every cooperative body, because stopping it is what made
+                    # it finish. Reading it afterwards cannot tell "completed
+                    # on its own" from "completed because we asked", and an
+                    # earlier version of this branch used that reading and
+                    # released every drained step instead of surrendering it.
+                    finished_first = body_done.is_set()
                     stopped = stop_body("drain")
-                    self._expire_now(heartbeat_conn, lease)
+                    if finished_first:
+                        release(
+                            conn,
+                            self.config,
+                            lease,
+                            outcome[0] if outcome else "failed",
+                        )
+                        return
                     if not stopped:
-                        self.request_stop()
+                        # The body is still running, so the step must not
+                        # become claimable: hold the lease and let it expire on
+                        # its own rather than handing the step to a survivor
+                        # that would run a second body beside this one.
+                        log.error(
+                            "step %s not surrendered: its body is still "
+                            "running, so the lease is left to expire",
+                            lease.step_id,
+                        )
+                        return
+                    self._expire_now(heartbeat_conn, lease)
                     return
 
                 if woken:
@@ -412,13 +453,26 @@ class Worker:
                 renew_at = time.monotonic() + self.config.heartbeat_seconds
 
     def _expire_now(self, conn: psycopg.Connection, lease: Lease) -> None:
-        """`SIGTERM` sets `lease_expires_at = now()`, per r7 § Step execution."""
-        conn.execute(
+        """`SIGTERM` sets `lease_expires_at = now()`, per r7 § Step execution.
+
+        The log line reports what the statement actually did. It was
+        unconditional, so a drain whose row had been reowned or deleted
+        announced a surrender having changed nothing — a log that misstates the
+        one transition AC-0011 rests on.
+        """
+        cursor = conn.execute(
             "UPDATE steps SET lease_expires_at = now() WHERE step_id = %s AND owner = %s",
             (lease.step_id, self.config.worker_id),
         )
         conn.commit()
-        log.info("drained step %s — expires now", lease.step_id)
+        if cursor.rowcount:
+            log.info("drained step %s — expires now", lease.step_id)
+        else:
+            log.info(
+                "drain on step %s changed nothing: the lease had already moved "
+                "on or the row is gone",
+                lease.step_id,
+            )
 
 
 def run() -> None:

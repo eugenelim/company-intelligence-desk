@@ -137,8 +137,28 @@ def upgrade() -> None:
         AS $$
         BEGIN
             -- The steps row lock, taken before any runs lock on every path.
+            --
+            -- `owner IS NOT NULL AND lease_expires_at > now()` is the second
+            -- half, and it is what makes this a proof of *possession* rather
+            -- than of knowledge. On the epoch alone the fence admitted a
+            -- never-claimed step, because `lease_epoch` is NOT NULL DEFAULT 0
+            -- — so a caller passing 0 forged an append against a step no
+            -- worker had ever leased. Observed as `app_policy`, the narrowest
+            -- role in the system.
+            --
+            -- It also closes the two adjacent states: `release` sets
+            -- `lease_expires_at = NULL` and the drain sets it to `now()`, and
+            -- neither satisfies `> now()`.
+            --
+            -- This goes beyond r7 § Event log's epoch-only pseudocode for the
+            -- append path. Owner decision 2026-09-18, recorded in ADR-0005;
+            -- r7 already fences *renewal* on epoch and owner, so the
+            -- asymmetry being closed here is r7's own.
             PERFORM 1 FROM public.steps
-             WHERE step_id = p_step_id AND lease_epoch = p_lease_epoch
+             WHERE step_id = p_step_id
+               AND lease_epoch = p_lease_epoch
+               AND owner IS NOT NULL
+               AND lease_expires_at > now()
                FOR UPDATE;
             RETURN FOUND;
         END $$
@@ -175,7 +195,14 @@ def upgrade() -> None:
             -- `run.completed` and `run.cancelled` with a step_id attached —
             -- and `events_terminal_idx` indexes exactly those names, so the
             -- write closed the stream from a path with no terminal guard.
-            IF p_type IN ({_NON_STEP_SQL_LIST}) THEN
+            -- Decided on a *normalised* form. The refusal used to compare the
+            -- raw argument, so `'run.completed '` and `'RUN.COMPLETED'` were
+            -- both admitted and stored verbatim — a negative rule narrower
+            -- than the rule it states. `events.type` deliberately carries no
+            -- CHECK, because enumerating the step-scoped vocabulary is the
+            -- decision T4 declined; normalising the comparison keeps the rule
+            -- negative while closing every spelling of a refused name.
+            IF lower(btrim(p_type)) IN ({_NON_STEP_SQL_LIST}) THEN
                 -- session_user, not current_user: inside a definer function
                 -- current_user is ced_owner, which would name the wrong
                 -- principal in every audit record. Found by spike P1.
@@ -226,10 +253,13 @@ def upgrade() -> None:
                     USING ERRCODE = 'foreign_key_violation';
             END IF;
 
+            -- The canonical form is what is stored, so no reader — here or in
+            -- a sibling spec — has to normalise on the way out.
             INSERT INTO public.events (run_id, seq, type, step_id, agent_role,
                                        principal, payload_ref, idempotency_key)
-            VALUES (p_run_id, v_seq, p_type, p_step_id, p_agent_role,
-                    p_principal, p_payload_ref, p_idempotency_key);
+            VALUES (p_run_id, v_seq, lower(btrim(p_type)), p_step_id,
+                    p_agent_role, p_principal, p_payload_ref,
+                    p_idempotency_key);
             RETURN v_seq;
         END $$
     """)
@@ -245,7 +275,12 @@ def upgrade() -> None:
         AS $$
         DECLARE v_seq bigint;
         BEGIN
-            IF p_type NOT IN ({_RUN_LIFECYCLE_SQL_LIST}) THEN
+            -- Normalised for the same reason as the step path's refusal, and
+            -- in the opposite direction: this is an allowlist, so a variant
+            -- spelling was already refused. Normalising makes a legitimate
+            -- caller's stray whitespace work rather than fail obscurely, and
+            -- keeps the two paths deciding the same way about the same string.
+            IF lower(btrim(p_type)) NOT IN ({_RUN_LIFECYCLE_SQL_LIST}) THEN
                 RAISE EXCEPTION
                     'append_run_event refuses % (caller %)', p_type, session_user
                     USING ERRCODE = 'insufficient_privilege';
@@ -267,7 +302,8 @@ def upgrade() -> None:
 
             INSERT INTO public.events (run_id, seq, type, step_id, principal,
                                        payload_ref)
-            VALUES (p_run_id, v_seq, p_type, NULL, p_principal, p_payload_ref);
+            VALUES (p_run_id, v_seq, lower(btrim(p_type)), NULL, p_principal,
+                    p_payload_ref);
             RETURN v_seq;
         END $$
     """)

@@ -91,8 +91,14 @@ def test_the_index_is_partial_so_other_types_are_unconstrained(
 def test_several_keyless_events_are_admitted(
     worker_conn: psycopg.Connection, leased_step: LeasedStep
 ) -> None:
-    """The common case must not be caught by the index."""
-    for _ in range(3):
+    """The common case must not be caught by the index.
+
+    Asserts the allocated sequence numbers, not merely the absence of an
+    exception. It asserted nothing, so a path that admitted the events while
+    allocating no number — the hole `runs.next_seq` exists to prevent — would
+    have stayed green.
+    """
+    allocated = [
         event_log.append_step_event(
             worker_conn,
             run_id=leased_step.run_id,
@@ -101,6 +107,10 @@ def test_several_keyless_events_are_admitted(
             type="step.progress",
             principal="worker-1",
         )
+        for _ in range(3)
+    ]
+
+    assert allocated == [1, 2, 3]
 
 
 def test_the_same_key_in_a_different_run_is_admitted(
@@ -114,9 +124,13 @@ def test_the_same_key_in_a_different_run_is_admitted(
     other_run, other_step = uuid.uuid4(), uuid.uuid4()
     with owner_conn.transaction():
         owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (other_run,))
+        # A *live, owned* lease. The fence requires both since ADR-0005: a
+        # `leased` row with no owner and no expiry is no longer appendable,
+        # which is the point of that decision.
         owner_conn.execute(
-            "INSERT INTO steps (step_id, run_id, state, lease_epoch) "
-            "VALUES (%s, %s, 'leased', 1)",
+            "INSERT INTO steps (step_id, run_id, state, owner, lease_epoch, "
+            "lease_expires_at) VALUES (%s, %s, 'leased', 'fixture', 1, "
+            "now() + interval '60 seconds')",
             (other_step, other_run),
         )
     try:

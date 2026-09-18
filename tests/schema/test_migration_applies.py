@@ -104,8 +104,8 @@ def test_no_role_can_create_objects_in_the_public_schema(
     conn.rollback()
 
 
-@pytest.mark.parametrize("role", ["api", "worker", "policy"])
-def test_each_application_role_can_open_a_connection_and_read(
+@pytest.mark.parametrize("role", ["api", "worker"])
+def test_each_reading_role_can_open_a_connection_and_read(
     role: str, request: pytest.FixtureRequest
 ) -> None:
     """T3's Done when: the next task can open connections against this schema.
@@ -341,18 +341,54 @@ def _classify_provisioning(statement: str) -> str:
 def _require_local_substrate() -> None:
     """Refuse cluster-level DDL unless the target is the local throwaway stack.
 
-    `database_url("migration")` honours `$CED_DATABASE_URL`, and the only other
-    precondition proves merely that *something* answers there — so a developer
-    with that variable pointed at a shared cluster would have this check
-    `CREATE` and `DROP` a database on it. `AGENTS.md` § Development workflow
-    requires confirmation before a destructive operation, and a test cannot ask.
+    **Decided from the parameters libpq will actually resolve, not from the
+    DSN's text.** An earlier version tested whether the string contained
+    `@127.0.0.1:55432/`, which cannot constrain where a connection goes: the
+    literal can be carried inside a parameter value, and a later `host=`
+    keyword overrides a loopback-looking authority. Both shapes passed the
+    substring test while resolving off-box, after which this check would have
+    run `CREATE`/`DROP DATABASE` there.
+
+    `database_url` honours `$CED_DATABASE_URL`, and the only other precondition
+    proves merely that something answers on it. `AGENTS.md` § Development
+    workflow requires confirmation before a destructive operation, and a test
+    cannot ask — so this fails closed, including when the target cannot be
+    established at all.
     """
+    from psycopg.conninfo import conninfo_to_dict
+
     from ced.adapters.postgres.dsn import LOCAL_HOST, LOCAL_PORT
 
-    url = database_url("migration")
-    if f"@{LOCAL_HOST}:{LOCAL_PORT}/" not in url:
+    try:
+        resolved = conninfo_to_dict(database_url("migration"))
+    except Exception as exc:  # noqa: BLE001 — an unparseable DSN fails closed
+        pytest.skip(f"refusing cluster DDL: the target DSN did not parse ({exc})")
+
+    host, port = resolved.get("host"), resolved.get("port")
+    if host != LOCAL_HOST or str(port) != str(LOCAL_PORT):
         pytest.skip(
             "refusing CREATE/DROP DATABASE against a non-local target: this "
             f"check only runs against {LOCAL_HOST}:{LOCAL_PORT}, the throwaway "
-            "substrate in deploy/compose.yaml"
+            f"substrate in deploy/compose.yaml, and this DSN resolves to "
+            f"{host}:{port}"
         )
+
+
+def test_the_policy_role_can_connect_and_is_refused_every_read(
+    policy_conn: psycopg.Connection,
+) -> None:
+    """`policy-writer` gets no read at all, per r7's Layer-1 identity table.
+
+    It grants that role "`runs.next_seq` bump + insert `policy.decision` events
+    **only**", with no read column — and r4 item 1 chose the definer fence so it
+    "gains no table access at all". An earlier version of the schema granted it
+    `SELECT` on all six tables, which is what let it read the `lease_epoch` the
+    fence compares (ADR-0005). The connection must still open, because the
+    worker boot sequence verifies it.
+    """
+    assert policy_conn.execute("SELECT session_user").fetchone() == ("app_policy",)
+
+    for table in ("runs", "steps", "events", "agent_role", "entitlements"):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            policy_conn.execute(f"SELECT count(*) FROM {table}")
+        policy_conn.rollback()

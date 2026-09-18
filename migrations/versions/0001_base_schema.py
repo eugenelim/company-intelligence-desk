@@ -153,9 +153,10 @@ def upgrade() -> None:
     # `api`: read all; write runs (including next_seq) and enqueue steps.
     #        Holds no model authority and no unqualified events insert.
     # `worker`: read/write runs and steps.
-    # `policy`: read only. Its single write is the policy.decision append,
-    #        which arrives in revision 0002 as a function call and gives it no
-    #        table access at all.
+    # `policy`: **nothing**. No read, no write. Its single capability is the
+    #        policy.decision append, which arrives in revision 0002 as an
+    #        `EXECUTE` grant on one function and gives it no table access at
+    #        all — which is exactly what r4 item 1 chose the definer fence for.
     #
     # `UPDATE ON runs` is table-level for both `api` and `worker` because that
     # is exactly what r7's identity table grants — "write `runs` (incl.
@@ -166,10 +167,17 @@ def upgrade() -> None:
     # *appends*, not that the column cannot be moved by a direct statement.
     # Recorded here and in the verification ledger rather than narrowed, because
     # narrowing it unilaterally would deviate from ratified authority.
-    op.execute("GRANT SELECT ON runs, steps, events TO app_api, app_worker, app_policy")
+    # **`app_policy` gets no read at all.** r7's Layer-1 identity table grants
+    # `policy-writer` "`runs.next_seq` bump + insert `policy.decision` events
+    # **only**" — no read column — and r4 item 1 chose the definer-fence option
+    # expressly "so `policy-writer` gains no table access at all". An earlier
+    # version granted it `SELECT` on all six tables, which over-granted against
+    # both documents and let it read the `lease_epoch` and `step_id` values the
+    # fence compares. It needs none of them: its single write is a function
+    # call, and the worker supplies the step and epoch at call time.
+    op.execute("GRANT SELECT ON runs, steps, events TO app_api, app_worker")
     op.execute(
-        "GRANT SELECT ON agent_role, integration_registry, entitlements "
-        "TO app_api, app_worker, app_policy"
+        "GRANT SELECT ON agent_role, integration_registry, entitlements TO app_api, app_worker"
     )
     op.execute("GRANT INSERT, UPDATE ON runs  TO app_api")
     op.execute("GRANT UPDATE         ON runs  TO app_worker")

@@ -362,7 +362,7 @@ repository keeps the answer to *what do we actually know*. The same standard
 applies: **a check that cannot fail is not evidence**, so setup checks are
 reported apart from hypothesis checks.
 
-86 checks green. The full suite takes about four minutes, most of it the
+All checks green — the count is deliberately not stated here, because it moved three times during review and a stale tally is worse than none; `pytest` reports it. The full suite takes about four minutes, most of it the
 fault-injection suite running at r7's real lease timings. No model provider is
 called, no cloud credential is used, and the spend is **$0.00** — by design:
 `walking-skeleton-agent-runtime` owns every provider-touching claim.
@@ -386,7 +386,7 @@ being built, is in
 | The identifier lint catches an embedded account id, and not a content hash | AC-0008 | Five embedding shapes exit 1; a hash containing a twelve-digit run exits 0. The real script, as a subprocess, against a throwaway git repository |
 | The served routes match the committed contract | AC-0009 | Route table equality against `/openapi.json`, and the comparison shown failing on three mutations of a copy |
 | A killed worker's step is reacquired with no operator action | AC-0010 | `docker kill`; reacquired after **59.5 s** and **80.3 s** on two runs, `lease_epoch` 1 → 2 |
-| A drained worker's step returns in one poll interval | AC-0011 | `docker stop`; reacquired after **29.8 s**, against a 30-second poll interval |
+| A drained worker surrenders its lease promptly, and its step returns in one poll interval | AC-0011 (amended 2026-09-18) | `docker kill --signal=TERM`, with the clock started at signal delivery. Clause 1: the lease stopped being held after 0.04 s, observed as the surrender itself, against a bound of under one heartbeat. Clause 2: reacquired 19.2 s after that surrender, against one poll interval. End-to-end 19.2 s, reported and not asserted |
 
 Two further results that no criterion asked for and that a reader needs:
 
