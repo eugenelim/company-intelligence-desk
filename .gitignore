@@ -38,6 +38,12 @@ __pycache__/
 *.pyc
 build/
 
+# Python toolchain — local environment and tool caches.
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
 # Build pipeline output.
 dist/
 

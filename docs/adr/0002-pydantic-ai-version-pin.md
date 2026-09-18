@@ -50,7 +50,11 @@ a decision record behind it is exactly the drift this directory exists to stop.
 ## Decision
 
 - **D1:** The pinned version is `pydantic-ai` 2.45.0, exactly — not a range and
-  not a compatible-release specifier. This supersedes
+  not a compatible-release specifier. The manifest names the distribution Phase 0
+  actually installed, `pydantic-ai-slim[bedrock]==2.45.0`: Bedrock is the only
+  provider this design reaches, and the batteries-included `pydantic-ai`
+  meta-package pulls every provider extra and pins `starlette` against FastAPI,
+  so it does not resolve alongside the API. This supersedes
   [ADR-0001](0001-pydantic-ai-as-the-agent-framework.md) D5 **in part**: D5's
   cardinality (one exact pin) stands and only its value changes. ADR-0001's
   D1–D4 are untouched.

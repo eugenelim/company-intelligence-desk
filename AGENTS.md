@@ -97,6 +97,11 @@ refuses — is in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
   before building. Record disagreement rather than complying silently.
 - Get confirmation before destructive or irreversible operations.
 - Propose a new top-level directory through an RFC rather than creating one.
+  The owner waived this once, for the walking skeleton on 2026-09-18; the
+  five directories it created are recorded in
+  [ADR-0003](docs/adr/0003-repository-layout.md) and a sixth still needs the
+  RFC. The waiver was a one-time shaping-phase exception, not a change to
+  this rule.
 - Keep unrelated discoveries out of the current change unless the accepted
   contract admits them. Note them somewhere durable instead.
 
@@ -117,8 +122,49 @@ done here.
 
 ## Build and test commands
 
-There is no application code yet, so there is no install, build or test
-command to run. Two checks run against every change, and both are cheap:
+Every command below was run to produce this section; none is inferred from the
+detected language. The manifest is [`pyproject.toml`](pyproject.toml) and the
+layout it fills is [ADR-0003](docs/adr/0003-repository-layout.md).
+
+### Install
+
+```bash
+python3 -m venv .venv                  # Python 3.13 — pinned by requires-python
+./.venv/bin/pip install -e '.[dev]'
+```
+
+### Gates, in the order to run them
+
+```bash
+./.venv/bin/ruff format --check .      # style
+./.venv/bin/ruff check .               # lint
+./.venv/bin/mypy                       # types — strict, over src/ced only
+./.venv/bin/python -m pytest -m 'not substrate'   # offline suites
+./.venv/bin/python -m pytest                      # everything, needs the substrate below
+```
+
+`ruff` and `mypy` govern the code this project authors. `pyproject.toml`
+`[tool.ruff] extend-exclude` names what they skip and why — vendored agent
+packs, `spikes/` (throwaway by that directory's own rule), and the `tools/`
+lints, which predate this manifest. `mypy` runs over `src/ced` and not over
+`tests/`.
+
+### The local substrate
+
+Tests marked `substrate` need Postgres and MinIO. **Use `docker-compose`, not
+`docker compose`** — the Compose CLI plugin is not installed in this
+environment, and the standalone binary is:
+
+```bash
+docker-compose -f deploy/compose.yaml up -d
+./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
+./.venv/bin/python -m pytest           # the full suite
+docker-compose -f deploy/compose.yaml down -v
+```
+
+### Repository checks
+
+These predate the application and still run against every change:
 
 ```bash
 python3 tools/lint-no-identifiers.py --staged   # no account ids, ARNs, keys,
@@ -128,9 +174,9 @@ python3 tools/hooks/pre-pr.py                   # knowledge lint + work-loop cap
 ```
 
 Run the first two before committing and the third before opening a PR. There is
-no CI: these are the whole gate. Add the install, build and test commands here
-in the same change that introduces them, verified from the manifest or task
-runner that owns them — never guessed from the detected language.
+no CI: the gates on this page are the whole gate. Add a new install, build or
+test command here in the same change that introduces it, verified from the
+manifest or task runner that owns it — never guessed from the detected language.
 
 ## Coding conventions
 

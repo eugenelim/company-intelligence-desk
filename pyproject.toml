@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "company-intelligence-desk"
+version = "0.1.0"
+description = "An inspectable reference implementation of a governed multi-agent application."
+requires-python = "==3.13.*"
+license = "Apache-2.0 OR MIT"
+
+# Recorded in docs/specs/walking-skeleton-foundation/plan.md
+# § Dependencies & integration before being added, per AGENTS.md.
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn==0.53.0",
+    "psycopg[binary]==3.3.6",
+    "alembic==1.20.0",
+    # ADR-0002 D1: exact pin, superseding ADR-0001 D5 in part. The `-slim`
+    # distribution with the `bedrock` extra is what Phase 0 probed and the only
+    # provider this design reaches; the batteries-included `pydantic-ai`
+    # meta-package pins `starlette` against FastAPI and does not resolve.
+    #
+    # Imported by no code in the walking-skeleton-foundation spec — it is here
+    # so the dependency-direction gate has a real installed package to forbid.
+    "pydantic-ai-slim[bedrock]==2.45.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.16.8",
+    "mypy==2.3.1",
+]
+
+[project.scripts]
+# Two deployables from one package, per ADR-0003 D3.
+ced-api = "ced.api.main:run"
+ced-worker = "ced.worker.main:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 96
+src = ["src", "tests"]
+# The toolchain governs the code this project authors. Everything excluded here
+# predates it and is out of the walking skeleton's scope:
+#   .agents/, .claude/, .codex/  vendored agent packs — upstream content
+#   spikes/                      throwaway by that directory's own rule
+#   tools/                       repository lints that predate this manifest;
+#                                the foundation spec touches one of them to add
+#                                a regression test, not to restyle it
+extend-exclude = [".agents", ".claude", ".codex", "spikes", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.13"
+packages = ["ced"]
+mypy_path = "src"
+strict = true
+
+[[tool.mypy.overrides]]
+# The event-log adapter reads rows psycopg types as tuple[Any, ...]; the
+# boundary is the SQL, and the row shapes are asserted by tests/event_log.
+module = "ced.adapters.postgres.*"
+warn_return_any = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Integration and fault-injection suites need the Compose substrate; the unit
+# and architecture suites do not. `-m "not substrate"` is the offline subset.
+markers = [
+    "substrate: needs the deploy/compose.yaml stack running",
+]
