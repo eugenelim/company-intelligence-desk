@@ -1,0 +1,128 @@
+"""Helpers for driving real worker containers.
+
+Nothing here is compressed. AC-0010 and AC-0011 are measured at r7's timings —
+TTL 60 s, heartbeat 20 s, poll 30 s — because a compressed run would
+demonstrate the mechanism and not the number, and the number is the criterion.
+That makes this the slow suite; it is marked `substrate` and skips cleanly when
+the stack is not up.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import time
+import uuid
+from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from uuid import UUID
+
+import psycopg
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+COMPOSE_FILE = REPO_ROOT / "deploy" / "compose.yaml"
+
+WORKER_CONTAINERS = ("deploy-worker-a-1", "deploy-worker-b-1")
+
+#: r7 § Step execution: TTL 60 + poll 30 + heartbeat 20 = 150 s worst case.
+WORST_CASE_SECONDS = 150
+#: A little headroom for container scheduling, named rather than folded in.
+OBSERVATION_MARGIN_SECONDS = 20
+
+
+def docker(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["docker", *args], capture_output=True, text=True, check=False)
+
+
+def container_is_running(name: str) -> bool:
+    result = docker("inspect", "-f", "{{.State.Running}}", name)
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+@pytest.fixture(scope="module")
+def running_workers(require_substrate: None) -> list[str]:
+    """Skip with an actionable message when the worker containers are absent."""
+    missing = [name for name in WORKER_CONTAINERS if not container_is_running(name)]
+    if missing:
+        pytest.skip(
+            f"worker containers not running: {missing}. Run "
+            f"`docker-compose -f {COMPOSE_FILE.relative_to(REPO_ROOT)} up -d --build`"
+        )
+    return list(WORKER_CONTAINERS)
+
+
+@dataclass
+class StepObservation:
+    owner: str | None
+    epoch: int
+    state: str
+    lease_expires_at: object
+
+
+def observe(conn: psycopg.Connection, step_id: UUID) -> StepObservation:
+    row = conn.execute(
+        "SELECT owner, lease_epoch, state, lease_expires_at FROM steps WHERE step_id = %s",
+        (step_id,),
+    ).fetchone()
+    assert row is not None, f"step {step_id} vanished"
+    return StepObservation(
+        owner=row[0], epoch=int(row[1]), state=row[2], lease_expires_at=row[3]
+    )
+
+
+def wait_until_claimed(
+    conn: psycopg.Connection, step_id: UUID, timeout: float
+) -> StepObservation:
+    """Poll until some worker owns the step, or fail with what was seen."""
+    deadline = time.monotonic() + timeout
+    last = observe(conn, step_id)
+    while time.monotonic() < deadline:
+        last = observe(conn, step_id)
+        if last.owner is not None and last.state == "leased":
+            return last
+        time.sleep(0.5)
+    pytest.fail(f"step {step_id} was not claimed within {timeout} s; last saw {last}")
+
+
+def wait_for_reacquisition(
+    conn: psycopg.Connection, step_id: UUID, previous_owner: str, timeout: float
+) -> tuple[StepObservation, float]:
+    """Poll until a *different* worker owns the step. Returns it and the wait.
+
+    Wall clock read from this side, and the ownership change read from the
+    database — not from a log line. A log line records what a worker believed;
+    the `steps` row records what actually happened.
+    """
+    started = time.monotonic()
+    deadline = started + timeout
+    last = observe(conn, step_id)
+    while time.monotonic() < deadline:
+        last = observe(conn, step_id)
+        if last.owner is not None and last.owner != previous_owner:
+            return last, time.monotonic() - started
+        time.sleep(0.5)
+    pytest.fail(
+        f"step {step_id} was not reacquired within {timeout} s "
+        f"(still owned by {last.owner!r}); last saw {last}"
+    )
+
+
+@pytest.fixture
+def pending_step(owner_conn: psycopg.Connection) -> Iterator[tuple[UUID, UUID]]:
+    """A run with one runnable step, cleaned up whichever way the test ends."""
+    run_id, step_id = uuid.uuid4(), uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (run_id,))
+        owner_conn.execute(
+            "INSERT INTO steps (step_id, run_id, state, agent_role) "
+            "VALUES (%s, %s, 'runnable', 'coordinator')",
+            (step_id, run_id),
+        )
+    try:
+        yield run_id, step_id
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))

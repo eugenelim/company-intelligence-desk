@@ -156,11 +156,17 @@ Tests marked `substrate` need Postgres and MinIO. **Use `docker-compose`, not
 environment, and the standalone binary is:
 
 ```bash
-docker-compose -f deploy/compose.yaml up -d
+docker-compose -f deploy/compose.yaml up -d --build
 ./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
-./.venv/bin/python -m pytest           # the full suite
+./.venv/bin/python -m pytest           # the full suite, about 4 minutes
 docker-compose -f deploy/compose.yaml down -v
 ```
+
+`--build` matters: the stack includes two worker containers built from
+`deploy/Dockerfile`, and `tests/fault_injection` kills and restarts them. That
+suite runs at r7's real lease timings — TTL 60 s, heartbeat 20 s, poll 30 s —
+so it takes about three and a half minutes on its own. Compressed timings would
+demonstrate the mechanism and not the 150-second number the criterion states.
 
 ### Running the two deployables
 

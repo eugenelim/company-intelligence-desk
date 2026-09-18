@@ -253,3 +253,57 @@ the shipped binary.
   parser in the standard library. Owner decision 2026-09-18. No `src/` code
   imports it, which the dependency-direction gate does not police and the
   manifest records.
+
+### T5 — a killed worker loses at most 150 seconds
+
+Four checks in `tests/fault_injection`, all green, driving real containers at
+r7's real timings. The suite takes 201 seconds; compressed timings would
+demonstrate the mechanism and not the number, and the number is the criterion.
+
+- **AC-0010 — established.** `docker kill` (SIGKILL) on the worker holding the
+  step. **Observed: 59.5 s to reacquisition**, with `lease_epoch` advancing
+  1 → 2, which is what fences the dead worker out for good. Read from the
+  `steps` row, not from a log line: a log line records what a worker believed,
+  the row records what happened.
+- **The 59.5 s is one observation, not the bound.** 150 s is the worst case —
+  TTL 60 + poll 30 + heartbeat 20 — and this run landed well inside it because
+  the surviving worker's poll happened to fall shortly after the lease expired.
+  A single measurement below a bound does not establish the bound; what is
+  established is that recovery happened with no operator action and inside it.
+- **AC-0011 — established, and distinct.** `docker stop -t 30` (SIGTERM).
+  **Observed: 29.8 s**, inside one 30-second poll interval. A third check
+  asserts the drain is *faster* than the 150 s host-loss path, because a drain
+  that happened to take 150 s would satisfy AC-0010's bound while telling an
+  operator nothing about whether the graceful path works at all.
+- **Established: exactly one owner at a time.** With both workers live and
+  polling the same class, a fresh step is claimed at epoch 1 by one of them,
+  and 25 seconds later the owner and epoch are unchanged while
+  `lease_expires_at` has moved forward — so the heartbeat renewed rather than
+  the lease being re-taken.
+- **Established: the boot sequence verifies both roles before claiming.** Both
+  containers log `worker connection verified as app_worker` and `policy
+  connection verified as app_policy` before `ready`. A worker that claimed
+  before it could finish a step would manufacture a lease expiry and a
+  150-second recovery for a problem a readiness check catches in milliseconds.
+- **SUBSTITUTED — and this is the important one.** AC-0010's *"no operator
+  action"* holds because **a second worker was already running**, not because
+  anything replaced the killed one. `restart: "no"` keeps the victim dead so
+  the recovery observed is the survivor's. A deployed ECS service with a
+  desired count would replace the task; **nothing here does, and nothing here
+  measures that replacement or its notice period.** The test restarts the
+  container itself, afterwards, so the next check starts from two again.
+- **Not established:** anything about Fargate. These are local containers on
+  one Docker host. Task replacement timing, the notice period, and the
+  behaviour of a killed host rather than a killed process are all untested.
+- **Not established:** cancellation. There is no cancellation token and no
+  `step_deadline` here — `worker-runtime.md` § The pool owns both, and the
+  evidence spec measures them. The heartbeat does read run state in the same
+  statement that renews the lease, so the signal a cancelled run would arrive
+  on exists; nothing in this spec produces a cancelled run.
+- **Not established:** the object store. The boot sequence checks both database
+  connections and **not** MinIO. Nothing in this spec reads or writes an
+  object, and an S3 client in `worker/` would put the AWS SDK outside
+  `adapters/`, which the dependency-direction gate forbids.
+- **Not established:** a real step body. The injected body sleeps. That is what
+  keeps this suite free of a credential and of spend, and it means nothing here
+  exercises a fenced worker abandoning an in-flight model call.

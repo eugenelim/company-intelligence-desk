@@ -57,3 +57,39 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+
+  # Two workers, running throughout. AC-0010's "no operator action" holds
+  # because the replacement **already existed** — not because a scheduler
+  # created one. That is a substitution this spec makes against a deployed
+  # ECS service with a desired count, and it is recorded as one.
+  #
+  # r7's capacity table is a fixed count of 2 with no autoscaling, and at one
+  # step in flight per worker that is also the concurrency ceiling: two
+  # sequential runs, or one that fans out to two specialists.
+  worker-a: &worker
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      CED_WORKER_ID: worker-a
+      # Inside the Compose network, Postgres is on its own hostname and the
+      # container port, not the published 55432.
+      CED_DATABASE_URL_WORKER: postgresql://app_worker:local_only_not_a_secret@postgres:5432/ced
+      CED_DATABASE_URL_POLICY: postgresql://app_policy:local_only_not_a_secret@postgres:5432/ced
+      # A sleep, not a model call: this suite needs no credential and no spend.
+      CED_STEP_BODY_SECONDS: "600"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The pool polls; nothing depends on the container being restarted for the
+    # step to come back, which is what AC-0010 measures. `no` keeps a killed
+    # worker dead so the recovery observed is the *other* worker's.
+    restart: "no"
+
+  worker-b:
+    <<: *worker
+    environment:
+      CED_WORKER_ID: worker-b
+      CED_DATABASE_URL_WORKER: postgresql://app_worker:local_only_not_a_secret@postgres:5432/ced
+      CED_DATABASE_URL_POLICY: postgresql://app_policy:local_only_not_a_secret@postgres:5432/ced
+      CED_STEP_BODY_SECONDS: "600"
