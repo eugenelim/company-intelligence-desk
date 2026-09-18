@@ -104,15 +104,27 @@ def wait_until_claimed(
 
 
 def wait_for_reacquisition(
-    conn: psycopg.Connection, step_id: UUID, previous_owner: str, timeout: float
+    conn: psycopg.Connection,
+    step_id: UUID,
+    previous_owner: str,
+    timeout: float,
+    started: float | None = None,
 ) -> tuple[StepObservation, float]:
     """Poll until a *different* worker owns the step. Returns it and the wait.
 
     Wall clock read from this side, and the ownership change read from the
     database — not from a log line. A log line records what a worker believed;
     the `steps` row records what actually happened.
+
+    `started` lets the caller begin the interval **before** the fault is
+    injected. AC-0011 needs that: `docker stop` is synchronous with container
+    exit — measured at 0.16 s with the container already gone — so a clock
+    started on entry here begins *after* the worker has detected `SIGTERM`,
+    expired its lease and exited, and `elapsed` would contain only the
+    survivor's poll phase. The drain would then be unmeasured, and the
+    assertion insensitive to it.
     """
-    started = time.monotonic()
+    started = time.monotonic() if started is None else started
     deadline = started + timeout
     last = observe(conn, step_id)
     while time.monotonic() < deadline:

@@ -19,6 +19,8 @@ with the fence fully subverted. These tests are what close that gap.
 
 from __future__ import annotations
 
+import uuid
+
 import psycopg
 import pytest
 
@@ -216,12 +218,160 @@ def test_the_worker_cannot_alter_or_drop_the_fence(
     worker_conn.rollback()
 
 
-def test_the_worker_can_still_call_the_fence(
+# ── The fenced step must belong to the run being written ────────────────────
+
+
+def test_a_lease_on_one_run_does_not_authorize_an_append_to_another(
+    policy_conn: psycopg.Connection,
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    leased_step: LeasedStep,
+) -> None:
+    """The forgery the privilege split exists to contain, closed.
+
+    The fence proves a lease on a *step*. It did not prove the step belonged to
+    the run being appended to, so one live lease authorized an append — with a
+    caller-chosen `principal` and `agent_role` — into any run's log. Observed
+    as `app_policy`, the narrowest role in the system, which holds `SELECT` on
+    `steps` and one `EXECUTE` and nothing else.
+    """
+    other_run = uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (other_run,))
+    try:
+        with pytest.raises(event_log.StepRunMismatch):
+            event_log.append_policy_decision(
+                policy_conn,
+                run_id=other_run,
+                step_id=leased_step.step_id,
+                lease_epoch=leased_step.lease_epoch,
+                principal="forged-principal",
+                agent_role="forged-role",
+            )
+        with pytest.raises(event_log.StepRunMismatch):
+            event_log.append_step_event(
+                worker_conn,
+                run_id=other_run,
+                step_id=leased_step.step_id,
+                lease_epoch=leased_step.lease_epoch,
+                type="step.started",
+                principal="worker-1",
+            )
+
+        # Neither attempt advanced the other run's counter or wrote an event.
+        row = owner_conn.execute(
+            "SELECT next_seq, (SELECT count(*) FROM events WHERE run_id = %s) "
+            "FROM runs WHERE run_id = %s",
+            (other_run, other_run),
+        ).fetchone()
+        assert row == (0, 0)
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM events WHERE run_id = %s", (other_run,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (other_run,))
+
+
+def test_the_coherent_pair_is_still_accepted(
     worker_conn: psycopg.Connection, leased_step: LeasedStep
 ) -> None:
-    """The heartbeat renews on it, so refusing DDL must not refuse EXECUTE."""
-    held = worker_conn.execute(
-        "SELECT fence_step(%s, %s)", (leased_step.step_id, leased_step.lease_epoch)
+    """A check that only refuses is a build break, not a control."""
+    assert (
+        event_log.append_step_event(
+            worker_conn,
+            run_id=leased_step.run_id,
+            step_id=leased_step.step_id,
+            lease_epoch=leased_step.lease_epoch,
+            type="step.started",
+            principal="worker-1",
+        )
+        == 1
+    )
+
+
+# ── The step path is restricted to step-scoped types ───────────────────────
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    ["run.requested", "run.cancelled", "run.completed", "run.failed"],
+)
+def test_the_step_path_refuses_the_run_lifecycle_namespace(
+    worker_conn: psycopg.Connection, leased_step: LeasedStep, event_type: str
+) -> None:
+    """r7 § Identity restricts `worker` to its step-scoped types.
+
+    Refusing only `policy.decision` let the worker write `run.completed` and
+    `run.cancelled` with a step_id attached — and `events_terminal_idx` indexes
+    exactly those names, so the write closed the stream from a path that
+    carries no terminal-state guard. Observed before the fix.
+    """
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as caught:
+        event_log.append_step_event(
+            worker_conn,
+            run_id=leased_step.run_id,
+            step_id=leased_step.step_id,
+            lease_epoch=leased_step.lease_epoch,
+            type=event_type,
+            principal="worker-1",
+        )
+    assert "app_worker" in str(caught.value)
+
+
+def test_the_refused_set_matches_the_migration_constant(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """The refusal list and the domain vocabulary must not drift apart."""
+    from ced.domain.events import (
+        RESERVED_EVENT_TYPE,
+        RUN_LIFECYCLE_TYPES,
+        TERMINAL_EVENT_TYPES,
+    )
+
+    row = owner_conn.execute(
+        "SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+        "WHERE n.nspname = 'public' AND p.proname = 'append_step_event'"
     ).fetchone()
-    assert held == (True,)
+    assert row is not None
+    refused = row[0].split("p_type IN (", 1)[1].split(")", 1)[0]
+    names = {piece.strip().strip("'") for piece in refused.split(",")}
+
+    expected = {RESERVED_EVENT_TYPE, *RUN_LIFECYCLE_TYPES, *TERMINAL_EVENT_TYPES}
+    assert names == expected, (
+        f"the step path refuses {sorted(names)} while the domain vocabulary "
+        f"names {sorted(expected)}"
+    )
+
+
+def test_the_worker_holds_no_direct_execute_on_the_fence(
+    worker_conn: psycopg.Connection, leased_step: LeasedStep
+) -> None:
+    """The grant's stated rationale named a caller that does not exist.
+
+    It read "the heartbeat renews on it", but `renew` issues a direct
+    `UPDATE steps … FROM runs` and nothing in `src/` calls `fence_step`. The
+    three append functions reach it at `ced_owner`'s privilege. The grant let
+    the worker take `FOR UPDATE` row locks on arbitrary `steps` rows for no
+    reason, so it was removed.
+    """
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        worker_conn.execute(
+            "SELECT fence_step(%s, %s)",
+            (leased_step.step_id, leased_step.lease_epoch),
+        )
     worker_conn.rollback()
+
+
+def test_the_fence_owner_holds_no_standing_create_on_the_schema(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """Revision 0002 grants `ced_fence` CREATE transiently and revokes it.
+
+    `ced_fence` is `NOLOGIN`, so a connection-based probe cannot reach it and
+    the three login roles never held the grant — a failed or reordered revoke
+    was invisible to the suite. This asserts the catalogue directly.
+    """
+    row = owner_conn.execute(
+        "SELECT has_schema_privilege('ced_fence', 'public', 'CREATE'), "
+        "       has_schema_privilege('ced_fence', 'public', 'USAGE')"
+    ).fetchone()
+    assert row == (False, True)

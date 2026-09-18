@@ -395,10 +395,15 @@ Two further results that no criterion asked for and that a reader needs:
   every writer serialises on the same `runs` row; the designed order is clean
   under the same pressure. Phase 0 sharpened the claim that way and the suite
   carries the sharpening rather than the weaker version of it.
-- **`fence_step` is owned by `app_worker`**, verified in `pg_proc`, so the
-  fence runs at worker's privilege rather than the schema owner's. `app_policy`
-  is refused `SELECT ... FOR UPDATE` on `steps` directly, which is the check
-  that the fence genuinely had to be a function rather than a grant.
+- **`fence_step` is owned by `ced_fence`**, a `NOLOGIN` role granted to no
+  application identity, verified in `pg_proc` — so the fence runs far below the
+  schema owner's privilege *and* the role the split distrusts cannot `DROP` or
+  `ALTER` it. `app_policy` is refused `SELECT ... FOR UPDATE` on `steps`
+  directly, which is the check that the fence genuinely had to be a function
+  rather than a grant. [ADR-0004](../docs/adr/0004-fence-function-owner.md)
+  records this as an owner-approved narrowing of `worker-runtime.md` item 1,
+  whose preferred option — owning the fence as `worker` — review established as
+  unsafe.
 
 ### What was substituted
 

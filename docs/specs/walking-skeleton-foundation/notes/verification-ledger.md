@@ -155,9 +155,13 @@ schema this delivery ships rather than the spike's own.
   is restricted to the two run-lifecycle types; **no role holds a direct
   `INSERT` on `events`**, which is what makes every other refusal load-bearing.
   All three roles can still do their own job, asserted separately.
-- **r7 change 1 taken the second way, and checked.** `fence_step` is owned by
-  `app_worker`, verified in `pg_proc`, so the fence runs at worker's privilege
-  rather than the schema owner's. `app_policy` is refused
+- **r7 change 1 — SUPERSEDED by review round 2, see § Review round 2.** As
+  first built, `fence_step` was owned by `app_worker`, which is r4 item 1's
+  preferred option. Review established that a function's owner can always
+  `DROP` or `ALTER` it, so that ownership let the role the split distrusts
+  disable the authorization-audit write path. **The shipped owner is
+  `ced_fence`**, a `NOLOGIN` role granted to no application identity
+  (ADR-0004). What still holds from this entry: `app_policy` is refused
   `SELECT ... FOR UPDATE` on `steps` directly, which is the check that the
   fence genuinely had to be a function rather than a grant.
 - **AC-0006 — established, SQL level only.** A second `tool.invoked` carrying a
@@ -275,11 +279,15 @@ demonstrate the mechanism and not the number, and the number is the criterion.
   asserts the drain is *faster* than the 150 s host-loss path, because a drain
   that happened to take 150 s would satisfy AC-0010's bound while telling an
   operator nothing about whether the graceful path works at all.
-- **Established: exactly one owner at a time.** With both workers live and
-  polling the same class, a fresh step is claimed at epoch 1 by one of them,
-  and 25 seconds later the owner and epoch are unchanged while
-  `lease_expires_at` has moved forward — so the heartbeat renewed rather than
-  the lease being re-taken.
+- **Established: one owner *recorded*, and a renewal rather than a re-take.**
+  With both workers live and polling the same class, a fresh step is claimed at
+  epoch 1 by one of them, and across a heartbeat the owner and epoch are
+  unchanged while `lease_expires_at` has advanced. **This is not mutual
+  exclusion.** `steps.owner` is a single column, so "exactly one owner" cannot
+  fail once an owner exists, and nothing observes whether two workers are
+  executing the same step. An earlier version of this entry claimed mutual
+  exclusion; review round 2 found it contradicting this same document's own
+  not-established list, and it is corrected here.
 - **Established: the boot sequence verifies both roles before claiming.** Both
   containers log `worker connection verified as app_worker` and `policy
   connection verified as app_policy` before `ready`. A worker that claimed
@@ -440,13 +448,15 @@ let the owner-definer functions read a worker session's temporary tables.
 `0.0.0.0:…` before. The three "local only" comments in this repository are now
 implemented rather than merely asserted.
 
-**AC-0011 — closed, and the criterion is now asserted.** The old assertion used
-the same value as its helper's timeout, so it was satisfied by every value the
-helper could return, and the criterion's own 30 s was asserted nowhere. The
-supervisor now parks on a wake event that `request_stop` sets, so `SIGTERM` is
-observed at once instead of after up to one heartbeat. **Measured: 10.1 s**
-against a 30 s asserted bound and a 50 s helper timeout — so the assertion is
-what reds. It was 29.8 s before, under a bound that could not fail.
+**AC-0011 — the round-1 fix was incomplete, and the round-1 measurement did
+not measure it. Both corrected in round 2; see § Review round 2.** The old
+assertion used the same value as its helper's timeout, so it was satisfied by
+every value the helper could return. Round 1 made the supervisor park on a wake
+event and recorded **10.1 s** as evidence. That number was wrong as evidence:
+`docker stop` is synchronous with container exit — measured at 0.16 s with the
+container already gone — so the clock started *after* the drain was over and
+`elapsed` contained only the survivor's poll phase. **Retracted here rather
+than carried forward.**
 
 **The pool's four unexercised paths — closed.** 13 checks in `tests/worker`
 drive completion→`release`, the failed-body branch, the fence-loss abandon and
@@ -518,3 +528,170 @@ module exists for would have passed unseen.
   compared in full; the response-body schemas are not, so renaming a field in
   `src/ced/api/models.py` would not red. Adjudication ruled the criterion's own
   words cover served *routes*, and this is recorded as the gap it leaves.
+
+## Review round 2 — what round 1's fixes missed
+
+Round 2 ran all three reviewers again. 27 raw findings, **24 sustained** and 3
+refuted, no indeterminates — so no owner ruling was needed this round. The
+pattern is worth naming: round 1 hardened *how* the definer functions resolve
+names and never questioned *what* they authorise.
+
+### Two new blockers, both observed
+
+**A lease on one run authorized an append to another.** `fence_step` matched on
+`(step_id, lease_epoch)` alone, so one live lease authorized a `policy.decision`
+or a step event — with a caller-chosen `principal` and `agent_role` — into *any*
+run's log. Observed as `app_policy`, the narrowest role in the system: it wrote
+`principal='forged-principal'` into a run it holds no lease on, using a step
+belonging to a different run. Reachable on a wrong-argument bug as readily as on
+a malicious call, since the policy path legitimately receives the pair from the
+worker. **Closed** by a coherence check inside both fenced append functions,
+immediately after the fence, reading the `steps` row the fence already locked —
+so the `steps`-before-`runs` order is unchanged. The fence's signature and
+`ced_fence`'s ownership were deliberately *not* touched: changing those is an
+ADR-0004 and r4 item 1 change, and therefore Ask-first.
+
+**The step path accepted the run-lifecycle and terminal vocabulary.**
+`append_step_event` refused only `policy.decision`, so `app_worker` could write
+`run.completed` or `run.cancelled` with a `step_id` attached — and
+`events_terminal_idx` indexes exactly those names, so the write closed the
+stream from a path that carries no terminal-state guard. Observed on a run
+already in `state='completed'`. **Closed** by extending the refusal to the whole
+`run.` namespace, sourced from the same constants a schema test pins against the
+catalogue. The reviewer also proposed a terminal-state predicate on the step
+path; adjudication ruled that **not established** — r7 places that guard on the
+run-lifecycle path only, and the post-terminal step case is handled at the
+heartbeat, so adding it would change a ratified path without authority.
+
+### Two blockers in round 1's own fix
+
+**The wake bit could be lost.** `_wake` is shared across steps and cleared on
+entry to `_execute`, so a `SIGTERM` arriving while `claim_one` was in flight had
+its bit dropped *after* `run_forever` had already tested `_stop` — and the
+supervisor then blocked a full heartbeat anyway. Round 1's fix reintroduced, in
+a narrower window, the delay it was meant to remove. **Closed** by re-asserting
+the bit when `_stop` is already set, and **mutation-proved**: with the
+re-assert removed, `test_a_stop_requested_before_the_body_starts_is_not_lost`
+fails; restored, it passes. Every prior check requested the stop *after* the
+body started, which is strictly after the clear, so none covered the window.
+
+**AC-0011's measurement did not contain the drain.** Measured directly:
+`docker stop -t 30` returns in **0.16 s with the container already gone**, so a
+clock started after it returns begins once SIGTERM delivery, `_expire_now`, the
+body join and process exit are all complete. `elapsed` therefore held only the
+survivor's poll phase — a value in `[0, 30)` — which made the bound insensitive
+to any drain up to the full grace window *and* sat exactly at the measured
+quantity's own maximum, so round 1's 29.8 s sample was 0.2 s from a spurious
+red. **Closed** by switching to `docker kill --signal=TERM`, which returns in
+0.06 s with the container still running (measured), and starting the interval at
+delivery. AC-0011's own 30 s stays the asserted bound: changing it, or adding a
+margin to absorb the boundary, would be a spec amendment.
+
+### Three orderings in the supervisor, each wrong once
+
+Completion is now tested before the stop, so a body that already recorded
+`completed` is released with that outcome rather than abandoned and re-executed
+by the survivor. The drain stops and joins the body *before* surrendering the
+lease, so the step is not claimable while the old body still runs. And the
+renewal deadline is computed once, so a wake that is neither stop nor completion
+does not push the renewal out by another interval.
+
+A body that will not stop within a lease TTL now makes the worker **stop
+claiming** rather than only logging — losing one worker's capacity beats running
+two bodies on one step. That is the case the sibling spec's real step body makes
+matter.
+
+### Smaller sustained findings, closed
+
+- `app_worker`'s direct `EXECUTE` on `fence_step` was **revoked**. Its stated
+  rationale was "the heartbeat renews on it", which is false: `renew` issues a
+  direct `UPDATE`, and nothing in `src/` calls `fence_step` at all. The grant let
+  the role take `FOR UPDATE` row locks on arbitrary `steps` rows for no reason.
+- `ced_fence`'s absence of standing `CREATE` on the schema is now asserted from
+  the catalogue. It is `NOLOGIN`, so the three login-role probes could never
+  have covered it and a failed revoke was invisible.
+- The migration probe now **refuses** to run `CREATE`/`DROP DATABASE` unless the
+  resolved target is the loopback substrate, because `database_url` honours
+  `$CED_DATABASE_URL` and a developer pointing it at a shared cluster would
+  otherwise have a gate run cluster-level DDL there.
+- Its provisioning replay now **fails loudly** on any statement it does not
+  recognise, instead of executing it. Role DDL is cluster-wide, so an
+  `ALTER ROLE` added later would have reached the live cluster.
+- Three `CED_*` timing overrides with no caller were removed, and one test
+  assertion that required the `runs` table to be globally empty was decoupled
+  from state it does not own.
+
+### What round 2 did NOT establish
+
+- **A step whose run is terminal stays claimable indefinitely.** `renew` extends
+  the lease a full TTL in the same statement that reports the terminal state,
+  and `claim_one`'s predicate does not join `runs.state` — so the step is
+  re-claimed roughly every TTL and its body re-executed for about a heartbeat
+  each cycle. Nothing in this spec sets a run terminal, so only out-of-band SQL
+  reaches it today, and the run state machine that would retire such a step
+  belongs to `walking-skeleton-evidence`. Recorded as the named gap that spec
+  closes; narrowing the claim predicate here is the larger change and was not
+  taken.
+- **The one-heartbeat overlap bound is not enforced.** The heartbeat connection
+  sets no `connect_timeout` and no `statement_timeout`, so a
+  partitioned-but-alive worker can block inside `renew` past its own lease
+  expiry while another worker runs the same step. The window is unbounded, not
+  20 seconds. `src/ced/domain/events.py` now says so; a timeout is deployment
+  machinery this spec puts out of scope, and the derived idempotency key is what
+  makes the overlap survivable at any width.
+- **The stuck-body path is not exercised.** A body that ignores its stop event
+  for a full TTL now stops the worker claiming, and no check drives that: it
+  needs a deliberately uncooperative body, and T5's pinned `Tests` promises a
+  sleeping one.
+- **Completion → `release` → next claim is still untested as a loop.**
+  Adjudication refuted the finding that asked for it — T5's pinned `Tests` never
+  promised a steady-state loop check and no criterion covers it — but the gap is
+  real and recorded: the in-process checks call `_execute` directly, so what is
+  unexercised is psycopg connection reuse after commit.
+- **`pytest-asyncio` is listed in the plan's § Dependencies & integration and is
+  not in the manifest.** It was removed in round 1 with no async test in the
+  suite. The plan is pinned, so the divergence is recorded here rather than
+  edited there.
+- **No HTTP error-path observability.** Adjudication refuted this as an
+  obligation — T6's pinned `Tests` commits to AC-0001 and AC-0009 only, and
+  unhandled `psycopg` failures propagate to Starlette, which logs them — but the
+  API module still has no logger and no request correlation, which a later spec
+  will want.
+
+### AC-0011 measured honestly, and the residual that exposes
+
+**Measured: 19.2 s from SIGTERM delivery**, against AC-0011's bound of one poll
+interval (30 s). The interval now spans the drain *and* the survivor's poll,
+which is what round 1's 10.1 s did not.
+
+**The mechanism's worst case exceeds the bound by the drain duration, and no
+margin was added because adding one is a spec amendment.** Decomposed: the
+drain is sub-second once SIGTERM is observed (measured at 0.13 s for an idle
+worker, and asserted in process under one heartbeat by
+`test_a_stop_requested_before_the_body_starts_is_not_lost`, mutation-proved);
+the survivor's poll phase is then uniform in `[0, 30)`. So the total is
+`drain + poll`, whose supremum is just above 30 s — meaning this assertion can
+red on a healthy system when the poll phase lands near its maximum, at a rate
+of roughly the drain divided by the poll interval.
+
+That is a **contract tension, not a defect**: r7 § Step execution states the
+claim as *"the worker sets `lease_expires_at = now()` and exits, so planned
+replacement recovers in one poll interval"* — one poll interval **from lease
+expiry**, with the drain assumed instantaneous. AC-0011 words it as
+"reacquired within one poll interval" without naming the origin. Measuring from
+signal delivery is the stricter and more honest reading, and it is the one
+adjudication directed; it also makes the bound one the mechanism cannot
+guarantee.
+
+Options, none of which this delivery takes unilaterally:
+
+1. **Leave it.** The assertion is honest and occasionally reds for a reason the
+   failure message explains. Recorded as accepted flake.
+2. **Amend AC-0011** to name its origin — "within one poll interval of the lease
+   being surrendered" — which matches r7's own wording and is a bound the
+   mechanism cannot exceed. A spec amendment, so the owner's.
+3. **Amend AC-0011's number** to `poll + drain` with a stated margin. Also an
+   amendment, and weaker than option 2 because it hides the decomposition.
+
+Recorded here and surfaced to the owner rather than resolved by adding a margin,
+which adjudication explicitly classed as an amendment taken silently.

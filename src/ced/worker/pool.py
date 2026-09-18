@@ -9,12 +9,20 @@ across a multi-minute step would pin an idle-in-transaction connection, hold
 immediately and the step executes with no transaction open; what protects the
 step is the lease, and what protects the lease is the epoch fence.
 
-**One step in flight per worker.** The SEC rate limit is an aggregate
-obligation enforced by a central token bucket and Bedrock's budget is
-account-wide, so in-process concurrency buys no throughput — it moves
-contention somewhere harder to observe. It also means a fenced worker has
-exactly one thing to abandon, which is what makes "aborts without *additional*
-side effects" a simple statement rather than a coordination problem.
+**One step in flight per worker**, and the condition is named rather than
+implied. The SEC rate limit is an aggregate obligation enforced by a central
+token bucket and Bedrock's budget is account-wide, so in-process concurrency
+buys no throughput — it moves contention somewhere harder to observe. It also
+means a fenced worker has exactly one thing to abandon, which is what makes
+"aborts without *additional* side effects" a simple statement rather than a
+coordination problem.
+
+The guarantee holds **while the step body honours its stop event**. Every exit
+path stops and joins the body before releasing or surrendering the lease; a body
+that ignores its stop event for a whole lease TTL cannot be joined, and rather
+than claim again alongside it the worker stops claiming altogether. That is a
+deliberate trade — losing one worker's capacity beats running two bodies on one
+step — and it is the case the sibling spec's real step body makes matter.
 
 **What this module does not do**, because no criterion in
 `walking-skeleton-foundation` needs it and the sibling specs own it:
@@ -36,6 +44,7 @@ import logging
 import os
 import signal
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import FrameType
@@ -96,16 +105,17 @@ class PoolConfig:
     def from_environment(cls) -> PoolConfig:
         """Read the deploy-time configuration.
 
-        The timings are overridable so a test can compress them, and the
-        defaults are r7's. AC-0010 and AC-0011 are measured at the defaults:
-        a compressed run would demonstrate the mechanism and not the number.
+        **The timings are not environment-overridable.** They were, on the
+        stated ground that "a test can compress them", and no caller ever did:
+        `tests/worker` constructs `PoolConfig` directly and Compose sets only
+        the worker id and the step-body duration. Three unread variables were
+        removed under `AGENTS.md` § Cut before adding rung 1. AC-0010 and
+        AC-0011 are measured at r7's values, which is what makes them
+        measurements of the numbers those criteria state.
         """
         return cls(
             worker_id=os.environ.get("CED_WORKER_ID", f"worker-{os.getpid()}"),
             pool_class=os.environ.get("CED_POOL_CLASS", DEFAULT_POOL_CLASS),
-            lease_ttl_seconds=int(os.environ.get("CED_LEASE_TTL_SECONDS", LEASE_TTL_SECONDS)),
-            heartbeat_seconds=int(os.environ.get("CED_HEARTBEAT_SECONDS", HEARTBEAT_SECONDS)),
-            poll_seconds=int(os.environ.get("CED_POLL_SECONDS", POLL_SECONDS)),
         )
 
 
@@ -287,22 +297,36 @@ class Worker:
     def _execute(self, conn: psycopg.Connection, lease: Lease) -> None:
         """Run the step body with the heartbeat renewing alongside it.
 
-        The supervisor waits on `self._wake`, not on the body thread, for two
-        reasons. A completed body is released at once rather than after the
-        remaining heartbeat interval; and `SIGTERM` reaches `_expire_now`
-        immediately, so a drained step returns inside one poll interval, which
-        is what AC-0011 asserts.
+        The supervisor waits on `self._wake`, not on the body thread, so a
+        completed body is released at once and a `SIGTERM` reaches
+        `_expire_now` without waiting out a heartbeat. AC-0011 states the
+        second of those as one poll interval.
 
-        Every exit path joins the body before returning. Two of them did not,
-        and the module's "one step in flight per worker" claim was best-effort
-        on exactly those two — harmless with a cooperative sleep, and not
-        harmless once a sibling spec injects a real body.
+        Three orderings here are deliberate and each was got wrong once:
+
+        * **A stop already requested survives the clear.** `_wake` is shared
+          across steps and cleared on entry, so a `SIGTERM` arriving while
+          `claim_one` was in flight used to have its bit dropped — after
+          `run_forever` had already tested `_stop` — costing a full heartbeat.
+          The clear is now followed by a re-assert when `_stop` is set.
+        * **A completed body is released even when a stop is pending.** The
+          drain branch used to run first unconditionally, so a body that had
+          already recorded `completed` was abandoned and re-executed by the
+          survivor.
+        * **The body is stopped before the lease is surrendered.** `_expire_now`
+          used to precede the join, so the step became claimable while the old
+          body was still running.
         """
         log.info("claimed step %s at epoch %s", lease.step_id, lease.epoch)
         body_stop = threading.Event()
         body_done = threading.Event()
         outcome: list[str] = []
+
         self._wake.clear()
+        if self._stop.is_set():
+            # A stop requested before or during the claim. Re-assert the bit the
+            # clear above just dropped, so the first wait returns immediately.
+            self._wake.set()
 
         def body() -> None:
             try:
@@ -318,56 +342,74 @@ class Worker:
         thread = threading.Thread(target=body, daemon=True)
         thread.start()
 
-        def stop_body(reason: str) -> None:
-            """Stop the body and wait for it, so one step really is in flight."""
+        def stop_body(reason: str) -> bool:
+            """Stop the body and wait for it. True when it actually stopped.
+
+            A body that will not stop is a defect in the body, and the caller
+            must not claim again while it runs — so the return value is acted
+            on rather than only logged.
+            """
             body_stop.set()
             thread.join(timeout=self.config.lease_ttl_seconds)
             if thread.is_alive():
-                # Named rather than ignored: a body that will not stop is a
-                # bug in the body, and the next claim would overlap it.
                 log.error(
-                    "step %s body did not stop within %ss after %s",
+                    "step %s body did not stop within %ss after %s; this worker "
+                    "will stop claiming rather than run two bodies at once",
                     lease.step_id,
                     self.config.lease_ttl_seconds,
                     reason,
                 )
+                return False
+            return True
 
         # The heartbeat runs on a separate connection, so the renewal is not
         # queued behind whatever the step body is doing.
         with psycopg.connect(database_url("worker")) as heartbeat_conn:
+            # Computed once. A wake that is neither stop nor completion must
+            # not push the renewal out by another full interval.
+            renew_at = time.monotonic() + self.config.heartbeat_seconds
             while True:
-                woken = self._wake.wait(timeout=self.config.heartbeat_seconds)
+                woken = self._wake.wait(timeout=max(renew_at - time.monotonic(), 0.0))
                 self._wake.clear()
 
-                if self._stop.is_set():
-                    # Graceful drain: expire the lease now, then stop the body.
-                    # The step goes back within one poll interval rather than
-                    # after a whole lease TTL.
-                    self._expire_now(heartbeat_conn, lease)
-                    stop_body("drain")
+                # Completion first: an outcome already recorded has exactly one
+                # correct disposition, stop pending or not.
+                if body_done.is_set():
+                    thread.join(timeout=self.config.lease_ttl_seconds)
+                    release(conn, self.config, lease, outcome[0] if outcome else "failed")
                     return
 
-                if body_done.is_set():
-                    break
+                if self._stop.is_set():
+                    # Graceful drain. Stop and join the body *before*
+                    # surrendering the lease, so the step is not claimable
+                    # while the old body still runs. The body is cooperative,
+                    # so this costs milliseconds; a body that ignores its stop
+                    # event delays the expiry rather than racing the survivor.
+                    stopped = stop_body("drain")
+                    self._expire_now(heartbeat_conn, lease)
+                    if not stopped:
+                        self.request_stop()
+                    return
 
                 if woken:
-                    # Woken by something other than stop or completion; nothing
-                    # to renew for yet.
+                    # Neither stop nor completion — a stale body's `finally`
+                    # from a previous step is the only known setter. Do not
+                    # reset `renew_at`.
                     continue
 
                 try:
                     run_state = renew(heartbeat_conn, self.config, lease)
                 except Fenced:
                     log.warning("fenced on step %s — abandoning", lease.step_id)
-                    stop_body("fence loss")
+                    if not stop_body("fence loss"):
+                        self.request_stop()
                     return
                 if run_state in ("cancelled", "failed", "completed"):
                     log.info("run %s is %s — abandoning step", lease.run_id, run_state)
-                    stop_body(f"run {run_state}")
+                    if not stop_body(f"run {run_state}"):
+                        self.request_stop()
                     return
-
-        thread.join(timeout=self.config.lease_ttl_seconds)
-        release(conn, self.config, lease, outcome[0] if outcome else "failed")
+                renew_at = time.monotonic() + self.config.heartbeat_seconds
 
     def _expire_now(self, conn: psycopg.Connection, lease: Lease) -> None:
         """`SIGTERM` sets `lease_expires_at = now()`, per r7 § Step execution."""

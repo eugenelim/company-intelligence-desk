@@ -66,12 +66,36 @@ RESERVED_EVENT_TYPE = "policy.decision"
 #: and run.cancelled, which are appended before any step exists". Exactly two.
 RUN_LIFECYCLE_TYPES = ("run.requested", "run.cancelled")
 
+#: r7 § Event log — liveness and termination. Named here because the step path
+#: must refuse them: they close the stream, and a worker writing one would end
+#: a run's stream from a path that carries no terminal-state guard.
+TERMINAL_EVENT_TYPES = ("run.completed", "run.failed", "run.cancelled")
+
+#: What `append_step_event` refuses. r7 § Identity's symmetry clause restricts
+#: `worker` "to its step-scoped types", and the run-lifecycle and terminal
+#: vocabulary is by construction not step-scoped. This is a *negative* rule, so
+#: it does not conflict with the recorded decision not to enumerate the
+#: step-scoped vocabulary — the database still enforces only what may not be
+#: written, never a frozen list of what may.
+NON_STEP_EVENT_TYPES = tuple(
+    dict.fromkeys((RESERVED_EVENT_TYPE, *RUN_LIFECYCLE_TYPES, *TERMINAL_EVENT_TYPES))
+)
+
+
 #: Rendered explicitly rather than by `repr` of the tuple. A tuple's repr is
 #: valid SQL only by coincidence of arity — a one-element tuple renders a
 #: trailing comma and fails to parse — and it escapes nothing.
-_RUN_LIFECYCLE_SQL_LIST = ", ".join(
-    "'" + t.replace("'", "''") + "'" for t in RUN_LIFECYCLE_TYPES
-)
+def _sql_list(values: tuple[str, ...]) -> str:
+    """Render a tuple as a SQL `IN` list, quoting each value.
+
+    A tuple's `repr` is valid SQL only by coincidence of arity — a one-element
+    tuple renders a trailing comma and fails to parse — and it escapes nothing.
+    """
+    return ", ".join("'" + v.replace("'", "''") + "'" for v in values)
+
+
+_RUN_LIFECYCLE_SQL_LIST = _sql_list(RUN_LIFECYCLE_TYPES)
+_NON_STEP_SQL_LIST = _sql_list(NON_STEP_EVENT_TYPES)
 
 #: The hardened definer preamble. `pg_catalog` is searched implicitly first in
 #: any case; naming `pg_temp` explicitly and last is what stops the temporary
@@ -146,7 +170,12 @@ def upgrade() -> None:
         AS $$
         DECLARE v_seq bigint;
         BEGIN
-            IF p_type = '{RESERVED_EVENT_TYPE}' THEN
+            -- The reserved type and the whole run-lifecycle/terminal
+            -- namespace. Refusing only `policy.decision` let the worker write
+            -- `run.completed` and `run.cancelled` with a step_id attached —
+            -- and `events_terminal_idx` indexes exactly those names, so the
+            -- write closed the stream from a path with no terminal guard.
+            IF p_type IN ({_NON_STEP_SQL_LIST}) THEN
                 -- session_user, not current_user: inside a definer function
                 -- current_user is ced_owner, which would name the wrong
                 -- principal in every audit record. Found by spike P1.
@@ -168,6 +197,23 @@ def upgrade() -> None:
             IF NOT public.fence_step(p_step_id, p_lease_epoch) THEN
                 RAISE EXCEPTION 'fenced: step % epoch %', p_step_id, p_lease_epoch
                     USING ERRCODE = 'serialization_failure';
+            END IF;
+
+            -- The fence proves a lease on this *step*; it does not prove the
+            -- step belongs to the run being written. Without this, one live
+            -- lease authorized an append — with a caller-chosen `principal`
+            -- and `agent_role` — into any run's log, on a wrong-argument bug
+            -- as readily as on a malicious call. The `steps` row is already
+            -- locked by the fence above, so this reads it without taking a
+            -- new lock and without disturbing the steps-before-runs order.
+            IF NOT EXISTS (
+                SELECT 1 FROM public.steps
+                 WHERE step_id = p_step_id AND run_id = p_run_id
+            ) THEN
+                RAISE EXCEPTION
+                    'step % does not belong to run % (caller %)',
+                    p_step_id, p_run_id, session_user
+                    USING ERRCODE = 'invalid_parameter_value';
             END IF;
 
             -- A row UPDATE, inside this transaction. This is what makes a
@@ -248,6 +294,23 @@ def upgrade() -> None:
                     USING ERRCODE = 'serialization_failure';
             END IF;
 
+            -- The fence proves a lease on this *step*; it does not prove the
+            -- step belongs to the run being written. Without this, one live
+            -- lease authorized an append — with a caller-chosen `principal`
+            -- and `agent_role` — into any run's log, on a wrong-argument bug
+            -- as readily as on a malicious call. The `steps` row is already
+            -- locked by the fence above, so this reads it without taking a
+            -- new lock and without disturbing the steps-before-runs order.
+            IF NOT EXISTS (
+                SELECT 1 FROM public.steps
+                 WHERE step_id = p_step_id AND run_id = p_run_id
+            ) THEN
+                RAISE EXCEPTION
+                    'step % does not belong to run % (caller %)',
+                    p_step_id, p_run_id, session_user
+                    USING ERRCODE = 'invalid_parameter_value';
+            END IF;
+
             UPDATE public.runs SET next_seq = next_seq + 1
              WHERE run_id = p_run_id RETURNING next_seq INTO v_seq;
             IF NOT FOUND THEN
@@ -283,8 +346,13 @@ def upgrade() -> None:
     # `ced_owner` needs EXECUTE on the fence because the three owner-definer
     # append functions call it, and PUBLIC's grant has just been revoked.
     op.execute("GRANT EXECUTE ON FUNCTION public.fence_step(uuid, bigint) TO ced_owner")
-    # The worker holds the fence directly too: the heartbeat renews on it.
-    op.execute("GRANT EXECUTE ON FUNCTION public.fence_step(uuid, bigint) TO app_worker")
+    # **No direct grant to `app_worker`.** An earlier version granted it on the
+    # stated ground that "the heartbeat renews on it", which is false: `renew`
+    # issues a direct `UPDATE steps … FROM runs` and no code in `src/` calls
+    # `fence_step` at all. The three append functions reach the fence at
+    # `ced_owner`'s privilege through the grant above, so the worker's grant was
+    # unused and let the role take `FOR UPDATE` row locks on arbitrary `steps`
+    # rows. Removed under `AGENTS.md` § Cut before adding rung 1.
 
     op.execute(
         "GRANT EXECUTE ON FUNCTION public.append_step_event"

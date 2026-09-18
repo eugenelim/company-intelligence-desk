@@ -10,8 +10,8 @@ import os
 
 #: Loopback, non-default port: `deploy/compose.yaml` publishes 55432 so a local
 #: Postgres on 5432 cannot be reached by accident and silently migrated.
-_LOCAL_HOST = "127.0.0.1"
-_LOCAL_PORT = 55432
+LOCAL_HOST = "127.0.0.1"
+LOCAL_PORT = 55432
 _LOCAL_DATABASE = "ced"
 
 #: The throwaway container's password, matching `deploy/postgres-init/`. Not a
@@ -27,9 +27,7 @@ def _local_url(user: str) -> str:
     pattern it cannot distinguish from one. Building the string keeps no
     credential-shaped literal in the source and changes nothing at run time.
     """
-    return (
-        f"postgresql://{user}:{_LOCAL_PASSWORD}@{_LOCAL_HOST}:{_LOCAL_PORT}/{_LOCAL_DATABASE}"
-    )
+    return f"postgresql://{user}:{_LOCAL_PASSWORD}@{LOCAL_HOST}:{LOCAL_PORT}/{_LOCAL_DATABASE}"
 
 
 ENV_VAR = "CED_DATABASE_URL"

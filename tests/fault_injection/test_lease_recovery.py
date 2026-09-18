@@ -3,8 +3,9 @@
 Both drive real containers. `docker kill` sends SIGKILL, so the worker gets no
 chance to tidy up and the only thing that returns the step is the lease
 expiring — which is the recovery path r7 specifies and the one an unplanned
-host loss actually takes. `docker stop` sends SIGTERM, which the worker
-handles by expiring its own lease.
+host loss actually takes. `docker kill --signal=TERM`
+sends SIGTERM without waiting, which the worker handles by expiring its own
+lease — and which lets the measured interval start at signal delivery.
 
 Without AC-0011 the two paths are indistinguishable at 150 s, and a rolling
 deploy would silently cost as much as losing a host.
@@ -129,10 +130,16 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
     first_owner = claimed.owner
     victim = _container_for(first_owner)
 
-    # `docker stop` sends SIGTERM and waits. The worker's handler expires the
-    # lease, which is the whole difference from the test above.
-    stopped = docker("stop", "-t", "30", victim)
-    assert stopped.returncode == 0, stopped.stderr
+    # `docker kill --signal=TERM`, **not** `docker stop`. `docker stop` blocks
+    # until the container exits, so a clock started after it returns begins
+    # once the drain is already over — measured at 0.16 s with the container
+    # gone. `docker kill --signal=TERM` returns in 0.06 s with the container
+    # still running, so the interval below starts at signal delivery and the
+    # drain is inside what is measured. This is the difference between an
+    # assertion that bounds the drain and one that bounds the survivor's poll.
+    signalled_at = time.monotonic()
+    signalled = docker("kill", "--signal=TERM", victim)
+    assert signalled.returncode == 0, signalled.stderr
 
     try:
         reacquired, elapsed = wait_for_reacquisition(
@@ -140,6 +147,7 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
             step_id,
             first_owner,
             DRAIN_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            started=signalled_at,
         )
     finally:
         _restart(victim)
@@ -153,8 +161,9 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
     )
     print(
         f"\nAC-0011: {first_owner} drained; {reacquired.owner} reacquired step "
-        f"{step_id} after {elapsed:.1f} s (bound is one poll interval, "
-        f"{DRAIN_BOUND_SECONDS} s)"
+        f"{step_id} {elapsed:.1f} s after SIGTERM delivery (bound is one poll "
+        f"interval, {DRAIN_BOUND_SECONDS} s; the interval spans the drain and "
+        f"the survivor's poll)"
     )
 
 
@@ -174,13 +183,15 @@ def test_the_drain_is_faster_than_waiting_out_the_lease(
     assert claimed.owner is not None
     victim = _container_for(claimed.owner)
 
-    docker("stop", "-t", "30", victim)
+    signalled_at = time.monotonic()
+    docker("kill", "--signal=TERM", victim)
     try:
         _reacquired, elapsed = wait_for_reacquisition(
             owner_conn,
             step_id,
             claimed.owner,
             DRAIN_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            started=signalled_at,
         )
     finally:
         _restart(victim)

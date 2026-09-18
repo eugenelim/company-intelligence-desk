@@ -166,8 +166,10 @@ def test_the_policy_role_can_append_a_decision(
 ) -> None:
     """And it does so holding no table access whatsoever.
 
-    The fence it needs is `fence_step`, owned by `app_worker` and reached by
-    `EXECUTE` alone, per r7 change 1 taken the second way.
+    The fence it needs is `fence_step`, owned by the `NOLOGIN` `ced_fence` and
+    reached by `EXECUTE` alone — ADR-0004, which narrows r4 item 1's second
+    option so the role the split distrusts cannot drop the control that
+    constrains it.
     """
     seq = event_log.append_policy_decision(
         policy_conn,

@@ -18,6 +18,7 @@ the mechanism.
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -393,6 +394,13 @@ def test_a_terminal_run_abandons_the_step(
 
     assert body.stopped.is_set()
     assert body.finished.is_set()
+    # **This is a recorded gap, not a desired outcome.** The step is left
+    # `leased` with a lease `renew` just extended by a full TTL, and
+    # `claim_one`'s predicate does not join `runs.state` — so it becomes
+    # claimable again every TTL and the body re-executes for about one
+    # heartbeat each cycle, indefinitely. The run state machine that would
+    # retire such a step belongs to `walking-skeleton-evidence`; the ledger
+    # records the unbounded re-claim as not established against.
     assert _step_state(owner_conn, step_id)[0] == "leased"
 
 
@@ -447,3 +455,108 @@ def _dsn() -> str:
     from ced.adapters.postgres.dsn import database_url
 
     return database_url("migration")
+
+
+def test_a_stop_requested_before_the_body_starts_is_not_lost(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    runnable_step: tuple[UUID, UUID],
+) -> None:
+    """The wake bit must survive `_execute`'s clear.
+
+    `_wake` is shared across steps and cleared on entry, so a `SIGTERM`
+    arriving while `claim_one` was in flight had its bit dropped — after
+    `run_forever` had already tested `_stop` — and the supervisor then blocked
+    a full heartbeat before noticing. Every existing check requested the stop
+    *after* the body started, i.e. after the clear, so none covered it.
+
+    Here the stop is requested before `_execute` is entered at all, which is
+    exactly that window. With the defect present this takes a whole heartbeat
+    interval; with it fixed, milliseconds.
+    """
+    _run_id, step_id = runnable_step
+    body = make_body()
+    worker = pool.Worker(FAST, step_body=body)
+
+    lease = pool.claim_one(worker_conn, FAST)
+    assert lease is not None
+
+    worker.request_stop()
+    started = time.monotonic()
+    worker._execute(worker_conn, lease)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < FAST.heartbeat_seconds, (
+        f"the drain took {elapsed:.2f}s, at least one heartbeat "
+        f"({FAST.heartbeat_seconds}s) — the stop was observed late"
+    )
+    assert body.finished.is_set(), "the body was not joined"
+    row = owner_conn.execute(
+        "SELECT lease_expires_at <= now() FROM steps WHERE step_id = %s", (step_id,)
+    ).fetchone()
+    assert row == (True,), "the drain did not expire the lease"
+
+
+def test_a_completed_body_is_released_even_when_a_stop_is_pending(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    runnable_step: tuple[UUID, UUID],
+) -> None:
+    """An outcome already recorded has exactly one correct disposition.
+
+    The drain branch used to run first unconditionally, so a body that had
+    already reported `completed` was abandoned and the survivor re-executed it
+    — duplicate side effects once a real body replaces the sleep.
+    """
+    _run_id, step_id = runnable_step
+    body = make_body(block=False)
+    worker = pool.Worker(FAST, step_body=body)
+
+    lease = pool.claim_one(worker_conn, FAST)
+    assert lease is not None
+
+    # Both the completion and the stop are pending before the first wait.
+    body.finished.wait(timeout=0)
+    worker.request_stop()
+    worker._execute(worker_conn, lease)
+
+    assert _step_state(owner_conn, step_id)[0] == "completed", (
+        "a completed step was returned to the pool as unfinished"
+    )
+
+
+def test_the_drain_stops_the_body_before_surrendering_the_lease(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    runnable_step: tuple[UUID, UUID],
+) -> None:
+    """Otherwise the step is claimable while the old body still runs.
+
+    `_expire_now` used to precede the join, so between the expiry and the
+    body's stop the survivor could claim and execute the same step. Asserted by
+    observing that the body has finished by the time the lease is expired.
+    """
+    _run_id, step_id = runnable_step
+    body = make_body()
+    worker = pool.Worker(FAST, step_body=body)
+
+    lease = pool.claim_one(worker_conn, FAST)
+    assert lease is not None
+
+    def drain() -> None:
+        body.started.wait(timeout=10)
+        worker.request_stop()
+
+    drainer = threading.Thread(target=drain)
+    drainer.start()
+    worker._execute(worker_conn, lease)
+    drainer.join(timeout=10)
+
+    # The body is stopped and joined by the time `_execute` returns, and the
+    # lease is expired — so no window exists in which both are true of the old
+    # body and the step is claimable.
+    assert body.stopped.is_set() and body.finished.is_set()
+    row = owner_conn.execute(
+        "SELECT lease_expires_at <= now() FROM steps WHERE step_id = %s", (step_id,)
+    ).fetchone()
+    assert row == (True,)

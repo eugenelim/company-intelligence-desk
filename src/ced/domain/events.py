@@ -89,8 +89,17 @@ def derived_idempotency_key(run_id: UUID, step_id: UUID, tool_call_id: str) -> s
     and the partial unique index would admit it. Deriving it from the run, the
     step and the model's own tool-call identifier makes a re-execution of the
     *same* logical invocation collide, which is the property the fence-detection
-    window needs — two workers can be inside one step's toolset stack for up to
-    one heartbeat interval, and this is what makes that overlap benign.
+    window needs: two workers can be inside one step's toolset stack while the
+    losing one has not yet noticed, and this is what makes that overlap benign.
+
+    **The overlap's bound is one heartbeat interval only if the renewal fails
+    promptly, and nothing here enforces that.** The heartbeat connection sets no
+    `connect_timeout` and no `statement_timeout`, so a partitioned-but-alive
+    worker can block inside `renew` past its own lease expiry while another
+    worker claims and runs the same step — an unbounded window, not a 20-second
+    one. Recorded rather than designed around: a timeout is deployment
+    machinery this spec puts out of scope, and the idempotency key is what makes
+    the overlap survivable at any width.
 
     **The limit is recorded rather than designed around.** The key is stable
     across a resume from the same message history, and *not* across a

@@ -91,10 +91,11 @@ def test_no_role_can_create_objects_in_the_public_schema(
 ) -> None:
     """Without this, any login role could create a shadowing object.
 
-    Parametrised over all three roles. It covered `api` alone, which left
-    `app_worker` — the one role revision 0002 transiently grants and revokes
-    `CREATE` on the schema for — unasserted, so a failed or reordered revoke
-    would have been invisible.
+    Parametrised over all three roles; it covered `api` alone. The role
+    revision 0002 transiently grants and revokes `CREATE` for is `ced_fence`
+    (ADR-0004), which is `NOLOGIN` and so unreachable by a connection probe —
+    `tests/event_log/test_definer_hardening.py` asserts its privilege from the
+    catalogue instead.
     """
     conn: psycopg.Connection = request.getfixturevalue(f"{role}_conn")
 
@@ -107,10 +108,17 @@ def test_no_role_can_create_objects_in_the_public_schema(
 def test_each_application_role_can_open_a_connection_and_read(
     role: str, request: pytest.FixtureRequest
 ) -> None:
-    """T3's Done when: the next task can open connections against this schema."""
+    """T3's Done when: the next task can open connections against this schema.
+
+    Asserts the read *succeeds*, not that the table is empty. An earlier
+    version asserted a count of zero, which coupled it to whatever else had run
+    against the shared substrate first — and it duly failed once rows from
+    another check were still present.
+    """
     conn: psycopg.Connection = request.getfixturevalue(f"{role}_conn")
 
-    assert conn.execute("SELECT count(*) FROM runs").fetchone() == (0,)
+    row = conn.execute("SELECT count(*) FROM runs").fetchone()
+    assert row is not None and row[0] >= 0
     assert conn.execute("SELECT current_setting('deadlock_timeout')").fetchone() == ("200ms",)
 
 
@@ -245,6 +253,7 @@ def test_the_migration_applies_to_a_database_at_no_revision(
     tables are there — so a revision that commits nothing reds.
     """
     name = "ced_migration_probe"
+    _require_local_substrate()
     # CREATE DATABASE cannot run inside a transaction block.
     with psycopg.connect(database_url("migration"), autocommit=True) as admin:
         admin.execute(f"DROP DATABASE IF EXISTS {name}")
@@ -266,11 +275,7 @@ def test_the_migration_applies_to_a_database_at_no_revision(
         statements = [s.strip() for s in bare.split(";") if s.strip()]
         with psycopg.connect(probe_url, autocommit=True) as probe:
             for statement in statements:
-                # Role creation already happened cluster-wide; only the
-                # schema-scoped statements need replaying here.
-                if statement.upper().startswith(("CREATE ROLE", "GRANT CED_FENCE")):
-                    continue
-                probe.execute(statement)
+                probe.execute(_classify_provisioning(statement))
 
         before = _table_names(probe_url)
         assert before == set(), f"the probe database was not empty: {before}"
@@ -297,3 +302,57 @@ def _table_names(url: str) -> set[str]:
                 "WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace"
             ).fetchall()
         }
+
+
+#: Provisioning statements that are cluster-scoped, so the cluster already has
+#: them and replaying them into the probe database would be wrong. Matched on a
+#: normalised prefix, and anything unrecognised **fails the check** rather than
+#: being executed — role DDL is cluster-wide, so a statement this filter did
+#: not expect would reach the live cluster instead of the throwaway database.
+_CLUSTER_SCOPED_PREFIXES = ("CREATE ROLE", "GRANT CED_FENCE TO")
+
+#: Schema-scoped statements that must be replayed into the probe database.
+_SCHEMA_SCOPED_PREFIXES = (
+    "REVOKE ALL ON SCHEMA",
+    "ALTER SCHEMA",
+    "GRANT USAGE ON SCHEMA",
+    "GRANT CED_OWNER TO",
+)
+
+
+def _classify_provisioning(statement: str) -> str:
+    """Return the statement to run, or `SELECT 1` when it is cluster-scoped.
+
+    Fails loudly on anything it does not recognise. The earlier version let any
+    unmatched statement through, so a later `ALTER ROLE` or `DROP ROLE` added to
+    `01-roles.sql` would have been applied to the live cluster.
+    """
+    normalised = " ".join(statement.split()).upper()
+    if normalised.startswith(_CLUSTER_SCOPED_PREFIXES):
+        return "SELECT 1"
+    if normalised.startswith(_SCHEMA_SCOPED_PREFIXES):
+        return statement
+    pytest.fail(
+        "unrecognised provisioning statement; classify it as cluster-scoped or "
+        f"schema-scoped before this check can replay it: {statement[:90]!r}"
+    )
+
+
+def _require_local_substrate() -> None:
+    """Refuse cluster-level DDL unless the target is the local throwaway stack.
+
+    `database_url("migration")` honours `$CED_DATABASE_URL`, and the only other
+    precondition proves merely that *something* answers there — so a developer
+    with that variable pointed at a shared cluster would have this check
+    `CREATE` and `DROP` a database on it. `AGENTS.md` § Development workflow
+    requires confirmation before a destructive operation, and a test cannot ask.
+    """
+    from ced.adapters.postgres.dsn import LOCAL_HOST, LOCAL_PORT
+
+    url = database_url("migration")
+    if f"@{LOCAL_HOST}:{LOCAL_PORT}/" not in url:
+        pytest.skip(
+            "refusing CREATE/DROP DATABASE against a non-local target: this "
+            f"check only runs against {LOCAL_HOST}:{LOCAL_PORT}, the throwaway "
+            "substrate in deploy/compose.yaml"
+        )

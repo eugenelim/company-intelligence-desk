@@ -28,6 +28,7 @@ __all__ = [
     "DEADLOCK_ATTEMPTS",
     "DEADLOCK_BACKOFF_SECONDS",
     "Fenced",
+    "StepRunMismatch",
     "RunAlreadyTerminal",
     "append_policy_decision",
     "append_run_event",
@@ -52,6 +53,16 @@ class Fenced(Exception):
     Not a retryable condition. A fenced worker aborts without *additional*
     side effects; it may already have invoked a tool, and attribution is at the
     logical-invocation level with idempotency keys deduping re-execution.
+    """
+
+
+class StepRunMismatch(Exception):
+    """The fenced step does not belong to the run being appended to.
+
+    Distinct from `Fenced` on purpose. A fence loss means the lease moved on and
+    the worker should abandon quietly; this means the *arguments* disagree, which
+    is a caller defect or a forgery attempt, and it must not be retried or
+    treated as an ordinary abandon.
     """
 
 
@@ -171,6 +182,8 @@ def append_step_event(
                 return int(row[0])
         except psycopg.errors.SerializationFailure as exc:
             raise Fenced(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.InvalidParameterValue as exc:
+            raise StepRunMismatch(str(exc).splitlines()[0]) from exc
 
     return retry_on_deadlock(call)
 
@@ -230,6 +243,8 @@ def append_policy_decision(
                 return int(row[0])
         except psycopg.errors.SerializationFailure as exc:
             raise Fenced(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.InvalidParameterValue as exc:
+            raise StepRunMismatch(str(exc).splitlines()[0]) from exc
 
     return retry_on_deadlock(call)
 
