@@ -75,3 +75,50 @@ Appended per task as evidence lands.
   pins `starlette` 1.6.0 against FastAPI's range. The manifest names
   `pydantic-ai-slim[bedrock]==2.45.0`, which is the distribution Phase 0
   installed; ADR-0002 D1 records that.
+
+### T3 — a migration applies to an empty database
+
+- **Established.** `docker-compose -f deploy/compose.yaml up -d` brings both
+  containers to `healthy`; the init hook creates `ced_owner`, `app_api`,
+  `app_worker` and `app_policy`; `alembic upgrade head` leaves six application
+  tables plus `alembic_version`, all owned by `ced_owner`.
+- **The goal-based check as the plan wrote it was insufficient, and this is the
+  finding.** The plan's T3 test is *"`alembic upgrade head` against a fresh
+  container exits 0"*. The first `migrations/env.py` issued `SET ROLE ced_owner`
+  before configuring alembic, which autobegins a transaction; alembic's own
+  `begin_transaction` then nested inside it and committed nothing on exit. The
+  command **exited 0 having created no tables at all.** `env.py` now commits
+  explicitly, and the test asserts the schema — table set, and `ced_owner`
+  ownership on every one — rather than the exit code. Exit 0 is still checked;
+  it is no longer the whole check.
+- **Established: `alembic downgrade -1` exits 1** naming "expand-only" and
+  "no downgrade path", and the schema is intact afterwards. Asserted on the
+  message as well as the code, so an unrelated non-zero exit cannot satisfy it.
+- **Established: the counters are not sequences.** `runs.next_seq` and
+  `events.seq` are both plain `bigint` with no identity property and no
+  `nextval` default, asserted against `information_schema` on the shipped
+  schema. This is the spec's Never-do, checked rather than asserted in prose.
+- **Established: `deadlock_timeout` is 200 ms in the running container,** read
+  from `current_setting()` rather than from the Compose file. Every T4 result
+  carries that qualification: it is well below the 1 s default, so deadlocks
+  surface faster here than in production.
+- **Established: no application role can create an object in `public`.**
+  `app_api` attempting `CREATE TABLE` raises `InsufficientPrivilege`.
+- **Substituted:** role creation is in the Compose init hook, not in a
+  migration. In a deployed system the roles and their credentials are created
+  by whoever owns the database instance and `alembic` authenticates as r7's
+  `migration` identity; locally the container's bootstrap superuser stands in
+  for both. **Not established:** that r7's `migration` role has the privileges
+  these revisions need, because nothing ran as it.
+- **Not established:** anything about MinIO beyond reachability. No criterion in
+  this spec reads or writes an object. `quay.io/minio/minio` is pinned because
+  `docker pull minio/minio` is refused from this network — MinIO's own registry
+  works and Docker Hub's path does not.
+- **Not established:** any managed-service behaviour. This is a local container.
+  Connection pooling, failover and `deadlock_timeout` defaults on RDS or Aurora
+  are untested, exactly as `spikes/README.md` records for Phase 0.
+- **The identifier gate fired a second time, on a connection string.**
+  `postgresql://user:password@host/db` matches the email-address rule, which is
+  the correct call on a pattern the lint cannot distinguish from an address.
+  `dsn.py` now assembles the URL from parts, so no credential-shaped literal is
+  in the source. Nothing was added to the lint's skip list.
