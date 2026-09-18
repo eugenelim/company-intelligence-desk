@@ -31,7 +31,13 @@ SKIP_SUFFIXES = (".lock",)
 # Each rule is (label, compiled pattern, allowance predicate or None).
 RULES = [
     ("AWS account id",
-     re.compile(r"(?<![\w.-])\d{12}(?![\w.-])"),
+     # The boundary excludes hex digits and dots, not all word characters. A
+     # `\w` lookbehind lets an account id hide inside any identifier that
+     # embeds it -- a profile named `AWS_<id>_Admin`, a bucket named
+     # `acme-<id>-logs` -- which is the shape these names actually take, and
+     # the shape that reached a spec in this repository before this was fixed.
+     # Excluding hex keeps a 12-digit run inside a content hash from matching.
+     re.compile(r"(?<![0-9a-fA-F.])\d{12}(?![0-9a-fA-F.])"),
      None),
     ("AWS ARN with a literal account id",
      re.compile(r"arn:aws[a-z-]*:[^:\s]*:[^:\s]*:\d{12}:"),
@@ -44,11 +50,14 @@ RULES = [
      None),
     ("email address",
      re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"),
-     # RFC 2606 reserves example.com/.org/.net for documentation, and the
-     # noreply address is this project's own commit identity.
+     # RFC 2606 reserves example.com/.org/.net *and* the `.example` TLD for
+     # documentation, and the noreply address is this project's own commit
+     # identity. The bare TLD matters here: a URL's userinfo component parses
+     # as an address, so a documented allowlist-bypass example such as
+     # `host@attacker.example` is caught by the pattern and is not an address.
      lambda m: m.group(0) in PUBLISHED_CONTACTS
      or m.group(0).endswith("@users.noreply.github.com")
-     or re.search(r"@(?:[\w-]+\.)?example\.(?:com|org|net)$", m.group(0))),
+     or re.search(r"@(?:[\w-]+\.)*example(?:\.(?:com|org|net))?$", m.group(0))),
     ("absolute home path",
      # Names the machine's user account. Tilde-relative and repo-relative paths
      # are fine; an absolute one identifies a person and a filesystem.

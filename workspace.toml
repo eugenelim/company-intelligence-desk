@@ -23,6 +23,9 @@ open = [
   { path = "docs/product/intents/evidence-backed-fund-diligence.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Deferred second demonstration domain: managed funds and ETFs; gated on an RFC amending the charter, not buildable", needs = [] },
   { path = "docs/product/intents/assistant-mediated-operation.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Draft capability intent: conversational control of the desk, bounded by the same authority and provenance as a run. Framed 2026-09-18 from a journey map and service blueprint; nine gaps named, two structural", needs = [] },
   { path = "docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Follow-on: credential broker design. Owner-commissioned 2026-09-18 when DR12 settled per-integration credential scoping as blast-radius-only; brief is in that doc's DR12", needs = [] },
+  { path = "docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Follow-on: may_exist, the authoring-time containment gate (change 8). Designed, not built; deferred from walking-skeleton-agent-runtime because a single operator authors every role", needs = [] },
+  { path = "docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Follow-on: may_run, the spawn-time containment gate. Needs a coordinator that spawns children, which the Phase 1 skeleton does not exercise", needs = [] },
+  { path = "docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md", kind = "intent", source = { mode = "repo-origin" }, summary = "Follow-on: AWS deployment of the walking skeleton to ECS Fargate with ALB and OIDC, plus its IaC and mandatory infra security review. Out of Phase 1 scope by owner decision 2026-09-18", needs = [] },
 ]
 closed = []
 
@@ -32,6 +35,20 @@ closed = []
 ["ini-001"]
 name   = "Inspectable Diligence MVP"
 status = "active"
+
+["ini-001".spec_queue]
+# Phase 1 walking skeleton, cut into three specs after a single spec did not
+# converge across three review rounds. The dependency chain is real: the agent
+# runtime needs the schema and pool, and the evidence spec measures a system
+# the other two build.
+draft = [
+  { path = "docs/specs/walking-skeleton-foundation/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 foundation: layout RFC, project gates, schema and both append paths, privilege split, API, worker pool and lease recovery", needs = [] },
+  { path = "docs/specs/walking-skeleton-agent-runtime/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 agent runtime: role compiler, toolset stack with the policy decision point outermost, containment fragment, quarantine boundary, scoped-role provider call, persistence and resume", needs = ["docs/specs/walking-skeleton-foundation/spec.md"] },
+  { path = "docs/specs/walking-skeleton-evidence/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 evidence: run state machine and publication, browser stream, the four Phase 1 measurements, analytical re-baseline, and the record of what was not established", needs = ["docs/specs/walking-skeleton-foundation/spec.md", "docs/specs/walking-skeleton-agent-runtime/spec.md"] },
+]
+approved = []
+implementing = []
+shipped = []
 
 ["ini-001".brief_queue]
 draft     = []
