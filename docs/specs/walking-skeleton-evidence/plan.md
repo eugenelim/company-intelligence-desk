@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — evidence
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7 §§ Run state machine, The approval gate, Event log and stream mechanism, Risks (the primary page threshold); [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4 §§ The approval gate, The pool. **No analogous production implementation exists.** The substitute is `spikes/phase-0/stream_resumption_spike.py` for the cursor projection and `Last-Event-ID` preference, and `quarantine_quality_spike.py` for the A/B comparison AC-0312 re-runs. **Named deviation:** the resumption spike drove an HTTP client, not a browser, so it is precedent for the server's behaviour and not for the client's.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
@@ -262,3 +262,5 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 ## Changelog
 
 - 2026-09-18: initial plan. Split out of a single `walking-skeleton` spec after three review rounds did not converge and the findings clustered by subsystem. This spec took the measurement and presentation criteria; the two uncomfortable outputs — an abandoned cancellation and a second falsification — are written as recordable results rather than bars, which is the main thing the split let this plan say clearly.
+- 2026-09-18: spec approved by eugenelim
+- 2026-09-18: plan approved by eugenelim

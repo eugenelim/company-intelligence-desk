@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — foundation
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7 §§ Event log and stream mechanism, Step execution, Identity. **No analogous production implementation exists** — this is the repository's first application code. The substitute is `spikes/phase-0/`: `privilege_test.py` and `schema.sql` for the `SECURITY DEFINER` split, `concurrency_test.py` for lock ordering and sequence density, `stream_resumption_spike.py` for the cursor projection. **Named deviation:** spike code is throwaway by its directory's own rule, so it is precedent for *shape* and never copied.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
@@ -279,3 +279,5 @@ test path.
 ## Changelog
 
 - 2026-09-18: initial plan. Split out of a single `walking-skeleton` spec after three review rounds did not converge and the findings clustered by subsystem — the agent and authorization work carried nearly every blocker, which is the seam this split follows.
+- 2026-09-18: spec approved by eugenelim
+- 2026-09-18: plan approved by eugenelim

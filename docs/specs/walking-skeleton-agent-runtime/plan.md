@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — agent runtime
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4 §§ An agent role compiles to an Agent, The toolset stack, Authority containment, The quarantined agent, The model seam, and the integration registry under § Responsibility decomposition. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the scoped-role Bedrock call, the `WrapperToolset` authorization hook, the history round trip and the approval gate across a process boundary. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection, no failed-append path — so it is precedent for the *seam*, not for the mechanism AC-0211 asserts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
@@ -383,3 +383,5 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 ## Changelog
 
 - 2026-09-18: initial plan. Split out of a single `walking-skeleton` spec after three review rounds did not converge; this spec carries seven of the eight blockers that split found, which is why it exists separately. The quarantine boundary, the denial record, the entitlements conjunct and the four compile-time role guards are new criteria rather than inherited ones — the monolithic spec built this subsystem and verified almost none of it.
+- 2026-09-18: spec approved by eugenelim
+- 2026-09-18: plan approved by eugenelim
