@@ -96,26 +96,26 @@ obligations go beyond those sources, and the approval gate rules on each:
 
 **Starting a run**
 
-- [ ] **AC-0001.** `POST /runs` returns a run identifier and the run is readable at `GET /runs/{id}/snapshot` in state `requested`.
-- [ ] **AC-0002.** The `run.requested` event and the coordinator step row commit in one transaction: with the step insert forced to fail, no run row, no step row, and no event exists.
+- [x] **AC-0001.** `POST /runs` returns a run identifier and the run is readable at `GET /runs/{id}/snapshot` in state `requested`.
+- [x] **AC-0002.** The `run.requested` event and the coordinator step row commit in one transaction: with the step insert forced to fail, no run row, no step row, and no event exists.
 
 **Appending events**
 
-- [ ] **AC-0003.** Under eight concurrent writers appending to one run — the concurrency spike P2 used, carried forward — every event's `seq` is dense from 1 with no duplicates and no gaps.
-- [ ] **AC-0004.** An append attempted with a stale `lease_epoch` rolls back, and the run's `seq` sequence after it is still dense: the rolled-back attempt consumed no number.
-- [ ] **AC-0005.** A `worker`-role connection attempting to append a `policy.decision` event is refused by the database rather than by application code.
-- [ ] **AC-0006.** A second `tool.invoked` event carrying an idempotency key already recorded for its run is refused by the partial unique index, so a duplicate append fails rather than succeeding twice.
+- [x] **AC-0003.** Under eight concurrent writers appending to one run — the concurrency spike P2 used, carried forward — every event's `seq` is dense from 1 with no duplicates and no gaps.
+- [x] **AC-0004.** An append attempted with a stale `lease_epoch` rolls back, and the run's `seq` sequence after it is still dense: the rolled-back attempt consumed no number.
+- [x] **AC-0005.** A `worker`-role connection attempting to append a `policy.decision` event is refused by the database rather than by application code.
+- [x] **AC-0006.** A second `tool.invoked` event carrying an idempotency key already recorded for its run is refused by the partial unique index, so a duplicate append fails rather than succeeding twice.
 
 **Containing dependencies and identifiers**
 
-- [ ] **AC-0007.** The dependency-direction test fails on a deliberately introduced `pydantic_ai` import outside `agents/` and `adapters/`, and on a deliberately introduced AWS SDK import outside `adapters/`, and passes once both are removed.
-- [ ] **AC-0008.** `tools/lint-no-identifiers.py` fails on an account identifier embedded inside a larger identifier, and does not fail on a twelve-digit run inside a content hash.
-- [ ] **AC-0009.** The served routes match `contracts/openapi/runs.yaml`, asserted against the generated document rather than by inspection.
+- [x] **AC-0007.** The dependency-direction test fails on a deliberately introduced `pydantic_ai` import outside `agents/` and `adapters/`, and on a deliberately introduced AWS SDK import outside `adapters/`, and passes once both are removed.
+- [x] **AC-0008.** `tools/lint-no-identifiers.py` fails on an account identifier embedded inside a larger identifier, and does not fail on a twelve-digit run inside a content hash.
+- [x] **AC-0009.** The served routes match `contracts/openapi/runs.yaml`, asserted against the generated document rather than by inspection.
 
 **Surviving host loss**
 
-- [ ] **AC-0010.** A worker killed mid-step has its step reacquired by another worker within 150 seconds, with no operator action.
-- [ ] **AC-0011.** A worker sent `SIGTERM` has its step reacquired within one poll interval, which is what distinguishes graceful drain from waiting out the lease TTL.
+- [x] **AC-0010.** A worker killed mid-step has its step reacquired by another worker within 150 seconds, with no operator action.
+- [x] **AC-0011.** A worker sent `SIGTERM` has its step reacquired within one poll interval, which is what distinguishes graceful drain from waiting out the lease TTL.
 
 ## Follow-ons
 

@@ -307,3 +307,32 @@ demonstrate the mechanism and not the number, and the number is the criterion.
 - **Not established:** a real step body. The injected body sleeps. That is what
   keeps this suite free of a credential and of spend, and it means nothing here
   exercises a fenced worker abandoning an in-flight model call.
+
+### T7 — the record says what this spec established and what it did not
+
+- **Established.** `python3 .agents/skills/work-loop/scripts/lint-spec-status.py
+  --root . --all` is green across all three specs. The script is committed at
+  that path, so a clean clone can run it, and `AGENTS.md` names it alongside the
+  other gates.
+- `docs/architecture/README.md` gains a § What is built table naming the six
+  subsystems, where each one lives, and the design section that governs it —
+  which is the Durable Outputs closeout condition for Current architecture.
+- `spikes/README.md` gains a Phase 1 section separating **what was
+  established** (eleven criteria with their measured numbers), **what was
+  substituted** (five items, each a real stand-in rather than a weaker version
+  of the same thing), and **what was NOT established** (twelve items).
+- `AGENTS.md` § Project overview said *"Nothing in it is built yet"*, which
+  stopped being true. Corrected in place, with a pointer to the new § What is
+  built. `AGENTS.md` is in T2's pinned `Touches`, so this stays inside the
+  plan's touched set.
+- **Excluded, with the reason named.** `docs/architecture/overview.md` is still
+  the unfilled seed template, and the architecture README calls it "read this
+  first". That is a pre-existing condition this change did not create, and
+  neither T7's nor any other task's pinned `Touches` names it. The README now
+  says the file is an unfilled seed and points at § What is built as the
+  current map, so a reader is not misled. Filling or deleting it is a separate
+  change and has no owner in this spec.
+- **The Phase 0 heading was renamed** from "What these results do not
+  establish" to "What the Postgres spike results do not establish", because the
+  Phase 1 section now cites it and an unqualified heading would read as
+  covering both.

@@ -16,9 +16,16 @@ not restate them, and its silence on a direction is not permission.
 
 The architecture is
 [`docs/architecture/inspectable-multi-agent-diligence/`](docs/architecture/inspectable-multi-agent-diligence/README.md)
-— a Draft design awaiting owner sign-off, with two companions covering
-observability/evaluation and experience/presentation. Nothing in it is built
-yet; that folder carries a `STATUS: PLANNED` marker.
+— **ratified 2026-09-18**, with its five *Known at ship* gaps accepted open,
+and with two companions covering observability/evaluation and
+experience/presentation. The worker and pool are specified in
+[`docs/architecture/pydantic-ai-worker-runtime/`](docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md).
+
+**Part of it is now built.** The walking skeleton's foundation ships the event
+log, the privilege split, the HTTP surface and the worker pool;
+[`docs/architecture/README.md`](docs/architecture/README.md) § What is built is
+the current map, and everything else in those folders is still designed rather
+than built, which is why they keep their `STATUS: PLANNED` markers.
 
 ## Rule lookups
 
