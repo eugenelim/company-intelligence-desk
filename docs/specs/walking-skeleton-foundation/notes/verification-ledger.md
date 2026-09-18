@@ -193,3 +193,63 @@ schema this delivery ships rather than the spike's own.
 - **A revision-pinned test was found and fixed.** `test_upgrade_head_is_idempotent`
   asserted `alembic current` started with `"0001"` and broke the moment
   revision 0002 landed. It now compares `current` against `heads`.
+
+### T6 — a run starts over HTTP and is readable
+
+Seventeen checks in `tests/api`, all green, plus one manual end-to-end run of
+the shipped binary.
+
+- **AC-0001 — established, over real HTTP.** `POST /runs` returns 201 with a
+  run identifier, a step identifier and `seq` 1; `GET /runs/{id}/snapshot`
+  returns state `requested` and `as_of_seq` 1; `GET /runs/{id}/events` returns
+  the single `run.requested` event with `step_id` and `agent_role` null, which
+  is the r7 envelope on the run-lifecycle path. The coordinator step exists,
+  is `runnable`, and carries `pool_class = 'default'`.
+- **The harness runs the real server, not an in-process client.** `uvicorn`
+  starts the app on a loopback port and the tests drive it with
+  `urllib.request`. An in-process client short-circuits the server, so it
+  cannot catch a route the server declines to mount or a status the framework
+  rewrites on the way out. It also avoids `httpx`, which the plan's dependency
+  list does not carry.
+- **Manual QA — the shipped artifact, not the test harness.** `./.venv/bin/ced-api`
+  was started and driven with `curl`: `POST /runs` → 201 with a UUID,
+  `GET .../snapshot` → `{"state":"requested","as_of_seq":1}`,
+  `GET .../events` → the one `run.requested` event, and an unknown run → 404
+  `{"detail":"no such run"}`. Recorded because a passing unit gate is not
+  evidence that the entry point works.
+- **A defect was found by doing that.** `run()` hardcoded port 8000, which is
+  occupied on this machine; the server reported `[Errno 48]` and shut down
+  cleanly, but there was no way to move it. It now reads `CED_API_HOST` and
+  `CED_API_PORT`, defaulting to loopback 8000. Two deployables share one
+  developer machine, so this was going to be needed regardless.
+- **AC-0009 — established, and it caught real drift on its first run.** The
+  served `/openapi.json` route table equals the committed contract's: every
+  path, method, `operationId`, parameter with its location and required-ness,
+  request-body requiredness, and declared response status. The hand-authored
+  contract **under-declared 422** on both GET routes, which the surface really
+  does serve and which the AC-0001 tests separately assert. The contract was
+  corrected; the implementation was right.
+- **The contract check is shown failing.** Three mutations of a *copy* of the
+  served document — a removed route, a renamed query parameter, and a renamed
+  `operationId` — each make the comparison unequal. The mutation is applied to
+  the copy rather than to the application, so no mutation switch ships.
+- **A setup check is reported separately:** `test_the_contract_file_describes_three_routes`
+  guards against both sides of the comparison being empty, which is how a
+  contract test most often becomes decorative. It cannot fail on the
+  application.
+- **Not established, and deliberately so.** The comparison covers the route
+  table, not the whole document. FastAPI's generated schema section has a shape
+  that is the framework's business; asserting on it would fail on every
+  framework upgrade while catching no real drift.
+- **Not established:** the events route serves a cursor projection only. Its
+  reconnect semantics, the `Last-Event-ID` preference over `after=`,
+  keepalives and stream termination are `walking-skeleton-evidence`'s, and
+  nothing here exercises them.
+- **Not established:** connection pooling. Each request opens a short-lived
+  connection, which is honest for a spec with no deployment; r7 § Risks records
+  managed-service pooling as untested and this does not change that.
+- **One dependency added through the Ask-first boundary.** `pyyaml==6.0.3`,
+  test-only, so AC-0009 can read the hand-authored contract; there is no YAML
+  parser in the standard library. Owner decision 2026-09-18. No `src/` code
+  imports it, which the dependency-direction gate does not police and the
+  manifest records.

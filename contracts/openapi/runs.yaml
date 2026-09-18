@@ -1,0 +1,200 @@
+# The published interface contract for the run surface.
+#
+# Hand-authored. No `api-contract` skill is installed, so this file carries no
+# rule enforcement beyond AC-0009, which asserts that the routes the
+# application actually serves match the routes described here — compared
+# against the generated document, not by inspection.
+#
+# The three routes below are the whole Phase 1 surface. The events route is
+# built only far enough to serve a cursor projection over committed events;
+# its reconnect semantics, `Last-Event-ID` preference and browser criteria
+# belong to `walking-skeleton-evidence`.
+openapi: 3.1.0
+
+info:
+  title: Company Intelligence Desk — runs
+  version: 0.1.0
+  description: >
+    Starting a run, reading its current state, and reading its event log.
+    The event log is the system of record; the snapshot is a projection over it.
+
+paths:
+  /runs:
+    post:
+      operationId: start_run
+      summary: Start a run
+      description: >
+        Commits the run row, its coordinator step and the `run.requested`
+        event in one transaction. All three or none.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRunRequest"
+      responses:
+        "201":
+          description: The run was created and is readable at its snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartedRun"
+        "422":
+          description: The request body is not valid.
+
+  /runs/{run_id}/snapshot:
+    get:
+      operationId: read_snapshot
+      summary: Read a run's current state and cursor
+      description: >
+        A client uncertain of its cursor reads this, discards local state and
+        resumes at `as_of_seq`. No cursor is refused on age.
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The run's state and the sequence number it is current to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "404":
+          description: No such run.
+        "422":
+          description: >
+            `run_id` is not a UUID. Declared because the surface really does
+            serve it — a malformed identifier is refused rather than looked up.
+
+  /runs/{run_id}/events:
+    get:
+      operationId: read_events
+      summary: Read a run's committed events in sequence order
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: after
+          in: query
+          required: false
+          description: >
+            Return events with `seq` strictly greater than this. The client
+            owns the cursor.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 1000
+      responses:
+        "200":
+          description: The events after the cursor, in `seq` order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPage"
+        "404":
+          description: No such run.
+        "422":
+          description: >
+            `run_id` is not a UUID, or `after`/`limit` is outside its bounds.
+
+components:
+  schemas:
+    StartRunRequest:
+      type: object
+      required: [principal, agent_role]
+      properties:
+        principal:
+          type: string
+          description: The initiating user. A run is attributed, never anonymous.
+        agent_role:
+          type: string
+          description: >
+            The coordinator role the first step runs under. An agent role is a
+            first-class security object, assigned here and never by a model.
+
+    StartedRun:
+      type: object
+      required: [run_id, step_id, seq]
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        step_id:
+          type: string
+          format: uuid
+        seq:
+          type: integer
+          description: The `seq` allocated to the `run.requested` event.
+
+    Snapshot:
+      type: object
+      required: [run_id, state, as_of_seq]
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum:
+            - requested
+            - claimed
+            - running
+            - awaiting_approval
+            - expired
+            - completed
+            - failed
+            - cancelled
+        as_of_seq:
+          type: integer
+
+    Event:
+      type: object
+      required: [schema_version, run_id, seq, type, principal]
+      properties:
+        schema_version:
+          type: integer
+        run_id:
+          type: string
+          format: uuid
+        seq:
+          type: integer
+        type:
+          type: string
+        principal:
+          type: string
+        step_id:
+          type: [string, "null"]
+          format: uuid
+        agent_role:
+          type: [string, "null"]
+        payload_ref:
+          type: [string, "null"]
+        idempotency_key:
+          type: [string, "null"]
+
+    EventPage:
+      type: object
+      required: [run_id, events]
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"

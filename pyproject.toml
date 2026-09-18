@@ -32,6 +32,11 @@ dev = [
     "pytest-asyncio==1.4.0",
     "ruff==0.16.8",
     "mypy==2.3.1",
+    # Test-only. AC-0009 reads the hand-authored OpenAPI contract, and there is
+    # no YAML parser in the standard library. Beyond the walking-skeleton
+    # plan's § Dependencies & integration list, so it went through that spec's
+    # Ask-first boundary; owner decision 2026-09-18. No `src/` code imports it.
+    "pyyaml==6.0.3",
 ]
 
 [project.scripts]

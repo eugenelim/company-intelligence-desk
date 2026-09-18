@@ -162,6 +162,19 @@ docker-compose -f deploy/compose.yaml up -d
 docker-compose -f deploy/compose.yaml down -v
 ```
 
+### Running the two deployables
+
+One package, two entry points, per [ADR-0003](docs/adr/0003-repository-layout.md) D3:
+
+```bash
+CED_API_PORT=58080 ./.venv/bin/ced-api      # default 8000, loopback only
+./.venv/bin/ced-worker                      # set CED_WORKER_ID to tell two apart
+```
+
+Both need the substrate up. `CED_API_HOST` and `CED_API_PORT` exist because
+8000 is the most contended port on a developer machine; the default binds
+loopback, since nothing here is authenticated and r7 puts OIDC at the ingress.
+
 ### Repository checks
 
 These predate the application and still run against every change:
