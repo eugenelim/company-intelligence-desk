@@ -13,12 +13,21 @@ falsified it.
 
 | # | Hypothesis / test | Needs | Result |
 | --- | --- | --- | --- |
-| 1 | LiteLLM resolves Bedrock credentials from ambient workload identity, preserving streaming and the tool loop | AWS | **passed** |
-| 2 | ADK step invocation under an application-owned orchestrator | model | **passed** |
+| 1 | LiteLLM resolves Bedrock credentials from ambient workload identity, preserving streaming and the tool loop | AWS | **passed** — *superseded by 7* |
+| 2 | ADK step invocation under an application-owned orchestrator | model | **passed** — *superseded by 7* |
 | 3 | Stream resumption across forced disconnects, with concurrent writers | Postgres | **passed** |
 | 4 | Quarantine split preserves analytical quality on a real filing | model | **falsified as run** — see below |
 | P1 | `worker` role is refused `INSERT INTO events (type='policy.decision')` | Postgres | **passed** |
 | P2 | Concurrent append/claim deadlock ordering | Postgres | **passed** |
+| 7 | Pydantic AI over Bedrock via ambient workload identity; PDP inside a `WrapperToolset`; message-history round-trip; approval gate across a process boundary | AWS + model | **passed** — 10/10 hypothesis checks |
+
+**Spike 7 is a re-spike, not a new question.** The agent-runtime constraint was
+amended from Google ADK to Pydantic AI on 2026-09-17
+([`portable-identity-first-runtime`](../docs/product/intents/portable-identity-first-runtime.md)
+§ Constraint amendments), which invalidated spikes 1 and 2 — both were passes
+*about ADK and LiteLLM specifically*. Spike 7 re-establishes what they
+established, against the replacement, and adds the two claims ADK could not
+make. Spikes 3, 4, P1 and P2 are framework-independent and stand unchanged.
 
 ## Running the Postgres spikes
 
@@ -259,3 +268,88 @@ exists for, and the fetch adapter then replays it for every subsequent run.
 - Neither test says anything about the *AWS* identity layer. They prove the
   database privilege model, which is where the `policy.decision` split actually
   lives.
+
+## Spike 7 — the replacement framework holds, and carries two claims ADK could not
+
+**10/10 hypothesis checks** — H1 4/4, H2 2/2, H3 2/2, H4 2/2. The script prints
+13 PASS lines; three of them (`scoped role created`, `role assumed`, `torn
+down`) are setup and teardown recorded with a hardcoded result, and by this
+directory's own standard a check that cannot fail is not evidence. They are
+reported separately rather than folded into the headline.
+
+Same least-privilege construction as spike 1: a scoped role is
+created and assumed, and every check runs under those temporary credentials.
+Running it as Admin would prove nothing, because an admin can invoke any model.
+`pydantic-ai` 2.44.0, Haiku 4.5, cost $0.006.
+
+**H1 — ambient workload identity holds through a different SDK path.** 4/4.
+`BedrockConverseModel` is constructed with a model id and *nothing else* — no
+provider argument, no credentials, no boto3 client — and resolves the ambient
+chain. Streaming and the tool-call loop both survive, and a model outside the
+policy is refused with `AccessDeniedException`, which is what makes the scope
+meaningful rather than decorative. **LiteLLM is no longer in the model hot
+path**, which retires the supply-chain risk `runtime-architecture.md` carried
+for it.
+
+**H2 — an authorization hook exists at the right place.** 2/2. A
+`WrapperToolset.call_tool` override authorizes on **argument value**: the same
+tool with `ticker="ACME"` executes and with `ticker="EVILCORP"` does not. Both
+calls are well-typed; only the value differs. This is the check spike 2 made
+against ADK, re-made against the seam the design now uses.
+
+**What H2 does not establish.** The override appended to a Python list. No
+database, no second connection, no `policy-writer` grant, and no
+failed-append-is-a-denial path — which is the part `runtime-architecture.md`
+calls load-bearing ("the decision event commits before the action"). H2 proves
+the hook exists and sees argument values. It does **not** prove
+commit-before-action, which moves to a Phase 1 criterion.
+
+**Finding: a denial must not be a `ModelRetry`, and the framework makes that
+distinction available.** An ordinary exception raised inside `call_tool`
+propagates out of the whole agent run rather than being handed back to the model
+as advice. That is the fail-closed behaviour the design wants — a denial is
+terminal, not a hint to try a different argument — but it is a choice the
+implementation has to make deliberately, because raising `ModelRetry` instead
+would silently convert the authorization boundary into a negotiation. The tool
+body did not execute in either case.
+
+**H3 — a message history round-trips and resumes.** 2/2.
+`ModelMessagesTypeAdapter` round-trips a run's messages to JSON and back
+**byte-identically** on a second dump, and a *fresh* `Agent` — sharing nothing
+with the original run but those bytes — resumes from the deserialized history
+and answers a question about the earlier turn.
+
+**Scope limit, and it is a real one.** The history under test was **two
+messages, no tool calls** — 1,163 bytes. It contained no tool-call parts, no
+tool returns, no retry parts and no deferred-approval parts, which is none of
+the shapes a real step produces. Byte-identity at that shape does not
+generalise to the shape the design depends on, and H4's suspended-approval
+history was serialized but never asserted byte-identical. Phase 1 carries the
+richer round-trip. This is what replaces ADK's
+`BaseSessionService`, the seam `runtime-architecture.md` § Alternatives refused
+to depend on because ADK does not present it as a public extension point.
+
+**H4 — the approval gate survives a process boundary.** 2/2. A tool declared
+`requires_approval=True` suspends the run and returns `DeferredToolRequests`
+naming the pending call and its arguments. The decision is then returned through
+`deferred_tool_results` on a **different `Agent` object built from the
+serialized history**, and the tool executes. Nothing in-memory from the first
+run is required, which is the property the design needs: the approval gate sits
+between two separately-leased steps, possibly on two different workers, with
+Postgres and an event log in between.
+
+**What this spike does not establish.** Streaming was demonstrated at 2 deltas
+on a short response — enough to show the channel is not collapsed to a single
+blocking call, not enough to characterise streaming behaviour under a real
+multi-minute step. The cross-region inference-profile finding from spike 1 is
+**inherited, not re-tested**: it is an IAM property rather than a framework one,
+so it should carry over, but this run asserts it rather than demonstrating it.
+And nothing here exercises a fenced lease, a real step boundary, or concurrency
+— spike 7 is about the framework seam, and the worker pool remains as proven by
+spike 3, P1 and P2.
+
+```bash
+cd phase-0
+python3 -m venv .venv && ./.venv/bin/pip install 'pydantic-ai-slim[bedrock]' boto3
+AWS_PROFILE=<an-admin-profile> ./.venv/bin/python pydantic_ai_bedrock_spike.py
+```

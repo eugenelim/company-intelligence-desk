@@ -73,7 +73,8 @@ eugenelim — decides the context and evidence contract.
   § Context, evidence, and reproducibility; open until owner sign-off.*
 - How does the context model relate to the chosen runtime's native session and
   memory primitives? *Proposed in `runtime-architecture.md` § Ownership split — the
-  context service is an application capability, not ADK's SessionService; open
+  context service is an application capability, not the framework's own session
+  store; open
   until owner sign-off.*
 - What retrieval model is required for the initial public filings?
 - How are citation locators represented and verified, and do they survive

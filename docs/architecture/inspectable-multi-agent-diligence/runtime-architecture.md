@@ -1,7 +1,12 @@
 # Runtime architecture — Company Intelligence Desk
 
 **Author(s):** eugenelim
-**Status:** Draft — revision r7, after Phase 0
+**Status:** Draft — revision r7, after Phase 0. **Partially superseded
+2026-09-18:** the agent framework is Pydantic AI ([ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)),
+and the platform non-goal is superseded by the amended charter. The worker and
+pool are specified in
+[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md); an r8
+consistency pass folding both in is outstanding.
 **Last updated:** 2026-09-11
 **Sign-off:** outstanding. Open gaps are recorded under *Known at ship*; the
 Phase 0 spikes in *Rollout* gate ratification.
@@ -149,8 +154,17 @@ alternatives are rejected.
 
 ### Non-goals
 
-- **A general-purpose agent platform.** One execution plane; ingestion is a named
-  future plane with a defined seam.
+- ~~**A general-purpose agent platform.** One execution plane; ingestion is a
+  named future plane with a defined seam.~~ **Superseded 2026-09-18** by the
+  owner's charter amendment ([`CHARTER.md`](../../CHARTER.md) § Amendments):
+  the project *is* an executable substrate, with diligence as its proving use
+  case. What survives of this non-goal is narrower and still binding — **one
+  execution plane** (ingestion remains a named future plane with a defined
+  seam), and the substrate is **single-author in operation** until tenancy
+  isolation, authoring-time containment, and the trust class of non-operator
+  prompts are settled. See
+  [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
+  § Responsibility decomposition.
 - **Exactly-once tool execution.** ADK resumability is at-least-once; idempotency
   keys instead.
 - **Agent-authored UI.** Typed domain artifacts only.

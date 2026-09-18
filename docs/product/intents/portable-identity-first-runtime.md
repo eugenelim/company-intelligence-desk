@@ -55,8 +55,10 @@ in [`README.md`](README.md).
 
 - The system is containerized.
 - The browser UI and the API are separate deployable containers.
-- The agent runtime uses Google ADK.
-- The production deployment runs the ADK runtime on AWS.
+- The agent runtime uses Pydantic AI. **Owner-amended 2026-09-17**, superseding
+  the inception wording *"The agent runtime uses Google ADK"* — see
+  § Constraint amendments.
+- The production deployment runs the agent runtime on AWS.
 - Production model access uses Amazon Bedrock through workload identity,
   without a static model API key.
 - AWS-specific services are introduced only where they have a clear operational
@@ -69,6 +71,54 @@ in [`README.md`](README.md).
 Portable application-owned contracts are a ratified constraint owned by
 [`adoptable-reference-implementation.md`](adoptable-reference-implementation.md);
 this intent is bound by it and does not restate it.
+
+### Constraint amendments
+
+The block above is otherwise a closed transcription of what the owner ratified
+at inception (2026-09-09), per [`README.md`](README.md) § 1. A constraint leaves
+that transcription only by an owner amendment, recorded here with its date and
+its grounds. Architecture still does not get to reverse a constraint; this
+section records the cases where the owner did.
+
+**2026-09-17 — agent runtime: Google ADK → Pydantic AI.** Authorized in-session
+by the owner (`eugenelim`). Grounds, all recorded in
+[`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md):
+ADK has no native Bedrock path, so satisfying the model-access constraint above
+required LiteLLM in the model hot path — a dependency that shipped unauthorized
+code in 1.82.7–8 and is carried as a live supply-chain risk; and ADK's session
+seam is not a public extension point and was broken by ADK 2.0, which put the
+inspectability outcome on an unstable dependency. Pydantic AI supplies a native
+Bedrock path and a typed, serializable message history, retiring both. Verified
+under a least-privilege role by Phase 0 spike 7 — see
+[`spikes/README.md`](../../../spikes/README.md).
+
+The companion line *"The production deployment runs the ADK runtime on AWS"* is
+reworded to *"the agent runtime"* as a consequence of the same amendment, not as
+a second one: the ratified content there is **AWS**, and naming the framework
+twice only created a second place for it to drift.
+
+**What this amendment does not change.** The seam set under *Excluded* was
+untouched by *this* amendment — it was widened a day later by the substrate
+amendment below, on separate grounds. The model-access and credential-posture
+constraint is untouched —
+the replacement is held to it, not excused from it. And the constraint still
+names a *vendor* rather than a property, deliberately: portability is owned by
+[`adoptable-reference-implementation.md`](adoptable-reference-implementation.md)
+and is not silently annexed here by rewording this line into a capability.
+
+**2026-09-18 — the seam set: two adapters → model-provider plus one per
+integration kind.** Authorized by the owner as part of the same decision that
+amended [`CHARTER.md`](../../CHARTER.md) to make the project a general-purpose
+executable substrate. The substrate resolves integrations from a registry
+rather than calling a single external-source fetch adapter, so "exactly two"
+stopped being describable. Closure is preserved by a different mechanism:
+adding a new integration `kind` is an amendment to this intent. The wording and
+the reasoning are under *Excluded*.
+
+**A note on the RFC route.** Both 2026-09-17 and 2026-09-18 amendments were
+made directly by the owner rather than through an RFC, under the shaping-phase
+exception recorded in [`CHARTER.md`](../../CHARTER.md). That exception expires
+at Phase 2.
 
 ### In scope
 
@@ -95,9 +145,22 @@ or what the user sees (see [`multi-workspace-inspectable-experience.md`](multi-w
   cannot run against a non-AWS substitute.
 
 **The seam set** — the permitted coupling points, which sub-results 1 and 4
-quantify against — is exactly two: the **model-provider adapter** and the
-**external-source fetch adapter**. Naming the set closes it; a third coupling
-point is a change to this intent, not an implementation detail.
+quantify against — is the **model-provider adapter** plus the **integration
+adapters**, one per registered integration `kind`. Naming the set still closes
+it: a coupling point that is not one of these is a change to this intent, and
+**adding a new `kind` is a change to this intent, not an implementation
+detail.** The registered kinds are recorded in
+[`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md)
+§ Responsibility decomposition.
+
+**Amended 2026-09-18**, following from the same owner authorization as the
+charter's substrate amendment. This previously read *"is exactly two: the
+model-provider adapter and the external-source fetch adapter."* The substrate
+resolves integrations from a registry rather than calling one fetch adapter,
+so a fixed count of two was no longer describable — but the *closure* property
+the original wording existed to protect is preserved by making a new kind an
+intent change. Recorded here rather than assumed, because a seam set that
+grows silently is the failure the original wording was written against.
 
 ## Owner
 
@@ -115,9 +178,14 @@ eugenelim — decides runtime, deployment, and identity scope.
   containment within the initiating principal's entitlements enforced?
   *Proposed in `runtime-architecture.md` § Identity — two layers; open until owner
   sign-off.*
-- Should the Bedrock integration use an existing provider adapter or an
-  application-owned Converse adapter? *Proposed in `runtime-architecture.md` § The
-  model-provider seam, pending a Phase 0 spike; open until owner sign-off.*
+- ~~Should the Bedrock integration use an existing provider adapter or an
+  application-owned Converse adapter?~~ **Settled 2026-09-17: neither.** The
+  agent-runtime amendment above makes the question moot — Pydantic AI ships a
+  native `BedrockConverseModel`, so there is no third-party adapter in the hot
+  path and no application-owned Converse adapter to write. Verified under a
+  least-privilege role by Phase 0 spike 7. The `Model` abstract base class
+  remains the seam, so an application-owned adapter stays available as the
+  fallback it always was.
 - How should local production-parity development authenticate to AWS?
 - By what mechanism does a contributor without cloud access run the system?
   *Proposed in `runtime-architecture.md` § Local development; open until owner sign-off.*
@@ -154,6 +222,14 @@ sign-off, not by another architecture run.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
+- Revision: r18 — the seam set restated as the model-provider adapter plus
+  one adapter per registered integration kind, with closure preserved by
+  making a new kind an intent change; follows the charter's substrate
+  amendment of the same date, 2026-09-18
+- Revision: r17 — agent-runtime constraint amended from Google ADK to Pydantic
+  AI on owner authority, a § Constraint amendments section added to carry the
+  grounds, and the Bedrock-adapter question settled as moot by that amendment,
+  2026-09-17
 - Revision: r16 — the preamble's account of what gives each prohibition force
   corrected: sub-result 1 entails no deployed component, so sub-result 2 rests on
   the ratified production-deployment constraint instead, 2026-09-10

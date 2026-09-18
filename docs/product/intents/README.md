@@ -49,8 +49,8 @@ authoritative and the delivery brief cites it rather than restating it:
 
 Langfuse · OpenTelemetry · Claude Code headless ·
 ECS Fargate · Application Load Balancer with server-sent events · API Gateway ·
-PostgreSQL · S3-compatible object storage · LiteLLM versus an application-owned
-Bedrock Converse adapter · PostgreSQL-backed workflow durability versus a
+PostgreSQL · S3-compatible object storage ·
+PostgreSQL-backed workflow durability versus a
 dedicated queue · hosted versus self-hosted LLM operations tooling.
 
 Each belongs in an unresolved question, never in a boundary.
@@ -58,8 +58,21 @@ Each belongs in an unresolved question, never in a boundary.
 **Settled since inception.** NVIDIA NeMo Guardrails was named here as a
 candidate and was **rejected on 2026-09-10**; the reasoning is recorded in
 [`governed-observable-and-evaluable-operation`](governed-observable-and-evaluable-operation.md)
+§ Unresolved questions. *LiteLLM versus an application-owned Bedrock Converse
+adapter* was **settled as moot on 2026-09-17** by the agent-runtime amendment
+below — the replacement framework ships a native Bedrock path, so neither
+option is needed; see
+[`portable-identity-first-runtime`](portable-identity-first-runtime.md)
 § Unresolved questions. A candidate that has been decided leaves this list, so
 the list only ever shows what is still open.
+
+**Amended since inception.** A constraint leaves the closed transcription above
+only by an owner amendment, and each owning intent carries its own
+§ Constraint amendments block with the date and grounds. To date: **agent
+runtime**, amended 2026-09-17 from Google ADK to Pydantic AI — see
+[`portable-identity-first-runtime`](portable-identity-first-runtime.md)
+§ Constraint amendments. The index table above is unaffected: it indexes
+handles, not values.
 
 ## 2. Handoff shape
 
