@@ -141,8 +141,8 @@ identity, policy and observability, presentation, and the legibility bar.
 **Next step.** An RFC amending [`docs/CHARTER.md`](../../CHARTER.md) § Mission,
 § Domain and § Scope, **and** the evidence source tier owned by
 [`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md) —
-two acts, for the reason recorded in the unresolved questions above. `CONVENTIONS.md` § 1 reserves charter mission and scope to
-the RFC route, and the charter's own header states that changes to it go through
+two acts, for the reason recorded in the unresolved questions above. The `new-rfc` skill reserves charter mission and scope to the
+RFC route, and the charter's own header states that changes to it go through
 an RFC. Until that RFC is `Accepted`, this intent is not buildable and no spec
 may be cut against it.
 

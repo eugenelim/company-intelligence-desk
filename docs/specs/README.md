@@ -1,8 +1,7 @@
 # Specs
 
 > Feature specifications and implementation plans. See
-> [`../CONVENTIONS.md`](../CONVENTIONS.md#4-specs-and-plans--docsspecsfeature)
-> for the spec / plan distinction and lifecycle.
+> § Spec and plan below for the distinction and lifecycle.
 
 Work that needs a durable delivery contract gets a directory:
 
@@ -13,22 +12,12 @@ docs/specs/<feature>/
 └── notes/       ← (optional) research, sketches, rejected approaches
 ```
 
-## Active specs
+## Why there is no index
 
-<!-- Update this list as features are added. -->
-
-| Spec | Status | Constrained by | Notes |
-| --- | --- | --- | --- |
-<!-- no specs yet -->
-
-## Shipped specs (archived)
-
-<!-- Once a feature is shipped, move its row here. The spec stays in place
-     as documentation of the feature's contract. -->
-
-| Spec | Status | Constrained by | Notes |
-| --- | --- | --- | --- |
-<!-- no shipped specs yet -->
+Specs are discovered by listing this directory. An index over a document
+corpus is generated from that corpus or it does not exist — a hand-maintained
+one drifts from the specs it describes, and every change to it collides with
+every other branch that touches a spec.
 
 ## Adding a new spec
 
@@ -37,9 +26,40 @@ implementation and verification strategy. An eligible direct-light request is
 session-local and does not create a `docs/specs/` entry.
 
 ```bash
+# Point SKILL at wherever your agent installed the `new-spec` skill: the install
+# root differs per adapter, so this stays a variable rather than a fixed path.
+SKILL=<path to the installed new-spec skill>
+
 mkdir -p docs/specs/<feature-name>
-cp .claude/skills/new-spec/assets/spec.md docs/specs/<feature-name>/spec.md
-cp .claude/skills/new-spec/assets/plan.md docs/specs/<feature-name>/plan.md
+cp "$SKILL/assets/spec.md" docs/specs/<feature-name>/spec.md
+cp "$SKILL/assets/plan.md" docs/specs/<feature-name>/plan.md
 ```
 
-Or, in Claude Code, run `/new-spec "<feature-name>"`.
+Or invoke the `new-spec` skill by name in your agent.
+
+## Spec and plan
+
+`spec.md` is the contract: what the feature does, its boundaries, its testing
+strategy, and the acceptance criteria that close it. `plan.md` is the strategy:
+how it gets built, in tasks, with the construction tests designed up front.
+
+A spec's status moves `Draft` → `Approved` → `Implementing` → `Shipped`, and may
+end `Archived`. A plan's moves `Drafting` → `Approved` → `Executing` → `Done`.
+The two vocabularies are separate: plan words in a spec, or spec words in a
+plan, are a mistake a status lint can catch.
+
+A shipped spec freezes. Correct it by superseding it, not by editing the body,
+and record the erratum where the original cites it.
+
+`workspace.toml` is a lifecycle index over these directories, not a second
+requirements store. What a spec obliges lives in the spec; the index carries a
+pointer, its status, and its hard dependencies.
+
+The full contract — the spec metadata rules, where low-level design belongs,
+contract versus construction tests, the `contracts/<type>/` layout, and how to
+supersede a frozen document — is specified in the `new-spec` skill's
+`references/spec-and-plan-contract.md`.
+
+A spec cites upward, never downward: it links to the decisions and proposals
+that constrain it, and to the delivery brief it derives from with a `Brief:`
+field. Nothing above a spec links back down to it.
