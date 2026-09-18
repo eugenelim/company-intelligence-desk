@@ -16,7 +16,8 @@ standalone linter; it now ships as a skill script so it projects to adopters
 too.)
 
 It checks six invariants over `docs/specs/*/spec.md`, measured against the
-contract pinned in `CONVENTIONS.md` § 4 (Spec metadata contract). Only the
+contract pinned in the `new-spec` skill's `references/spec-and-plan-contract.md`
+(Spec metadata contract). Only the
 header `- **Status:**` field is checked; `plan.md` status is out of v1 scope.
 
   (i)   status vocabulary — the leading status token is one of
@@ -63,7 +64,11 @@ By default, per-spec checks run only for spec directories changed from the base
 ref.  In CI, pass ``--all`` to retain the full sweep.  The warn-only dangling
 reference pass always reads every spec because its value is repository-wide.
 
-Usage: lint-spec-status.py [--root DIR] [--base-ref REF] [--all]
+Warn-only findings are counted but not listed unless ``--verbose`` is passed,
+because they are re-sent to the model on every later request in an agent call.
+A run with a HARD violation always lists everything, warnings included.
+
+Usage: lint-spec-status.py [--root DIR] [--base-ref REF] [--all] [--verbose]
 """
 
 from __future__ import annotations
@@ -1276,6 +1281,13 @@ def main(argv: list[str] | None = None) -> int:
         "--all", action="store_true",
         help="run per-spec checks for every current spec instead of changed specs",
     )
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help="list every warn-only finding; without it they are only counted",
+    )
+    # Read from the parsed args, never at module scope: `_loop_guards.py`,
+    # `loop-cohort.py`, and `check-spec-status.py` exec this file for its
+    # parser symbols, so an argv read here would see the *host's* argv.
     args = parser.parse_args(argv)
 
     root = _validated_root(args.root)
@@ -1284,8 +1296,11 @@ def main(argv: list[str] | None = None) -> int:
     hard, warn = check(root, base_ref, all_specs=args.all)
     scope = _describe_scope()
 
-    for w in warn:
-        print(f"lint-spec-status: warning: {w}", file=sys.stderr)
+    # A failing run lists warnings too, so its output is unchanged from before
+    # this flag existed. Truncating a failure is how a defect gets paid twice.
+    if warn and (args.verbose or hard):
+        for w in warn:
+            print(f"lint-spec-status: warning: {w}", file=sys.stderr)
     if hard:
         for v in hard:
             print(f"lint-spec-status: {v}", file=sys.stderr)
@@ -1294,7 +1309,12 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"lint-spec-status: spec metadata clean ({scope}).")
+    hidden = (
+        f" {len(warn)} warning(s) hidden — re-run with --verbose to list them."
+        if warn and not args.verbose
+        else ""
+    )
+    print(f"lint-spec-status: spec metadata clean ({scope}).{hidden}")
     return 0
 
 

@@ -3,10 +3,14 @@
 
 Usage:
     python3 workspace_status.py status       --root "<repo-root>"
+    python3 workspace_status.py selected-membership --root "<repo-root>" \
+        --spec-dir docs/specs/<slug> [--spec-dir docs/specs/<slug> ...]
     python3 workspace_status.py explain      --root "<repo-root>" --item <selector>
     python3 workspace_status.py reconcile    --root "<repo-root>"
     python3 workspace_status.py repair-plan  --root "<repo-root>" [--plan-file <path>]
     python3 workspace_status.py repair-apply --root "<repo-root>" [--plan-file <path>]
+    python3 workspace_status.py prune        --root "<repo-root>" \
+        --select docs/specs/<slug> [--preview | --confirmation-file <path>]
     python3 workspace_status.py              --root "<repo-root>"   # compat alias for reconcile
 
 Output (stdout): deterministic UTF-8 JSON with schema_version = 1.
@@ -73,6 +77,9 @@ _spec_slug_from_workspace_path: Any = None
 _repair_entry_eligibility: Any = None
 _migration_operation_digest: Any = None
 project_closeout_status: Any = None
+selected_membership_status: Any = None
+prune_preview: Any = None
+prune_execute: Any = None
 
 # ── Load engine from the same scripts/ directory ──────────────────────────────
 
@@ -87,16 +94,36 @@ def _bind_engine() -> bool:
     if _ENGINE_BOUND:
         return True
     engine_path = Path(__file__).parent / "workspace_status_engine.py"
+    registered: list[str] = []
     try:
-        engine_spec = importlib.util.spec_from_file_location(
-            "workspace_status_engine", engine_path
-        )
-        engine_mod = importlib.util.module_from_spec(engine_spec)  # type: ignore[arg-type]
-        # Register before exec_module so dataclass annotation resolution works
-        # with `from __future__ import annotations`.
-        sys.modules.setdefault("workspace_status_engine", engine_mod)
-        engine_spec.loader.exec_module(engine_mod)  # type: ignore[union-attr]
+        engine_mod = sys.modules.get("workspace_status_engine")
+        if engine_mod is None:
+            engine_spec = importlib.util.spec_from_file_location(
+                "workspace_status_engine", engine_path
+            )
+            engine_mod = importlib.util.module_from_spec(engine_spec)  # type: ignore[arg-type]
+            # Register before exec_module so dataclass annotation resolution works
+            # with `from __future__ import annotations`.
+            sys.modules.setdefault("workspace_status_engine", engine_mod)
+            registered.append("workspace_status_engine")
+            engine_spec.loader.exec_module(engine_mod)  # type: ignore[union-attr]
+
+        prune_mod = sys.modules.get("workspace_status_prune")
+        if prune_mod is None:
+            prune_path = engine_path.with_name("workspace_status_prune.py")
+            prune_spec = importlib.util.spec_from_file_location(
+                "workspace_status_prune", prune_path
+            )
+            prune_mod = importlib.util.module_from_spec(prune_spec)  # type: ignore[arg-type]
+            sys.modules.setdefault("workspace_status_prune", prune_mod)
+            registered.append("workspace_status_prune")
+            prune_spec.loader.exec_module(prune_mod)  # type: ignore[union-attr]
     except Exception:
+        # Registration happens before exec_module, so a raising exec leaves a
+        # half-built module behind that a later attempt would reuse. Drop only
+        # what this call registered.
+        for partial in registered:
+            sys.modules.pop(partial, None)
         return False
     globals().update({
         "analyze": engine_mod.analyze,
@@ -129,6 +156,9 @@ def _bind_engine() -> bool:
         "_repair_entry_eligibility": engine_mod._repair_entry_eligibility,
         "_migration_operation_digest": engine_mod._migration_operation_digest,
         "project_closeout_status": engine_mod.project_closeout_status,
+        "selected_membership_status": engine_mod.selected_membership_status,
+        "prune_preview": prune_mod.prune_preview,
+        "prune_execute": prune_mod.prune_execute,
     })
     _ENGINE_BOUND = True
     return True
@@ -138,11 +168,13 @@ def _bind_engine() -> bool:
 
 _SUBCOMMANDS = frozenset({
     "status",
+    "selected-membership",
     "explain",
     "reconcile",
     "repair-plan",
     "repair-apply",
     "repair-rollback",
+    "prune",
 })
 _DEFAULT_PLAN_FILE = ".workspace-repair-plan.json"
 _VALID_OPERATION_TYPES = frozenset({"queue-to-shipped", "queue-remove"})
@@ -195,8 +227,27 @@ def _shaping_entry_dict(e) -> dict:
 
 
 def _repo_backlog_entry_dict(entry) -> dict:
+    """Project one backlog entry to the fields a consumer renders.
+
+    `room`, `slug`-or-`path`, and `summary` are what `SKILL.md` renders;
+    `needs` is load-bearing because `SKILL.md` forbids rereading raw TOML to
+    determine dependencies. `kind`, `entry_type`, and `source` have no reader,
+    so they are deliberately not projected — an emitted field with no consumer
+    is re-sent to the model on every later request in an agent call. Narrowing
+    applies to every mode, keeping `reconcile` and `status` identical here.
+
+    `summary` and `needs` are projected as written, while sibling emitters in
+    this module bound their values through a `_public_*` filter. That is
+    deliberate. `workspace.toml` is working material for developers in the same
+    repository and carries the same trust as the source code beside it, so its
+    display prose needs no redaction on the way out. Reusing `_public_need`
+    here would also be wrong on its own terms: it accepts only strings and
+    returns the sentinel for anything else, so every typed dependency record
+    would collapse to the sentinel and lose exactly the dependency data
+    `SKILL.md` forbids recovering by rereading raw TOML.
+    """
     result = {"room": entry.room, "needs": entry.needs}
-    for key in ("slug", "path", "kind", "entry_type", "source", "summary"):
+    for key in ("slug", "path", "summary"):
         value = getattr(entry, key)
         if value is not None:
             result[key] = value
@@ -898,9 +949,14 @@ def _build_json(root: Path, result, mode: str) -> dict:
         )
         initiatives_out.append({
             "slug": _public_ini_slug(ini.slug),
-            "name": "workspace.toml",
+            # `workspace.toml` is working material for developers in the same
+            # repository, carrying the same trust as the source beside it, so
+            # its display prose projects as authored. `str()` coerces rather
+            # than validates: a non-string here is an authoring error, and
+            # reporting what arrived beats reconstructing TOML syntax.
+            "name": str(ini.name),
             "status": ini.status if ini.status in {"active", "paused", "closed"} else "invalid",
-            "milestone": "workspace.toml",
+            "milestone": str(ini.milestone),
             "brief_queue": _brief_queue_dict(ini.brief_queue),
             "queue_empty": len(surviving_queue) == 0,
         })
@@ -2287,6 +2343,14 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] in _SUBCOMMANDS:
         subcommand = argv.pop(0)
         compat_alias = False
+    elif argv and not argv[0].startswith("-"):
+        print("workspace-status: unknown subcommand", file=sys.stderr)
+        _emit({
+            "schema_version": 1,
+            "mode": "error",
+            "reason": "unknown_subcommand",
+        })
+        return 2
     else:
         subcommand = "reconcile"
         compat_alias = True
@@ -2312,6 +2376,41 @@ def main(argv: list[str] | None = None) -> int:
             "--item",
             required=True,
             help="Selector for the item to explain (slug or spec/ path)",
+        )
+    if subcommand == "status":
+        parser.add_argument(
+            "--include-evaluations",
+            action="store_true",
+            default=False,
+            help="Restore canonical.evaluations, the full per-entry evaluation "
+                 "list. It grows with the size of the workspace and can dominate "
+                 "the payload; the dispatch decisions it carries are already in "
+                 "canonical.ready/active/blocked/findings.",
+        )
+    if subcommand == "selected-membership":
+        parser.add_argument(
+            "--spec-dir",
+            action="append",
+            default=[],
+            help="Repository-relative docs/specs/<slug> directory to inspect",
+        )
+    if subcommand == "prune":
+        parser.add_argument(
+            "--select",
+            action="append",
+            default=[],
+            help="Repository-relative docs/specs/<slug> directory to remove",
+        )
+        parser.add_argument(
+            "--preview",
+            action="store_true",
+            default=False,
+            help="Emit the unsigned operation challenge without mutation",
+        )
+        parser.add_argument(
+            "--confirmation-file",
+            default=None,
+            help="Confined JSON confirmation containing independent authorization",
         )
     migration_subcommand = subcommand in {
         "repair-plan", "repair-apply", "repair-rollback"
@@ -2349,6 +2448,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = Path(args.root)
 
+    if subcommand == "prune" and not args.select:
+        print("workspace-status: prune: empty_selection", file=sys.stderr)
+        _emit({"error": {"code": "empty_selection"}})
+        return 2
+
+    if subcommand == "selected-membership" and not args.spec_dir:
+        print("workspace-status: selected-membership requires --spec-dir", file=sys.stderr)
+        _emit({
+            "schema_version": 1,
+            "mode": "selected-membership",
+            "reason": "empty_selection",
+        })
+        return 2
+
     if not _bind_engine():
         if subcommand in {"status", "reconcile", "explain"}:
             _emit(_canonical_failure_payload(subcommand, "configuration_mismatch"))
@@ -2360,6 +2473,49 @@ def main(argv: list[str] | None = None) -> int:
                 "reason": "engine_load_failed",
             })
         return 2
+
+    if subcommand == "prune":
+        try:
+            if args.preview:
+                prune_result = prune_preview(root, args.select)
+            elif args.confirmation_file is None:
+                prune_result = prune_execute(root, args.select, {})
+            else:
+                prune_result = prune_execute(
+                    root,
+                    args.select,
+                    None,
+                    confirmation_file=args.confirmation_file,
+                )
+
+            prune_error = prune_result.get("error")
+            if isinstance(prune_error, dict):
+                code = prune_error.get("code", "closure_failed")
+                print(f"workspace-status: prune: {code}", file=sys.stderr)
+                _emit(prune_result)
+                return 2
+
+            if args.preview:
+                _emit(prune_result)
+                return 0
+
+            closure = prune_result.get("closure")
+            if not isinstance(closure, dict) or not (
+                closure.get("artifact_absent") is True
+                and closure.get("membership_absent") is True
+            ):
+                print("workspace-status: prune: closure_failed", file=sys.stderr)
+                _emit({"error": {"code": "closure_failed"}})
+                return 2
+            _emit(prune_result)
+            return 0
+        except Exception as exc:
+            print(
+                f"workspace-status: prune: invalid_workspace: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+            _emit({"error": {"code": "invalid_workspace"}})
+            return 2
 
     try:
         # Validate root before checking workspace.toml.
@@ -3009,13 +3165,35 @@ def main(argv: list[str] | None = None) -> int:
                 with contextlib.suppress(OSError):
                     lock_path.unlink()
 
-        if subcommand == "explain":
+        if subcommand == "selected-membership":
+            selection = selected_membership_status(root, args.spec_dir)
+            selection_error = selection.get("error")
+            if isinstance(selection_error, dict):
+                reason = selection_error.get("code", "invalid_workspace")
+                print(f"workspace-status: selected-membership: {reason}", file=sys.stderr)
+                _emit({
+                    "schema_version": 1,
+                    "mode": "selected-membership",
+                    "reason": reason,
+                })
+                return 2
+            data = {
+                "schema_version": 1,
+                "mode": "selected-membership",
+                "results": selection["results"],
+            }
+        elif subcommand == "explain":
             result = analyze_bounded(root)
             public_selector, explain_result = _canonical_explain(root, result, args.item)
             data = _build_explain_json(root, result, public_selector, explain_result)
         elif subcommand == "status":
             result = analyze_bounded(root)
             data = _build_json(root, result, "status")
+            if not args.include_evaluations:
+                # Orientation payload. Dropped here, after _build_json's closeout
+                # projection has consumed canonical["evaluations"] internally, so
+                # narrowing the emitted surface cannot change any decision.
+                data["canonical"].pop("evaluations", None)
         else:
             result = analyze(root)
             data = _build_json(root, result, "reconcile")

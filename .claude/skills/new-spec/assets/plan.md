@@ -12,6 +12,15 @@
 > only lifecycle bookkeeping is permitted, and execution observations belong in
 > `docs/specs/<feature>/notes/verification-ledger.md` (or the adopter's
 > equivalent). A genuine artifact error follows the controlled-amendment path.
+>
+> **Not every field is contract.** `Touches`, `Tests` and `Done when` are what a
+> completion gate reads, and they are pinned. `Design`, `Approach`, `Grounding`
+> and `Risks` are working material: an implementer corrects them in place as the
+> work teaches, without an amendment and without a review round. Treating them as
+> contract is how a review spends a round on prose no gate consumes — the
+> measured share is over half the plan's lines. `Grounding` stays *recorded*,
+> because a per-task resolution that nobody wrote is not grounding; what it stops
+> being is a claim a reviewer holds the plan to.
 
 <!-- Existing plans without this field remain valid. Treat its absence as a
 named assurance gap during structural review, not a universal lint failure. -->
@@ -194,7 +203,9 @@ ignored, so `T11 (lands after the shim)` is fine. Cross-spec deps are
 *spec-sequencing*, not intra-plan waves, and are excluded from this plan's
 DAG. The scheduler **fails on a dependency cycle** and **warns on a
 forward-reference** (a dep authored later — it still schedules correctly by
-running the dep first).
+running the dep first). A `Depends on:` entry that
+names no task in the plan is refused: the run exits non-zero, every offending
+task→dep pair is named, and nothing is persisted.
 
 **Optional `Touches:` grammar** (read by `loop-cohort schedule`).
 A task *may* add a `**Touches:**` line listing the file globs it expects to
@@ -214,7 +225,7 @@ could pick it up and complete it without follow-up questions:
 
 ### T1: <task name>
 
-**Depends on:** <none | T0, ...>
+**Depends on:** <none | comma-separated prior task IDs>
 
 **Tests:**
 - <test 1 — behaviour, edge case, or property; reference the Acceptance
@@ -274,6 +285,16 @@ isn't bureaucracy — it's how a reviewer (or a returning agent) understands why
 the current plan looks different from yesterday's plan. After approval this
 section is pinned like the rest of the plan: an execution observation goes to
 the verification ledger, not to a new changelog entry.
+
+**Each approval is an entry.** Write
+`- YYYY-MM-DD: spec approved by <handle>` and
+`- YYYY-MM-DD: plan approved by <handle>` — one per gate, real date, the
+approver's own handle. Both live here because the plan carries the only dated
+history in the spec directory. Without them nothing in the artifacts says when
+the contract froze or on whose authority, so a later reader cannot tell which
+claims were in it at approval and which arrived afterwards. `work-loop`'s
+G-plan sequence owns *when* each is written and why the order matters; this
+template owns only the form.
 
 - YYYY-MM-DD: initial plan
 - YYYY-MM-DD: switched from approach A to B because <reason>

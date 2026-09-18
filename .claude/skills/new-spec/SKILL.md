@@ -69,12 +69,33 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    `assets/` folder lives next to this `SKILL.md` wherever your
    installer placed the skill.)
 
-3. **Surface assumptions before writing any spec body — and run one
-   targeted verification check per candidate first.** With the
-   directory scaffolded, stop. The load-bearing rule: **one targeted
-   check per candidate assumption — a repo read, a web lookup, or a
-   read-only probe script — not a sweep.** Then split the result into
-   what you confirmed and what still needs the user.
+3. **Surface assumptions before writing any spec body — and verify each
+   candidate first.** With the directory scaffolded, stop. The
+   load-bearing rule: **verify a candidate assumption before you file it
+   — a repo read, a web lookup, or a read-only probe script — not a
+   sweep.** Then split the result into what you confirmed and what still
+   needs the user.
+
+   <a id="load-bearing-claim-routing"></a>
+   **Route a claim you cannot settle by what its falsehood would cost.**
+   This applies across all three categories below; it adds none. It fires
+   only on a **load-bearing claim**, which is one whose falsehood could
+   change any of exactly six things: an acceptance criterion, a boundary,
+   the task graph, the verification strategy, the consequential failure
+   direction, or the chosen mechanism. A candidate that moves none of
+   those six is an ordinary fact — verify it as above and file it; this
+   rule does not reach it, and nothing here asks you to probe it.
+
+   For a load-bearing claim you cannot settle now, the routing input is
+   the largest thing its falsehood could move. Exactly one row applies: the
+   two exceptions are mutually exclusive on whether a test can decide the
+   claim, and the first row takes everything else.
+
+   | Routing input | Destination |
+   | --- | --- |
+   | `reaches-the-contract` — any of the six above, unless a row below applies. This is the residual route, so no load-bearing claim is unrouted | Settle it **before approval**, by a bounded spike under the side-effect-free probe constraint above. After approval the contract is pinned, and a correction the work discovers may not be applicable to it at all. |
+   | `unstarted-task-method` — it could change only the local method of a task that has not started, **and no test can decide it directly** | Put it in that task as a discovery predicate, a constraint, a required outcome, a verification mode, and a **kill condition**. Do not guess a helper, fixture, module, path, or symbol. |
+   | `cheap-with-an-oracle` — it is a cheap, reversible detail and a test can decide it directly. Reversible means undoing it needs no migration, no external side effect, and no change to a user-visible contract | Settle it in code. It does not belong in design prose, and a spike for it is wasted work. |
 
    **Resolve repository anchors before generating candidates.** Read the
    effective root and scoped `AGENTS.md` for the affected area and follow any
@@ -198,7 +219,16 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
      discovery loop's G3 hand-off). Set it to that artifact's stable id;
      leave it blank or `none` otherwise. It is the discovery-side sibling
      of `Brief:` — the spec→discovery up-edge a traceability check walks
-     — additive, and a spec without it stays valid. This is format-only
+     — additive, and a spec without it stays valid.
+
+     **Whatever those headers point at is frozen once shaping closes, and this
+     spec cites it rather than restating it.** The upstream artifact carries the
+     outcome the work is for; the spec carries the obligations that deliver it.
+     Restating the intent gives it two homes that drift, and the upstream
+     outcome is the layer that holds still while criteria churn, so the stable
+     layer is already upstream and only needs to be left alone. If shaping has not closed, the
+     spec is not ready to author: an intent still moving is the one input no
+     amount of criterion work compensates for. This is format-only
      metadata; follow the repository's mapped workflow guidance when it
      defines a stricter rule.
 
@@ -273,7 +303,18 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
      six failure classes in order first: they precede shape, and class 1 —
      an obligation authored where an owner already exists — outranks every
      criterion-craft question below it.
-     See step 9 for citation discipline and step 5 for the corpus obligation.
+     See step 8 for citation discipline and step 5 for the corpus obligation.
+   - **An obligation whose only check is that a sentence exists is not a
+     criterion.** Ask what would red if the obligation were violated. If the
+     answer is a machine — a test, a lint, a parse, a scored run over a frozen
+     case — the obligation is a criterion. If the answer is "a reader would
+     object", it is design material: it belongs in the plan's living design,
+     where an implementer corrects it without an amendment, and its protection
+     is a content pin in the suite rather than a checkbox in the contract. A
+     contract made mostly of the second kind does not converge, because each
+     review round produces fresh plausible objections at about the rate the last
+     round's are resolved and nothing external decides between them. Prefer a
+     smaller set that can red over a larger one that can only be argued.
    - **Body narrates history or the future.** Write the spec in the
      present tense, as if the feature already exists and always worked
      this way — the *retcon* discipline. No "will be implemented", no
@@ -307,7 +348,7 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
      (`graphql`), a standalone schema (`jsonschema`), … The type drives
      everything below. Confirm with the user — it's a judgment, not a flag.
    - **Locate or create** the contract at its type's conventional path
-     `contracts/<type>/<domain>.<ext>` (CONVENTIONS § 4 *Contracts*;
+     `contracts/<type>/<domain>.<ext>` (`references/spec-and-plan-contract.md` § Contracts;
      [`references/contract-types.md`](references/contract-types.md) maps every
      type to its location) — a new file for a new interface, the existing file
      when this spec modifies a known one. The **location convention is the
@@ -327,7 +368,7 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    - **Link it (both ways).** Fill the spec's `- **Contract:**` header with the
      contract file(s) this spec defines or touches, and add the backward pointer
      in the contract (an `x-spec` extension, or a `contracts/REGISTRY.md` row for
-     extensionless formats) — CONVENTIONS § 4 *Contracts*.
+     extensionless formats) — `references/spec-and-plan-contract.md` § Contracts.
    - **Point the plan at it.** The plan's construction tests reference the
      contract as the artifact the implementation is verified against.
 
@@ -460,6 +501,25 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
      and assertion wording are expected to be incomplete at approval when code
      does not yet exist. Name paths and symbols where known; do not ask the
      approval gate to bless detail it cannot yet decide.
+   - **A fact belongs in `## Design (LLD)` unless a task must implement or
+     verify it.** Tasks are jobs to be done, not fact containers: a task says
+     what to do and what to observe, and cites the design for why it takes that
+     shape. Re-cut the task list to check — a fact still true afterwards was
+     never task information.
+   - **`Done when` points at the task's own `Tests` and never restates them.** A
+     copy is narrower than its target the moment either one moves.
+   - **An obligation a completion gate must read belongs in `Tests`.** Approach
+     is instruction, and no gate observes it.
+   - **A claim about what a check proves names the comparison its oracle
+     performs.** Where the oracle cannot perform it, name the proxy instead of
+     claiming the stronger property.
+   - **When `Tests:` outruns `Approach:`, read the excess before cutting it.**
+     Prose explaining why an assertion takes its shape is design: relocate it.
+     Reduce only genuine surplus. One ratio, two causes, opposite remedies.
+   - **Walk the whole plan once before review.** Every criterion has
+     construction evidence and every `Tests` bullet traces to a criterion; every
+     `Done when` observes what its own `Tests` require; no condition has two
+     homes; every shared bound is defined once.
    - **Restating an acceptance criterion.** The criteria are the checklist. A
      `Tests:` bullet names a mechanism the implementer cannot infer: the suite
      and its location, the fixture carrying a join key, or a shipped assertion
@@ -497,7 +557,7 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    unavailable`; leave the spec at `Draft`. `BLOCKED` is a lifecycle receipt,
    not a shaping-reviewer result. Resolve findings until it returns `Clean`. A
    missing reviewer, consequential grounding gap, or unresolved finding is
-   `BLOCKED`: do not index or seek approval. A material edit to Objective, Boundaries, Acceptance
+   `BLOCKED`: do not seek approval. A material edit to Objective, Boundaries, Acceptance
    Criteria, Testing Strategy, governing constraints, or the
    contract/construction separation invalidates the result and requires a fresh
    shaping review; the lifecycle owner may record a pre-seal, nonmaterial
@@ -512,7 +572,7 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    the pinned build artifact. Do not edit a pinned artifact directly; this
    skill defines no run-record field, closure rule, or recovery transition.
 
-7. Spec-mode adversarial review. Before announcing the spec in the README,
+7. Spec-mode adversarial review. Before the spec is approved,
    select a subagent matching `adversarial-reviewer` and ask it to review
    the freshly drafted `spec.md` + `plan.md` in spec mode — the role supports
    this explicitly.
@@ -531,6 +591,19 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    paths. Its finding-adjudication gateway owns the shared adjudication
    semantics. Classify and act only on the paired adjudication artifact; never
    use raw report prose as verdict-bearing input.
+   **A later round reviews what changed, not the whole diff.** The first round
+   is dispatched over the artifacts entire; each round after it is bounded to the
+   delta since the previous persisted report, whose revision the report records.
+   A prior round's result stays valid for text that has not changed since it
+   ran, so re-presenting that text only re-finds a different slice of it — which
+   is how a review loop runs at a flat finding rate instead of converging. The
+   bound is sound exactly while the claim "the unchanged text was reviewed" is
+   true, so the reviewed revision is recorded rather than assumed, and the delta
+   includes the repair commits: a repair is the highest-yield part of the range,
+   never an exempt part. Where a delta cannot be computed — no revision control,
+   or a first round — reduce the surface instead by naming the artifacts under
+   review rather than handing over everything the change touched.
+
    Revise the spec or plan only from sustained findings; keep refuted findings
    in the audit, and stop on an indeterminate result. `finding-adjudicator`
    already tests authority, reachability, existing handling, consequence, and
@@ -558,11 +631,12 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    reachability.
 
    Iterate on sustained findings until the direct or adjudicated result is
-   `Clean — ready to commit.` Spec-mode reviews should converge in 1-2 passes;
-   if you can't reach clean in 3, the spec has a structural problem — surface
-   to a human rather than grinding. If the reviewer keeps finding
-   under-specification in the plan rather than defects in the spec, the plan is
-   over-specified: reduce it; do not extend it. Absence of any subagent matching
+   `Clean — ready to commit.` Spec-mode reviews should converge in 1-2 passes.
+   When a reviewer keeps finding under-specification in the
+   plan rather than defects in the spec, the plan is over-specified: reduce it
+   rather than extending it before the existing three-pass escalation. If you
+   can't reach clean in 3, the spec has a structural problem — surface to a
+   human rather than grinding. Absence of any subagent matching
    the adversarial-reviewer role is a note in the final summary
    (`adversarial-reviewer: no matching subagent installed; review skipped`),
    not a blocker.
@@ -572,14 +646,16 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    ask whether the accepted contract requires it or a reviewer's remedy invented
    it, whether it contradicts a stated non-goal, and whether it traces to a
    criterion at all. Take the cuts to the human with conformance fixes separated
-   from scope calls. When a reviewer keeps finding under-specification in the
-   plan rather than defects in the spec, the plan is over-specified: reduce it
-   rather than extending it before the existing three-pass escalation.
+   from scope calls.
 
-8. Update `docs/specs/README.md` to add the feature to the active list. Do not
-   index before both review gates are clean.
+   Then give the owner the facts the decision needs rather than a verdict:
+   the finding trend by round, every residual concern that remains with its
+   consequence, and what that residue implies for the work. A round count is not
+   a fact anyone can act on; a named residue with a named consequence is. Where
+   a residue falls in a protected risk class, say so and do not seek acceptance
+   for it.
 
-9. **Keep the spec the single source of truth — drift is a bug.** When
+8. **Keep the spec the single source of truth — drift is a bug.** When
    implementation diverges from the spec, the spec is wrong: update it in
    the same PR. The failure mode this discipline prevents has a name —
    **context poisoning**: an agent loads a stale, duplicated, or
@@ -596,6 +672,27 @@ opaque: do not fetch, search, probe, read, execute, or derive a path from it.
    places, record which statement is the owner and reduce the other to a
    cross-reference.
 
+   **The checks this skill ships, and where each is run.** Every check in this
+   skill's own `scripts/` is invoked by a named step, because a control nobody
+   calls reports nothing and is indistinguishable from one that found nothing.
+   Run them from the repository root as
+   `python '<skill-dir>/scripts/<name>.py'`, and read each one's `--help` for
+   its flags and exit codes.
+
+   - `lint-contract-item-alignment.py` — run here, at step 8, over the spec
+     directory. It decides that every criterion and verification item carries
+     an identifier, that identifiers are unique, that none is reused against the
+     artifact's retired list, that every item reference resolves, and that a
+     criterion is named by a task entry. It reports rather than blocks on a
+     reworded criterion whose assertion did not follow.
+   - `explore-grounding.py` — run at step 3, when resolving what already governs
+     the surfaces the work touches. It answers from a seed set of paths and
+     reports; it decides nothing and never fails a run.
+   - `lint-finding-coverage.py` — run at step 4, over a check whose findings a
+     criterion is about to rest on. It reports a rule whose message no test
+     observes, which is the shape that makes a criterion look verified by a
+     control that cannot fail.
+
 ## Project-knowledge non-gate
 
 Creating or reviewing a spec at `Status: Draft` and a plan at `Status: Drafting`
@@ -605,6 +702,21 @@ enquiry or distillation merely because the files exist or the spec-mode review
 is clean. Abandoned or rejected authoring is also a no-op. `work-loop` owns
 `spec-approved` and `plan-locked` after their separate human and state-machine
 gates succeed.
+
+## Answering a shaping-review finding
+
+The answers available to a sustained finding are stated once, in the `work-loop`
+skill's DECIDE step. They are not restated here, and the shaping review in step 6
+is unchanged by them: it reads what it already read.
+
+Which parts of a spec are contract and which are working material is stated by
+the bundled `assets/spec.md`, their single owner. `demote-the-claim` moves an
+obligation from the first into the second. The template owns that split and
+nothing else about the move; what the move costs is stated in the DECIDE step,
+as it is for every other surface.
+
+Record the answer and the reason for it beside the finding. That record is
+advisory: it informs the next round, and nothing else reads it.
 
 ## Anti-patterns to refuse
 
@@ -623,9 +735,9 @@ gates succeed.
   revised the Unverified entries, even if the original prompt sounded
   definitive.
 - Classifying a Technical or Process assumption as Unverified
-  without recording the one check you attempted (path read, URL
+  without recording the check you attempted (path read, URL
   fetched, or read-only probe command + output) → attempt and cite
-  the check. An attempted check that came back ambiguous is fine; a
+  it. An attempted check that came back ambiguous is fine; a
   skipped check is not. The user's time is the scarce resource;
   burning a round-trip on a fact a single command would have answered
   is a tax on every spec.

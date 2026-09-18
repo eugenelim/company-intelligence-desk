@@ -72,7 +72,15 @@ implementation review for a reversible, time-bounded trial with exit criteria.
    Every return above has no RFC effect. Do not resolve an ordinal, create a directory
    or index, choose a target, or draft body text.
 
-1. Find the next ordinal with `python3 scripts/next-ordinal.py docs/rfc`. Resolve the
+1. Find the next ordinal with `python3 scripts/next-ordinal.py docs/rfc`, and check the
+   directory for an ordinal already held by two records with
+   `python3 scripts/next-ordinal.py --check docs/rfc`. The number is free across the
+   working tree and the remote default branch it can see — a snapshot, not a
+   reservation — so **re-derive it immediately before opening the pull request, not
+   when the branch starts**; a branch that sits in review finds its number taken by
+   whoever merged first, and that collision is invisible inside the branch. A
+   `NNNN-notes/` folder or a `NNNN-<slug>-research.md` sibling is a companion and
+   shares its RFC's ordinal by design. Resolve the
    repository root, the RFC location and its sibling index from project instructions.
    Then, before creating anything, resolve the RFC owner root and prove the RFC
    target, index, and companion-note paths stay inside it. Refuse an unsafe,
@@ -186,8 +194,14 @@ implementation review for a reversible, time-bounded trial with exit criteria.
 
 7. Set status to `Draft` until the user is ready to circulate, then `Open`.
 
-8. Update the RFC index table (`docs/rfc/README.md` by default, or the resolved sibling
-   index; create the standard header if absent).
+8. Regenerate the RFC index from the records, so the new file appears in it:
+
+   ```bash
+   python3 scripts/index-records.py <resolved-rfc-directory>
+   ```
+
+   The index is derived from the records, so no row is written by hand. Use
+   `--check` to report whether it would change without writing.
 
    ### Project-knowledge gate: `rfc-handoff-ready`
 

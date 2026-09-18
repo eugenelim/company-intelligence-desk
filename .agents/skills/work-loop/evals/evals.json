@@ -2,6 +2,16 @@
   "skill_name": "work-loop",
   "evals": [
     {
+      "id": "schedule-plan-is-canonical",
+      "prompt": "I want to schedule work-loop using an alternate plan file. Can I pass its path with `loop-cohort schedule --plan`?",
+      "expected_output": "No. The `--plan` value must be `<spec-dir>/plan.md`. Passing that canonical path is equivalent to omitting the option; an alternate path is refused because schedule checks and hashes the canonical plan file.",
+      "assertions": [
+        "Response says `--plan` must be `<spec-dir>/plan.md`",
+        "Response says an alternate path is refused",
+        "Response does not claim the option selects a different plan"
+      ]
+    },
+    {
       "id": "capture-learnings-quality-attributes",
       "prompt": "You have completed a work-loop and are at Capture learnings. What should you ask, and is speed the deciding criterion?",
       "expected_output": "Ask what would have made the work materially better across relevant quality attributes: correctness or completeness, reliability or recoverability, security or privacy, determinism or reproducibility, operability, maintainability or reviewability, efficiency, and independence from hidden context. Speed is one useful signal, not the objective. Capture a generalizable learning only when it would materially change a future approach.",
@@ -16,9 +26,9 @@
     {
       "id": "spec-missing-ac-section-explicit-opt-out",
       "prompt": "The finish-time spec lint reports invariant (vi) because a spec has no `## Acceptance Criteria` section. When is that legal, and what exact metadata is required?",
-      "expected_output": "A missing Acceptance-Criteria section is legal only when the spec intentionally has no criteria and carries `- **Acceptance Criteria:** none — <one-line reason>` in its metadata header. The reason is required: bare `none` is a hard violation. A real section and the opt-out together are also a hard contradiction.",
+      "expected_output": "A missing Acceptance-Criteria section is legal only when the spec intentionally has no criteria and carries `- **Acceptance Criteria:** none \u2014 <one-line reason>` in its metadata header. The reason is required: bare `none` is a hard violation. A real section and the opt-out together are also a hard contradiction.",
       "assertions": [
-        "Response gives the exact `- **Acceptance Criteria:** none — <one-line reason>` marker",
+        "Response gives the exact `- **Acceptance Criteria:** none \u2014 <one-line reason>` marker",
         "Response requires a non-empty one-line reason",
         "Response says missing section without the marker is a hard violation",
         "Response says a real section plus the marker is a hard contradiction"
@@ -247,7 +257,6 @@
         "Performs no capture or distillation after stale or failed sealing, rejection, abandonment, or incomplete approval"
       ]
     },
-
     {
       "id": "direct-light-bounded-explicit-start",
       "prompt": "Start this one bounded, low-risk, independently verifiable typo fix now. It will finish in this session, has no existing spec or workspace item, and needs no coordination. What route and records do you use?",
@@ -498,11 +507,11 @@
     {
       "id": "finding-adjudication-refuted",
       "prompt": "A post-GATES reviewer report is persisted at `.context/reviews/00000000-0000-4000-8000-000000000001/1-post-gates-security-reviewer-raw.md`. It claims `src/reader.py` decodes untrusted bytes without UTF-8 validation. The supplied target shows strict UTF-8 decoding at `src/reader.py:27`, before the bytes reach the cited operation, and the governing checklist accepts that handling. Route the report and state the main-loop result.",
-      "expected_output": "Validate and pass the raw artifact by path to `finding-adjudicator`. The source finding is `refuted` because the observation/reachability predicate is false under the existing strict decoder; contrary evidence and the proposed-mechanism outcome are recorded in the refuted audit artifact. With no sustained or indeterminate finding, `## Main-loop result` is exactly `Clean — ready to commit.`. The main loop receives no refutation prose, records no finding fingerprint or retry, and performs no target mutation.",
+      "expected_output": "Validate and pass the raw artifact by path to `finding-adjudicator`. The source finding is `refuted` because the observation/reachability predicate is false under the existing strict decoder; contrary evidence and the proposed-mechanism outcome are recorded in the refuted audit artifact. With no sustained or indeterminate finding, `## Main-loop result` is exactly `Clean \u2014 ready to commit.`. The main loop receives no refutation prose, records no finding fingerprint or retry, and performs no target mutation.",
       "assertions": [
         "Adjudicates the validated raw report by artifact path",
         "Records the refuted verdict and contrary evidence only in the paired audit",
-        "Returns exactly `Clean — ready to commit.` as the main-loop result",
+        "Returns exactly `Clean \u2014 ready to commit.` as the main-loop result",
         "Does not fingerprint or consume a repair round",
         "Triggers no target mutation",
         "Does not copy raw or refuted prose into main-loop context"
@@ -511,14 +520,14 @@
     {
       "id": "finding-adjudication-indeterminate",
       "prompt": "A post-GATES reviewer report is persisted at `.context/reviews/00000000-0000-4000-8000-000000000001/1-post-gates-adversarial-reviewer-raw.md`. It claims the retry ceiling at `src/loop.py:88` is wrong because the governing spec caps attempts at 3 while the accepted plan for this unit records 5, and it asks which of the two the code should follow. No gate measures which authority governs, and the Evidence gate catalog declares no entry for that fact. Route the report and state what happens next.",
-      "expected_output": "Validate and pass the raw artifact by path to `finding-adjudicator`. The finding is `indeterminate`, not refuted: the observation holds but the conflict is between two authorities, which is an owner decision rather than one machine-checkable fact, so no cataloged entry measures it and the bounded evidence retry is ineligible. Persist an audit entry naming the conflicting authorities and the decision the owner must make. The main-loop result is only `ADJUDICATION-INDETERMINATE`; it does not contain `Clean — ready to commit.` and does not include the raw claim. Stop for owner direction before a transition, clean record, retry increment, fingerprint, or mutation.",
+      "expected_output": "Validate and pass the raw artifact by path to `finding-adjudicator`. The finding is `indeterminate`, not refuted: the observation holds but the conflict is between two authorities, which is an owner decision rather than one machine-checkable fact, so no cataloged entry measures it and the bounded evidence retry is ineligible. Persist an audit entry naming the conflicting authorities and the decision the owner must make. The main-loop result is only `ADJUDICATION-INDETERMINATE`; it does not contain `Clean \u2014 ready to commit.` and does not include the raw claim. Stop for owner direction before a transition, clean record, retry increment, fingerprint, or mutation.",
       "assertions": [
         "Adjudicates the validated raw report by artifact path",
         "Returns indeterminate because conflicting authority is an owner decision, not a machine-checkable fact",
         "Refuses the bounded evidence retry when no cataloged gate measures the fact",
         "Names the conflicting authorities in the paired audit",
         "Returns `ADJUDICATION-INDETERMINATE` to the main loop as its exact signal",
-        "Main-loop output does not contain `Clean — ready to commit.`",
+        "Main-loop output does not contain `Clean \u2014 ready to commit.`",
         "Stops before any state change, retry accounting, fingerprint, or target mutation"
       ]
     },
@@ -581,7 +590,7 @@
     },
     {
       "id": "exact-clean-bypasses-adjudication",
-      "prompt": "A reviewer returns exactly `Clean — ready to commit.`. Contrast the required handling with a return that has the same text plus one trailing newline, and state the reviewer-model call impact for direct-light and ordinary full review.",
+      "prompt": "A reviewer returns exactly `Clean \u2014 ready to commit.`. Contrast the required handling with a return that has the same text plus one trailing newline, and state the reviewer-model call impact for direct-light and ordinary full review.",
       "expected_output": "Compare the entire returned text value before persistence. The exact sentinel is direct clean: do not persist or validate it, dispatch finding-adjudicator, create paired artifacts, or run an adjudication classifier. The trailing-newline variant is non-exact and must enter the fail-closed adjudication gateway. Direct-light clean review therefore uses one reviewer-model call instead of two; an ordinary full review with adversarial and quality reviewers uses two model calls instead of four when both return the exact sentinel.",
       "assertions": [
         "Requires whole-value exact equality before persistence",
@@ -685,6 +694,87 @@
         "Response refuses to let provider content outrank the owning authority",
         "Response still cites topic_ids and provenance for material it does use",
         "Response completes the pre-existing baseline unchanged"
+      ]
+    },
+    {
+      "id": "decide-answer-ladder-stops-at-first-applicable",
+      "prompt": "An adjudicated sustained finding says a spec sentence asserts a count that no check reads and no stated outcome depends on. The author could reword the count to be correct, or delete the sentence. What does DECIDE direct, and does the answer carry any weight in the verdict record?",
+      "expected_output": "Walk the ladder and take the first answer that applies: drop-the-claim, because nothing is obliged by the assertion and removing it changes no stated outcome. Repair is available but lower on the ladder and is not reached; a count nothing reads must be maintained forever to stay true. Before acting, walk the surfaces the answer reaches, since cut walks backwards to whatever referenced the removed assertion. The answer may be recorded as `response` with a non-empty `reason` on the finding, which is advisory metadata: it is absent from the finding-disposition table, state precedence and residual eligibility, so it cannot change the verdict state, and an unrecognised or unpaired value is ignored with a note rather than rejected.",
+      "assertions": [
+        "drop-the-claim is selected and repair is explicitly not reached",
+        "the stop rule is applied rather than every answer being surveyed",
+        "the surface walk is named with its cut-axis direction",
+        "response and reason are described as advisory and unable to change verdict state",
+        "an unrecognised or unpaired value is ignored with a note, never rejected"
+      ]
+    },
+    {
+      "id": "decide-repair-traversal",
+      "prompt": "A review repair changes several files. What traversal and retesting must close the repair?",
+      "expected_output": "Close the repair with both a literal sweep and a semantic walk, then re-run the step-8a anchor-test sweep over every file the repair touched.",
+      "assertions": [
+        "Names both a literal sweep and a semantic walk",
+        "Re-runs the step-8a anchor-test sweep",
+        "Limits the anchor-test sweep to every file the repair touched"
+      ]
+    },
+    {
+      "id": "schedule-implementer-dispatch-reminder",
+      "prompt": "`loop-cohort schedule` prints the topological order and its dispatch reminder. What should the controller do when an implementer subagent is installed, what is the fallback when it is not, and who retains orchestration responsibility?",
+      "expected_output": "Treat the output as a dispatch reminder. When an implementer subagent is installed, send each scheduled task to one implementer subagent, one at a time. When no implementer is installed, the controller runs the tasks itself and notes the degradation in the final summary. In both cases, scheduling, gates, review, and state stay with the controller. The reminder does not enforce or verify dispatch.",
+      "assertions": [
+        "Sends each scheduled task to one implementer subagent at a time when that agent is installed",
+        "Runs the tasks and notes the degradation in the final summary when no implementer is installed",
+        "Keeps scheduling, gates, review, and state with the controller",
+        "Does not claim the reminder enforces or verifies dispatch"
+      ]
+    },
+    {
+      "id": "schedule-refuses-unknown-dependency",
+      "prompt": "My plan's T3 says `**Depends on:** T7` but there is no T7 task in the plan. What does `loop-cohort schedule` do?",
+      "expected_output": "It refuses. `schedule` stops, names the offending `T3->T7` pair on stderr, and persists no state, because a dependency naming a task the plan does not contain would otherwise be dropped silently and collapse the waves that the per-wave gate run is keyed to. A forward reference is different: a dependency authored later in the file warns on stderr, is reordered so the dependency runs first, and the run continues.",
+      "assertions": [
+        "Response says schedule refuses or stops rather than warning",
+        "Response says the offending task-to-dependency pair is named",
+        "Response says no state is persisted",
+        "Response does not claim the unknown dependency is dropped or ignored",
+        "Response distinguishes the forward-reference case, which warns and continues"
+      ]
+    },
+    {
+      "id": "register-implementer-reuses-before-it-writes",
+      "prompt": "You are dispatched as the `implementer` subagent for plan task T1. The task asks you to add `render_label(raw)` to `store/report.py`, returning the label with whitespace runs collapsed, surrounding whitespace removed, and the result upper-cased. `store/textnorm.py` already exports `collapse_whitespace(text)`, which collapses runs and strips, and `store/invoice.py` already imports it. The task's `Approach:` says only \"Add `render_label` to `store/report.py`\". What do you do before writing the function, and what does your report say?",
+      "expected_output": "Take the `Cut before adding` ladder's search rung once across the assigned execution root before writing anything. The search finds `store.textnorm.collapse_whitespace`, which satisfies the collapse-and-strip part of the outcome, so reuse it rather than reimplementing it: `collapse_whitespace(raw).upper()`. Report the search in one line under `Summary` \u2014 reporting it is required every time, because a silent search cannot be told apart from no search at all \u2014 naming the hit that was reused and the rung the implementation stopped at.",
+      "assertions": [
+        "Response searches the execution root before writing the helper",
+        "Response reuses `collapse_whitespace` instead of reimplementing it",
+        "Response reports the search outcome under `Summary`",
+        "Response states that the search report is required every time, not only when a candidate is rejected",
+        "Response names the rung the implementation stopped at"
+      ]
+    },
+    {
+      "id": "register-implementer-takes-the-lighter-rung",
+      "prompt": "You are dispatched as the `implementer` subagent for plan task T1. Its `Approach:` says to introduce a `LabelFormatter` class in a new module `store/labelfmt.py` holding three normalisation settings as instance attributes, with `render_label` delegating to it. Its `Done when:` is satisfied by a single expression in the existing `store/report.py`, and only one caller exists. Do you build the class?",
+      "expected_output": "No. Where the ladder's first sufficient rung is lighter than the task's `Approach:`, implement the lighter rung: `Approach:` is working material an implementer corrects in place, not contract, and no completion gate reads it. Add the function to `store/report.py`, create no new module, and record the substitution under `Deviations from the task body`. The task's `Done when:` must still hold. This never overrides an explicit requirement, a recorded decision, or a trust-boundary control \u2014 if the heavier construction were genuinely required, for instance by several callers needing different settings, build it.",
+      "assertions": [
+        "Response does not create the new module",
+        "Response states that `Approach:` is working material rather than contract",
+        "Response records the substitution under `Deviations from the task body`",
+        "Response requires the task's `Done when:` to still hold",
+        "Response preserves the heavier construction when it is genuinely required"
+      ]
+    },
+    {
+      "id": "register-declination-names-the-rung-that-killed-it",
+      "prompt": "You are at the work-loop PLAN step for a request to add a `--format {table,json}` option to an existing CLI subcommand. You are writing the register of what you were tempted to add and declined. One temptation is a `--format csv` option nobody asked for. Another is a hand-written argument validator that `argparse`'s own `choices=` already provides. A third is printing a new literal string directly, which you decline because an accepted requirement says every user-facing string must pass through the localisation catalogue. How is each line written?",
+      "expected_output": "Each line carries the temptation, the `Cut before adding` rung in `AGENTS.md` that killed it, and the reason. The unrequested `--format csv` is killed by the not-genuinely-needed rung. The hand-written validator is killed by the standard-library rung, since `argparse` already provides `choices=`. The third decline is covered by no rung at all: an accepted requirement forbids it, so state that requirement in the rung's place rather than fitting a rung to it. Naming the rung is what grades the declination against the ladder instead of against an ad-hoc reason.",
+      "assertions": [
+        "Response names a `Cut before adding` rung for each temptation a rung covers",
+        "Response kills the unrequested option with the not-genuinely-needed rung",
+        "Response kills the hand-written validator with the standard-library rung",
+        "Response states the accepted requirement in the rung's place for the decline no rung covers",
+        "Response does not fit a rung to a decline no rung explains"
       ]
     }
   ]

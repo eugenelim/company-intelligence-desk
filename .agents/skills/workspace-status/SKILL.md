@@ -1,6 +1,6 @@
 ---
 name: workspace-status
-description: Use this skill to orient at session start, check initiative queue state, or see what's ready to work on next. Reads workspace.toml and surfaces ready-to-start items, blocked items with reason, parallel candidates, and active signals. Triggers on "workspace status", "where am I", "orient me", "session start", "what's ready", "show the queue", "what's next", "what should I work on", "check workspace", or any cold-start orientation request. Offers to initialise workspace.toml if absent. Also reconciles and repairs workspace.toml drift — generates and applies repair plans for stale queue entries. Triggers on "clean up stale specs", "run repair-plan", "apply the workspace repair plan", "fix queue drift", "reconcile workspace", or any workspace repair or cleanup request.
+description: Use this skill to orient at session start, check initiative queue state, or see what's ready to work on next. Reads workspace.toml and surfaces ready-to-start items, blocked items with reason, parallel candidates, and active signals. Triggers on "workspace status", "where am I", "orient me", "session start", "what's ready", "show the queue", "what's next", "what should I work on", "check workspace", or any cold-start orientation request. Offers to initialise workspace.toml if absent. Also reconciles and repairs workspace.toml drift, and executes an independently authorized prune of explicitly selected delivery artifacts and their memberships. Triggers on "clean up stale specs", "run repair-plan", "apply the workspace repair plan", "fix queue drift", "reconcile workspace", "preview a workspace prune", "prune selected specs", or any workspace repair or cleanup request.
 allowed-tools: Read Write Edit Bash
 metadata:
   type: skill
@@ -63,6 +63,16 @@ Run the production backend via **argument vector** (the canonical and only safe 
 
 The `status` subcommand runs a bounded scan (Type 2 + Type 3 only — no global spec walk). Use `reconcile` for a full audit that also finds untracked live specs (Type 1). Use `explain` to investigate a specific item. See **§1a. Subcommand guidance** below.
 
+To inspect workspace membership for an explicit selection of spec directories,
+repeat `--spec-dir` once per directory:
+
+```
+["<python>", "<skill-dir>/scripts/workspace_status.py", "selected-membership", "--root", "<repo-root>", "--spec-dir", "docs/specs/<slug>"]
+```
+
+To preview or execute an explicitly selected prune, use the `prune` subcommand.
+The full authority flow is documented in **§1d. Prune workflow**.
+
 `<python>` is the Python 3.11+ interpreter available in your environment: `python3` on macOS/Linux; `python` on Windows. `<skill-dir>` is the directory where your installer placed this skill's files (i.e., the directory containing this SKILL.md). Passing the paths as **discrete arguments** prevents shell expansion of `$()`, backticks, `$VAR`, and other metacharacters — the values are never interpreted by a shell.
 
 **Shell-string-only tools:** If your adapter cannot be configured to pass a discrete argument vector, use the shell-specific form below — or, for maximum portability, set the working directory to the repository root and pass `--root .`:
@@ -119,7 +129,9 @@ selector                         — normalized selector string (explain mode on
 selector_status                  — "matched" | "not_found" | "ambiguous" (explain mode only)
 explained_item                   — item details when selector_status is "matched" (explain only)
 matches                          — initiative slugs with colliding entries when "ambiguous" (explain only)
-initiatives              — list of active initiatives (slug, name, status, milestone, brief_queue)
+initiatives              — list of active initiatives (slug, name, status, milestone, brief_queue, queue_empty)
+initiatives[].name        — the initiative's `name` from `workspace.toml`, as authored
+initiatives[].milestone   — the initiative's `milestone` from `workspace.toml`, as authored
 initiatives[].brief_queue — `{executing, ready, draft, shipped, withdrawn, cancelled}` or null;
                             `executing` remains a scalar path for compatibility and
                             every other field is a list
@@ -140,6 +152,12 @@ canonical.active                 — canonical valid work.active specs; resumabl
 canonical.blocked                — canonical non-dispatchable entries and retained legacy memberships
 canonical.findings               — stable finding code/path/dispatchable/next_action records (no raw artifact text)
 canonical.legacy_memberships     — retained legacy context; always non-dispatchable
+canonical.evaluations            — full per-entry evaluation list. Omitted by `status`,
+                                   which is the orientation mode: every dispatch decision
+                                   it carries is already in ready/active/blocked/findings,
+                                   and it grows with the workspace. Pass
+                                   `--include-evaluations` to restore it; `reconcile` and
+                                   `explain` always carry it.
 canonical.*[].origin_mode        — repository or tracker origin from structured provenance
 canonical.*[].profile            — active tracker profile id/version when declared
 canonical.*[].refresh            — compared/accepted revisions, unresolved-conflict flag,
@@ -242,6 +260,7 @@ pinned dependency.
 | Subcommand | When to use | Type 1 walk | Writes |
 |------------|-------------|-------------|--------|
 | `status` (default) | Session start, queue check — fast bounded scan | No | — |
+| `selected-membership --spec-dir docs/specs/<slug>` | Report membership for each explicitly selected spec directory; repeat the flag to preserve selection order | No | — |
 | `reconcile` | Full audit: find untracked live specs in addition to stale/premature entries | Yes | — |
 | `explain --item <selector>` | Investigate a specific item (slug or `spec/` path) | No | — |
 | `repair-plan` | Build a deterministic repair plan for Type 2 queue findings | Yes | `.workspace-repair-plan.json` |
@@ -249,8 +268,21 @@ pinned dependency.
 | `repair-plan --migration-selection <path>` | Validate one human-selected legacy route and emit a deterministic migration proposal | No | — |
 | `repair-apply --migration-selection <path> --operation-id <id> --confirmation-file <path>` | Apply one authorized ledger-first legacy migration | No | `.workspace-migrations.json`, `workspace.toml` |
 | `repair-rollback --operation-id <id> --confirmation-file <path>` | Restore one exact legacy representation without deleting its artifact | No | `.workspace-migrations.json`, `workspace.toml` |
+| `prune --select docs/specs/<slug> [--select ...] --preview` | Emit an unsigned challenge for an explicit selection | No | — |
+| `prune --select docs/specs/<slug> [--select ...] --confirmation-file <path>` | Remove the confirmed artifact directories and all memberships resolving to them | No | Selected directories, `workspace.toml` |
 
 **`reconcile`** — use when you suspect specs have been approved or put in-progress without being added to `workspace.toml`. The Type 1 walk reads every `spec.md` in `docs/specs/` and reports any Approved/Implementing spec not listed in any initiative.
+
+**`selected-membership`** — requires at least one repository-relative
+`docs/specs/<slug>` directory and evaluates only the supplied selection. Each
+ordered result contains `selected_directory`, `canonical_artifact_path`,
+`membership_present`, and `occurrences`. An occurrence identifies its
+initiative when present, lifecycle collection, zero-based entry position, and
+canonical, legacy, or parse-blocked form. The selected artifact need not exist.
+The command reads `workspace.toml` and reports facts only: it never changes a
+file, chooses an artifact for deletion, or turns presence or absence into an
+operation exit gate. Invalid selectors and invalid workspace data return a
+structured reason with a concise diagnostic.
 
 **`explain`** — pass a slug or `spec/` path to get the item's current classification, dependencies, blocking needs, and which downstream items would become unblocked if this item shipped. Lookup is restricted to **active initiatives' work queues** (queue/active/shipped); shaping items and items in paused or closed initiatives return `selector_status: "not_found"`.
 
@@ -306,7 +338,100 @@ ledger operation is recoverable only with another fresh confirmation. Surface
 the closed migration result code and `next_action`; never echo source content on
 credential, unsafe-context, authorization, or write refusals.
 
-### 1d. Repair workflow
+### 1d. Prune workflow
+
+The prune executes a selection supplied by an authorized caller. It does not
+choose, rank, or discover deletion candidates. Supply each repository-relative
+directory as a separate `--select docs/specs/<slug>` argument. The selection
+must be non-empty; selectors must use that exact one-directory shape and must
+not contain absolute paths, drive prefixes, backslashes, dot segments, nested
+paths, file paths, duplicates, or links that escape the repository.
+
+First obtain the unsigned challenge. Preview takes the shared writer lock while
+it reads repository state, but it does not change any file:
+
+```
+["<python>", "<skill-dir>/scripts/workspace_status.py", "prune", "--root", "<repo-root>", "--select", "docs/specs/<slug>", "--preview"]
+```
+
+The binding fields in the output are `operation_id` and `operation_digest`.
+The output also reports the canonical `selection` and target facts for review.
+It never supplies `subject`, `role`, or `confirming_identity`; those three
+authorization fields must come from an independent human-authority source.
+A confirmation copied from preview output alone is invalid.
+
+Pause while the authorized person creates a confined JSON file out of band.
+Do not create, edit, or prefill it. It must contain exactly the two binding
+fields from the preview plus the three independently supplied authorization
+fields:
+
+```json
+{
+  "operation_id": "<operation identity from preview>",
+  "operation_digest": "<operation digest from preview>",
+  "subject": "<independently supplied subject>",
+  "role": "<independently supplied role>",
+  "confirming_identity": "<independently supplied identity>"
+}
+```
+
+Then execute the same selection with that file:
+
+```
+["<python>", "<skill-dir>/scripts/workspace_status.py", "prune", "--root", "<repo-root>", "--select", "docs/specs/<slug>", "--confirmation-file", "<repository-relative-confirmation.json>"]
+```
+
+The command uses the same confined confirmation-file reader as
+`repair-apply`. A missing confirmation, malformed confirmation, stale
+challenge, mismatched binding, or changed baseline refuses without mutation.
+The repository-root `.workspace-prune-protected.toml` file may name selectors
+that must never be pruned; an absent file means no selectors are protected, and
+a malformed file fails closed.
+
+Exit 0 means one observation under the held shared lock proved that every
+selected artifact directory was absent and that no canonical, supported
+legacy, or parse-blocked membership resolving to it survived. The two writes
+are sequential, not atomic. A non-zero result names a stable refusal code:
+
+- Selection and routing: `empty_selection`, `invalid_selector`, `unknown_subcommand`.
+- Coordination and protection: `lock_busy`, `protected_target`, `nothing_to_remove`.
+- Confirmation: `confirmation_missing`, `confirmation_invalid`, `confirmation_stale`, `confirmation_binding_mismatch`.
+- Baseline and closure: `baseline_stale`, `closure_failed`.
+- Repository input: `invalid_workspace`, `malformed_toml`.
+- Platform capability: `unsupported_platform`, when the host offers no no-follow
+  directory primitive. Confined removal depends on it, so the command declines
+  rather than deleting with weaker protection. Nothing was attempted and nothing
+  about the repository is wrong.
+
+### Recovering an interrupted prune
+
+The two writes are sequential, so an interrupted run can leave the artifact
+removed and its memberships present, and the shared lock file behind. Recover in
+this order, and read rather than guess at each step.
+
+1. `lock_busy` reports the lock file name and the process id recorded in it.
+   Check whether that process is still running. If it is, wait — another writer
+   holds the lock legitimately. Only if it is gone is the lock stale.
+2. Remove a stale lock file by hand. Nothing removes it for you, because a tool
+   cannot distinguish a crashed holder from a slow one.
+3. `closure_failed` reports the selection and the last phase that completed.
+   `artifacts_removed` means the directories are gone and their memberships are
+   not; `memberships_removed` means both writes landed but the closure
+   observation could not be established.
+4. Re-run the prune for the same selection. It refuses `nothing_to_remove` when
+   the artifact is already gone, because it will not report success for a run
+   that removed nothing. Finish that case by removing the surviving memberships
+   through the repair route, which reports them, rather than by editing the
+   register by hand.
+
+A re-run is safe: it re-derives its own baseline and confirmation, and refuses
+rather than acting on a stale one.
+
+Two residual limits remain. The shared lock excludes only writers that also
+take it. A valid confirmation can be replayed if the exact same repository
+state is reconstructed; no durable replay receipt is written.
+
+### 1e. Repair workflow
 
 Use `repair-plan` + `repair-apply` to deterministically clean up stale queue entries without manual `workspace.toml` editing:
 
@@ -417,7 +542,11 @@ Format output in four sections (omit sections with no entries):
 ---
 
 **Active initiatives:** (for each entry in `initiatives[]`)
-`<ini-slug>` — `<name>` (milestone: `<milestone>`)
+`<ini-slug>` — `<name>` (milestone: `<milestone>`) — omit the `— <name>`
+segment when `name` is empty, and the `(milestone: …)` segment when `milestone`
+is empty. Both are empty when the initiative's `workspace.toml` section omits
+the key, which is an authoring gap rather than a value; rendering the segment
+anyway shows the reader a blank where a name should be.
 - **Brief queue** (from `initiatives[].brief_queue`; omit when `null`): Executing: `<executing>` (or "none") · Ready: N · Draft: N · Shipped: N · Withdrawn: N · Cancelled: N
 
 **Active context — signals** _(ongoing; do not need action):_
@@ -478,7 +607,9 @@ render:
   ...
 ```
 
-Prefix each entry with its declared `room` (`[shape]` or `[build]`). Display
+Each entry carries exactly `room`, `slug`-or-`path`, `summary`, and `needs` —
+the fields rendered here plus the dependency list. Prefix each entry with its
+declared `room` (`[shape]` or `[build]`). Display
 `slug` when present, otherwise display `path` (target five-field entries use
 `path`). Iterate in array order. Use `summary` from the JSON when present. Only
 when a legacy `slug`

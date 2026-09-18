@@ -129,18 +129,68 @@ caller-owned receipt `BLOCKED: intent shaping review — independent route
 unavailable`; leave the intent at `Draft`. `BLOCKED` is a lifecycle receipt,
 not a shaping-reviewer result.
 
-Bind `Clean` or `Findings` to the reviewed revision. Return every `Findings`
-result to this skill for revision; every unresolved finding keeps the intent at
-`Draft` and blocks `Accepted`. A material edit invalidates prior review evidence
-and returns an `Accepted` intent to `Draft` before a fresh review. For an
-intent, material means a change to outcome, boundary, owner, assumptions or
-altitude, unresolved questions, source authority, or projection. Before
-sealing, this lifecycle owner may record a wording, format, or evidence-link
-correction as nonmaterial and retain the bound result; otherwise redispatch.
+Intent mode returns one `MALFORMED(<field>)` token per failed condition, or
+nothing at all. Record the intent revision you dispatched: you own that binding,
+because the pass state carries no bytes to carry it. Read completion from your
+own host rather than from the output — an empty return and a dispatch that
+stopped early are the same zero bytes. A dispatch that did not complete emits
+the caller-owned receipt `BLOCKED: intent shaping review — dispatch did not
+complete`, which is a different cause from an unavailable route and must not
+borrow its receipt.
 
-Only after a revision-bound `Clean`, ask for explicit human confirmation of the
-`Accepted` transition. Set `Status: Accepted` only after that confirmation.
-`Clean` alone never changes lifecycle status.
+Return every `MALFORMED` token to this skill for revision; every unresolved
+token keeps the intent at `Draft` and blocks `Accepted`. A material edit
+invalidates prior review evidence and returns an `Accepted` intent to `Draft`
+before a fresh review. For an intent, material means a change to opportunity,
+outcome, boundary, owner, assumptions or altitude, unresolved questions, source
+authority, or projection. Before sealing, this lifecycle owner may record a
+wording, format, or evidence-link correction as nonmaterial and retain the bound
+result; otherwise redispatch.
+
+Only after a completed, revision-bound dispatch that returned no `MALFORMED`
+token, ask for explicit human confirmation of the `Accepted` transition. Set
+`Status: Accepted` only after that confirmation. A review result alone never
+changes lifecycle status.
+
+## What a finding against an intent can move
+
+An intent's parts are not equal, and where a finding lands decides what may be
+done about it.
+
+**Deciding sections** — `Outcome`, `Boundary`, `Owner`, `Projection`, and
+`Source`. Each decides something: what the intent is for, what it admits, who
+answers for it, where it goes next, and what authorises it.
+
+**Recording sections** — `Opportunity`, `Unresolved questions`, and
+`Assumptions`. These carry the ground, the open matters, and what is being taken
+on trust.
+
+Both labels are local to choosing a demotion destination. They are not the
+contract and working-material tiers a spec carries, and nothing reads them to
+grade a finding: every condition this skill's shaping review checks blocks
+exactly as it did.
+
+The answers available to a sustained finding are stated once, in the `work-loop`
+skill's DECIDE step. They are not restated here. Some of them land differently on
+an intent, because an intent carries no criterion set and almost nothing in it
+has a check beyond the sentence existing.
+
+`demote-the-claim` moves an assertion out of a deciding section and into a
+recording one, and the destination follows what the assertion was doing. A
+settled ground for the outcome or the boundary goes to `Opportunity`. A matter
+the assertion decided without the authority to decide it goes to `Unresolved
+questions`. What demotion costs — the pin it carries and the authority it needs —
+is stated in the DECIDE step and holds here unchanged.
+
+`drop-the-claim` comes before rewording. Where nearly every finding is a finding
+against prose, answering each one with more careful prose is what makes rounds
+run long without converging: an assertion no stated outcome depends on is
+decoration whether or not it is true.
+
+Record the answer and the reason for it beside the finding. That record is
+advisory: it informs the next round, and nothing else reads it. The
+shaping-review gate above is unchanged, and neither the answer nor its reason may
+relax, satisfy, or shortcut it.
 
 ## Boundaries
 

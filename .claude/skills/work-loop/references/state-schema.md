@@ -67,7 +67,7 @@ write-second ordering.
 | `last_review_record_operation_id` | `<run_id>:<transition_sequence>` of the round most recently recorded under an operation id, or `null`. Supplied by the caller — this writer never reads `engine-state.json` — and read back to tell a completed write from one that never landed. |
 | `last_review_record_payload_digest` | `sha256("<form>\n<payload>")` of the payload recorded under that id: the sorted deduplicated fingerprint list, the artifact digest for either clean form, or the empty string for `--all-skipped`. Stored, never derived on read — a recording round overwrites `finding_fingerprints` and leaves `last_review_clean_source` untouched, so `state.json` stops describing an earlier round's payload as soon as the next round lands. A repeat under the same id with a matching digest is a completed write and changes nothing; a differing digest is refused. A round whose digest cannot be computed is refused rather than recorded, so no recorded id is ever undecidable. |
 | `max_review_retries` | Cap. Default: `5`. See `review_retry_count` for the two verbs that enforce it, and *Changing a cap* below for the two ways past it. |
-| `finding_fingerprints` | `sha256("<file>\|<line>\|<title>")` per finding in the last findings round. Written by `review record --fingerprint`; used for stasis detection via `review inspect`. |
+| `finding_fingerprints` | `sha256("<file>\|<line>\|<title>")` per finding in the last findings round. Written by `review record --fingerprint`; compared across rounds by `review inspect`. Two parts of that preimage move while the finding does not: `<line>` shifts when a repair edits above it, and `<title>` carries the finding's ordinal from the reviewer's numbered list, so retiring an earlier finding renumbers the survivors. Equality across rounds is therefore rare even when the findings recur. |
 | `previous_finding_fingerprints` | `finding_fingerprints` from the round before last. Rotated atomically with `finding_fingerprints` by `review record`. |
 | `auto_parallel` | Always `false` in Phase 1; `dispatch-decision` and `auto-parallel` verbs are disabled. |
 | `last_commit_sha` | Latest commit SHA (informational; set externally). |
@@ -109,6 +109,50 @@ to proceed to cohort operations without another human signal.
 - `plan-rejected` — build strategy rejected; fires from `PLAN-HUMAN-GATE`; no guard; target: `SPEC-PLAN-DRAFTING`.
 - `contract-amendment` — code-mode-only return from `CODE-IMPLEMENTATION` to `SPEC-PLAN-DRAFTING`; requires explicit owner-authority, stable follow-on reason, and at least one stable evidence reference for every completed task. Each repeated CLI reference uses `Tn=<stable-ref>`. It snapshots and pins completed work, clears only remaining approval/schedule state, and reuses the ordinary review, human-gate, approval, scheduling, and `plan-locked` path. Exact replay completes either cross-file crash window without a second history entry.
 
+**Fields on each `.loop-run/events.jsonl` line.** `loop-engine transition`
+appends one line per transition. The first seven fields identify the
+transition; the rest let a consumer answer questions the transition alone
+cannot.
+
+| Field | Meaning |
+| --- | --- |
+| `seq` | Transition sequence number, starting at 1. |
+| `run_id` | The run's UUID; matches both state files. |
+| `spec` | Spec directory, repository-relative where resolvable. |
+| `from` | State being left. |
+| `event` | FSM event fired. |
+| `to` | State entered. |
+| `at` | When the transition happened, `%Y-%m-%dT%H:%M:%SZ`. |
+| `phase_started_at` | When the `from` state was entered, so consecutive phases abut. On the first line this is what `init` wrote, which is the run's start. |
+| `phase_s` | Whole seconds spent in `from`. Never negative. `null` when either timestamp is unusable. |
+| `result` | What the gate decided: `success` or `failure`. `null` when the transition is a handoff or wave boundary rather than a decision. |
+| `awaiting_input` | `true` when `to` is a state that waits on a human decision. |
+| `waived` | `true` when this transition carried `--allow-retry-cap-override`. |
+| `budgets` | The cohort retry counters and their caps at transition time: `implementation_retry_count`, `max_implementation_retries`, `review_retry_count`, `max_review_retries`. |
+
+`result` records a decision and nothing about attempt counts. How many
+attempts a run has taken comes from counting the events themselves — a
+per-line count would be a second home for a fact this log already answers.
+
+**A cap reached without an override writes no line.** A run that exhausts its
+budget therefore goes quiet rather than saying why it stopped, so to a reader
+of this log alone that case is indistinguishable from a stall. Check the cohort
+state when a run ends without a terminal transition.
+
+**`budgets` and the guard can disagree.** The guard resolves an absent or
+non-integer cap to its own default and enforces that; this snapshot reports
+only what `state.json` actually holds, using `null` for anything it cannot
+read. A line may therefore show no cap for a run the guard is about to refuse.
+
+Two properties consumers depend on. A field that cannot be determined is
+`null` and is still present, because a key that disappears reads as zero to
+anything summing durations or comparing a counter against its cap. And the
+counters are *copied* here, not owned here — `loop-engine transition` moves
+none of them, so a line records the values as they stood when it was written.
+
+Timestamps are whole seconds, so `phase_s` is a whole-second figure. That is
+adequate for agent-paced phases and not for anything shorter.
+
 **Exit contract — `check`.** `loop-cohort check --phase <phase>` exits 0 when
 the phase is satisfied and non-zero when it isn't, with a one-line reason on
 stderr. Treat non-zero as "stop and surface."
@@ -141,8 +185,11 @@ acceptance-criterion text, task text, `Depends on:` edges, a `(deferred:
 <slug>)` annotation, a re-indented criterion, and any free text appended
 after the status token on the status line.
 
-**Stasis.** Detected via `review inspect --json` returning
-`matches_previous_round: true`. Surface immediately; do not run `check`.
+**Repeated findings.** `review inspect --json` returns
+`matches_previous_round: true` when a round's fingerprint set equals the
+previous round's exactly. Surface it; it starts no transition and stops no
+loop. It is not a stasis detector and bounds nothing — `max_review_retries`
+is what bounds a review loop.
 
 **Atomic writes.** Both tools update their JSON files through
 `tempfile.mkstemp` + `os.replace`. A partial-write cannot present as malformed
