@@ -20,7 +20,13 @@ from uuid import UUID
 import psycopg
 import pytest
 
-from ced.worker.pool import CRITERION_REACQUISITION_BOUND_SECONDS, POLL_SECONDS
+from ced.worker.pool import (
+    CRITERION_REACQUISITION_BOUND_SECONDS,
+    POLL_SECONDS,
+)
+from ced.worker.pool import (
+    HEARTBEAT_SECONDS as POOL_HEARTBEAT_SECONDS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "deploy" / "compose.yaml"
@@ -139,7 +145,46 @@ def wait_for_reacquisition(
 
 
 @pytest.fixture
-def pending_step(owner_conn: psycopg.Connection) -> Iterator[tuple[UUID, UUID]]:
+def quiet_substrate(owner_conn: psycopg.Connection) -> None:
+    """Clear every run, and wait only if that orphaned a worker.
+
+    These tests measure wall clock to reacquisition, and a worker occupied by a
+    leftover step cannot reacquire — so the measurement would be of the wrong
+    thing. A previous run left steps behind whose rows a fixture had deleted,
+    and the workers churned through them on a fence-loss cycle.
+
+    **Clearing the table is not enough, and two earlier versions of this
+    fixture got it wrong in different ways.** The first waited for
+    `count(*) FROM steps == 0` immediately after deleting every row, which is
+    true by construction — a check that cannot fail. The second inserted a
+    canary and waited for a worker to claim it, which proved capacity and then
+    consumed the very worker it had just proved free.
+
+    What is actually true: a worker already inside `_execute` for a row that no
+    longer exists discovers the fence at its next heartbeat and not before. So
+    if this fixture deleted a *claimed* step, it waits one heartbeat plus a
+    margin for that discovery; if it deleted nothing claimed, no worker can be
+    mid-step and it returns at once. The wait is therefore conditional on
+    having caused the problem, which keeps the common case fast without
+    pretending the dirty case is free.
+    """
+    with owner_conn.transaction():
+        owner_conn.execute("DELETE FROM events")
+        claimed = owner_conn.execute(
+            "SELECT count(*) FROM steps WHERE owner IS NOT NULL"
+        ).fetchone()
+        owner_conn.execute("DELETE FROM steps")
+        owner_conn.execute("DELETE FROM runs")
+
+    if claimed is not None and claimed[0]:
+        # One heartbeat for the holder to discover the fence, plus margin.
+        time.sleep(POOL_HEARTBEAT_SECONDS + 5)
+
+
+@pytest.fixture
+def pending_step(
+    owner_conn: psycopg.Connection, quiet_substrate: None
+) -> Iterator[tuple[UUID, UUID]]:
     """A run with one runnable step, cleaned up whichever way the test ends."""
     run_id, step_id = uuid.uuid4(), uuid.uuid4()
     with owner_conn.transaction():
@@ -156,3 +201,45 @@ def pending_step(owner_conn: psycopg.Connection) -> Iterator[tuple[UUID, UUID]]:
             owner_conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
             owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
             owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+
+def wait_for_lease_surrender(
+    conn: psycopg.Connection,
+    step_id: UUID,
+    previous_owner: str,
+    timeout: float,
+    started: float,
+) -> tuple[float, str]:
+    """Return `(seconds from started, which transition was seen)`.
+
+    AC-0011's first clause: a drained worker sets `lease_expires_at = now()`
+    rather than waiting out its lease.
+
+    **It returns on whichever comes first — the expiry, or a new owner.** The
+    surrender is observable only until the surviving worker reclaims, and that
+    window can be shorter than any poll granularity: an earlier version watched
+    for `lease_expires_at <= now()` alone and timed out while the step had in
+    fact already been reacquired. Reacquisition implies the surrender happened
+    at or before it, so the value returned is an upper bound on the true
+    surrender either way — which is the direction that keeps the assertion
+    honest rather than generous.
+    """
+    deadline = started + timeout
+    while time.monotonic() < deadline:
+        row = conn.execute(
+            "SELECT lease_expires_at <= now(), owner FROM steps WHERE step_id = %s",
+            (step_id,),
+        ).fetchone()
+        if row is not None:
+            expired, owner = row
+            if owner is not None and owner != previous_owner:
+                # The survivor got there first, so the surrender is bounded
+                # above by this instant and its true value is unobserved.
+                return time.monotonic() - started, "reacquired"
+            if expired:
+                return time.monotonic() - started, "surrendered"
+        time.sleep(0.1)
+    pytest.fail(
+        f"step {step_id} was neither surrendered nor reacquired within "
+        f"{timeout} s of SIGTERM; the drain did not act on the signal"
+    )

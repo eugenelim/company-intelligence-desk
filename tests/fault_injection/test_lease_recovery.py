@@ -29,26 +29,27 @@ import pytest
 from ced.worker.pool import (
     DERIVED_REACQUISITION_BOUND_SECONDS,
 )
-from ced.worker.pool import (
-    HEARTBEAT_SECONDS as POOL_HEARTBEAT_SECONDS,
-)
 
 from .conftest import (
     DRAIN_BOUND_SECONDS,
     OBSERVATION_MARGIN_SECONDS,
+    POLL_SECONDS,
+    POOL_HEARTBEAT_SECONDS,
     WORST_CASE_SECONDS,
     container_is_running,
     docker,
     observe,
+    wait_for_lease_surrender,
     wait_for_reacquisition,
     wait_until_claimed,
 )
 
 pytestmark = pytest.mark.substrate
 
-#: The claim has to happen before anything can be killed. One poll interval
-#: plus margin; a longer wait here would hide a worker that never polls.
-CLAIM_TIMEOUT_SECONDS = 45
+#: The claim has to happen before anything can be killed. `quiet_substrate`
+#: has already proved a worker has capacity, so this only has to cover one poll
+#: interval plus scheduling margin.
+CLAIM_TIMEOUT_SECONDS = POLL_SECONDS + OBSERVATION_MARGIN_SECONDS
 
 
 def _container_for(owner: str) -> str:
@@ -142,28 +143,53 @@ def test_a_drained_worker_returns_its_step_within_one_poll_interval(
     assert signalled.returncode == 0, signalled.stderr
 
     try:
+        # Clause 1 — the lease is surrendered without waiting out a heartbeat.
+        surrender, seen = wait_for_lease_surrender(
+            owner_conn,
+            step_id,
+            first_owner,
+            POOL_HEARTBEAT_SECONDS + OBSERVATION_MARGIN_SECONDS,
+            signalled_at,
+        )
+        surrendered_at = signalled_at + surrender
+        # Clause 2 — reacquisition within one poll interval *of that surrender*.
         reacquired, elapsed = wait_for_reacquisition(
             owner_conn,
             step_id,
             first_owner,
             DRAIN_BOUND_SECONDS + OBSERVATION_MARGIN_SECONDS,
-            started=signalled_at,
+            started=surrendered_at,
         )
     finally:
         _restart(victim)
 
     assert reacquired.owner != first_owner
-    # The criterion's own bound, and the helper's timeout is strictly larger,
-    # so this assertion is what reds rather than the helper timing out.
+    # Each clause against its own bound, and each helper's timeout is strictly
+    # larger than the bound it precedes — so the assertions are what red.
+    assert surrender < POOL_HEARTBEAT_SECONDS, (
+        f"the lease stopped being held {surrender:.1f} s after SIGTERM "
+        f"(observed as {seen!r}), which is a whole heartbeat "
+        f"({POOL_HEARTBEAT_SECONDS} s) or more — the drain waited rather than "
+        "acting on the signal"
+    )
     assert elapsed <= DRAIN_BOUND_SECONDS, (
-        f"drain took {elapsed:.1f} s, outside AC-0011's one poll interval "
-        f"({DRAIN_BOUND_SECONDS} s)"
+        f"reacquisition took {elapsed:.1f} s after the surrender, outside "
+        f"AC-0011's one poll interval ({DRAIN_BOUND_SECONDS} s)"
+    )
+    qualifier = (
+        "the surrender itself"
+        if seen == "surrendered"
+        else "reacquisition, so this bounds the drain AND the survivor's poll "
+        "together and the drain's own tight bound is the in-process check"
     )
     print(
-        f"\nAC-0011: {first_owner} drained; {reacquired.owner} reacquired step "
-        f"{step_id} {elapsed:.1f} s after SIGTERM delivery (bound is one poll "
-        f"interval, {DRAIN_BOUND_SECONDS} s; the interval spans the drain and "
-        f"the survivor's poll)"
+        f"\nAC-0011 clause 1: {first_owner}'s lease stopped being held "
+        f"{surrender:.2f} s after SIGTERM — observed as {qualifier} "
+        f"(bound: under one heartbeat, {POOL_HEARTBEAT_SECONDS} s)."
+        f"\nAC-0011 clause 2: {reacquired.owner} reacquired step {step_id} "
+        f"{elapsed:.1f} s later (bound: one poll interval, "
+        f"{DRAIN_BOUND_SECONDS} s)."
+        f"\nEnd-to-end {surrender + elapsed:.1f} s, reported not asserted."
     )
 
 

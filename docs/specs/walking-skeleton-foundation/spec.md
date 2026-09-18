@@ -77,7 +77,7 @@ Every criterion sits in exactly one group.
 
 - **TDD (AC-0002, AC-0003, AC-0004, AC-0005, AC-0006)** — the compressible invariants of the event log and its privilege split. Each has a statable property and a cheap oracle, so the test is written before the code. AC-0003 and AC-0004 carry a *property test* rather than examples, because density under concurrency is a property of interleavings no fixed case covers.
 - **Goal-based check (AC-0001, AC-0007, AC-0008, AC-0009)** — the wiring and the gates. A one-liner is the verdict: served routes against the committed contract, and each import or identifier rule against a deliberately introduced violation.
-- **End-to-end, including fault injection (AC-0010, AC-0011)** — lease recovery is only observable with real containers and a worker actually killed. Neither can be written before the pool it exercises.
+- **End-to-end, including fault injection (AC-0010, AC-0011)** — lease recovery is only observable with real containers and a worker actually killed. Neither can be written before the pool it exercises. AC-0011's two clauses are verified at different levels and both belong to this group: the drain bound in process against the injected step body, where a signal's effect is observable without a container boundary in the way, and the poll bound against a real container, measured from the lease surrender.
 
 No criterion in this spec calls a model provider. That is deliberate: the
 sibling `walking-skeleton-agent-runtime` owns every provider-touching claim, so
@@ -93,6 +93,19 @@ obligations go beyond those sources, and the approval gate rules on each:
 | --- | --- | --- | --- |
 | Assert the privilege split on the shipped schema | AC-0005 | Spike P1 proved the split against the spike's own schema, not the one this delivery runs | The split is proven for a schema that is not the one running |
 | Assert graceful drain distinctly from host loss | AC-0011 | `runtime-architecture.md` § Step execution specifies `SIGTERM` setting the lease expiry | A rolling deploy silently costs as much as an unplanned host loss |
+
+**AC-0011 was amended on 2026-09-18** after implementation showed the original
+wording named no origin for its interval. Measured from signal delivery — the
+stricter reading — the mechanism's worst case is the drain plus the poll, just
+above one poll interval, so the criterion as written was not one the mechanism
+could guarantee. The amendment names the origin, matching r7 § Step execution's
+own wording, and splits the obligation in two: the drain is bounded at under one
+heartbeat, and the poll at one interval from the surrender. It is a narrowing of
+one clause and a strengthening of the other, not a relaxation; the end-to-end
+total is reported rather than asserted, because asserting a sum hides which term
+moved. Grounds and the rejected alternatives are in
+[`notes/verification-ledger.md`](notes/verification-ledger.md) § Contract
+amendment.
 
 **Starting a run**
 
@@ -115,7 +128,7 @@ obligations go beyond those sources, and the approval gate rules on each:
 **Surviving host loss**
 
 - [x] **AC-0010.** A worker killed mid-step has its step reacquired by another worker within 150 seconds, with no operator action.
-- [x] **AC-0011.** A worker sent `SIGTERM` has its step reacquired within one poll interval, which is what distinguishes graceful drain from waiting out the lease TTL.
+- [x] **AC-0011.** A worker sent `SIGTERM` surrenders its lease without waiting out a heartbeat interval, and its step is reacquired within one poll interval **of that surrender** — which is what distinguishes graceful drain from waiting out the lease TTL.
 
 ## Follow-ons
 

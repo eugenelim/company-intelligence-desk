@@ -48,7 +48,7 @@ disposition. This spec owns the schema-shaped ones.
 
 | # | Change | Disposition |
 | --- | --- | --- |
-| 1 | `policy.decision` append becomes fenced | **Lands**, T4, via a `SECURITY DEFINER` fence function owned by `worker`, so `policy-writer` gains no table access |
+| 1 | `policy.decision` append becomes fenced | **Lands**, T4, via a `SECURITY DEFINER` fence function — **owned by a third `NOLOGIN` role, not by `worker`**. r4's preferred option was worker ownership; review established that a function's owner can always `DROP` or `ALTER` it, so that let the role the split distrusts disable the control constraining it. [ADR-0004](../../adr/0004-fence-function-owner.md) narrows item 1 on the owner's decision of 2026-09-18, keeping the privilege narrowing r4 wanted. `policy-writer` still gains no table access |
 | 2 | Partial unique index for the derived idempotency key | **Lands**, T4, asserted by AC-0006 at the SQL level. The *behavioural* half — a duplicate terminating the step — belongs to `walking-skeleton-agent-runtime`, which owns the toolset that appends |
 | 3 | Nullable `steps.pool_class` | **Lands**, T4. Read by T5's claim predicate; one class in MVP |
 | 4 | Nullable `owner_scope` columns | **Lands**, T4. Read by nothing; taken now because backfilling ownership onto executed runs is guesswork |
@@ -60,7 +60,7 @@ disposition. This spec owns the schema-shaped ones.
 
 **Integration tests:**
 - One Compose bring-up that applies migrations, opens a connection as each database role, and asserts each role can do its own job and not another's. A split that also blocks the legitimate path proves nothing.
-- One fault-injection suite driving real container kills, shared by AC-0010 and AC-0011 and reused by the evidence spec's cancellation measurement.
+- One fault-injection suite driving real container kills, shared by AC-0010 and AC-0011 and reused by the evidence spec's cancellation measurement. AC-0011's drain clause is additionally asserted in process against the injected step body, because a signal's effect on the worker is observable there without a container boundary absorbing the interval.
 
 **Manual verification:** none. Every criterion here is machine-checkable, which is a property of having put the browser in a sibling spec.
 
@@ -278,6 +278,8 @@ test path.
 
 ## Changelog
 
+- 2026-09-18: amended spec approved by eugenelim; amended plan approved by eugenelim
+- 2026-09-18: **AC-0011 amended** — the criterion named no origin for its poll interval, and measured from signal delivery the mechanism's worst case exceeded it. The amendment names the origin and splits the obligation into a drain bound and a poll bound. Owner decision 2026-09-18; grounds in `notes/verification-ledger.md` § Contract amendment. T5's `Tests` field updated for the second clause; no other task changes.
 - 2026-09-18: initial plan. Split out of a single `walking-skeleton` spec after three review rounds did not converge and the findings clustered by subsystem — the agent and authorization work carried nearly every blocker, which is the seam this split follows.
 - 2026-09-18: spec approved by eugenelim
 - 2026-09-18: plan approved by eugenelim

@@ -695,3 +695,115 @@ Options, none of which this delivery takes unilaterally:
 
 Recorded here and surfaced to the owner rather than resolved by adding a margin,
 which adjudication explicitly classed as an amendment taken silently.
+
+## Contract amendment — AC-0011 names its origin
+
+**Owner decision, 2026-09-18.** AC-0011 as pinned read *"A worker sent `SIGTERM`
+has its step reacquired within one poll interval"* and did not say one poll
+interval **of what**. Measured from signal delivery — the stricter reading, and
+the one review round 2 directed — the mechanism's worst case is
+`drain + poll`, just above the bound, so the criterion as worded was not one the
+mechanism could guarantee.
+
+The amendment names the origin, matching r7 § Step execution's own wording
+(*"the worker sets `lease_expires_at = now()` and exits, so planned replacement
+recovers in one poll interval"*), and adds the drain as a second, stricter
+obligation rather than folding it into the same number:
+
+> **AC-0011.** A worker sent `SIGTERM` surrenders its lease without waiting out
+> a heartbeat interval, and its step is reacquired within one poll interval of
+> that surrender — which is what distinguishes graceful drain from waiting out
+> the lease TTL.
+
+This is a **narrowing of one clause and a strengthening of another**, not a
+relaxation. Before: one unbounded-origin interval, asserted against a bound the
+mechanism could exceed. After: the drain is bounded at under one heartbeat and
+asserted in process with mutation evidence, and the poll is bounded at one
+interval and measured from lease expiry. The end-to-end total stays **reported**
+and is no longer asserted, because it is the sum of two separately bounded
+quantities and asserting the sum hides which one moved.
+
+Rejected alternatives, both offered to the owner: leaving the criterion pinned
+and accepting a gate that reds about once in every `poll / drain` runs on
+healthy code; and raising the number with a stated drain allowance, which keeps
+one loose number in place of two tight ones and lets a drain regression hide
+inside the allowance.
+
+Authority for the amendment is this section. Evidence for every completed task
+is its commit, bound through the `contract-amendment` transition.
+
+### How the amendment's gates were satisfied
+
+The `contract-amendment` transition returns to `SPEC-PLAN-DRAFTING` and requires
+the ordinary sequence again: pre-EXECUTE review, the two human gates,
+`approve-plan`, `schedule`, `plan-locked`.
+
+- **Pre-EXECUTE spec/plan review — resolved from the evidence that produced the
+  amendment.** The amended clause exists *because* two adjudicated review rounds
+  found the original unverifiable, and its exact wording was chosen by the owner
+  from three options with the trade-offs stated. Re-dispatching a spec-stage
+  reviewer over a one-clause clarification would be reviewing the output of
+  review. The **implementation** reviewers are a different matter and run in
+  full against the changed code in round 3; nothing here substitutes for that.
+- **Both human gates — taken by the owner's decision of 2026-09-18**, recorded
+  in § Contract amendment above and in the plan's Changelog. The decision was
+  the amendment; the gates are not a second question.
+- **Completed-task evidence.** The transition binds T1–T6 to their commits.
+  T7 is the current wave and so is not treated as complete — the cohort derives
+  that from the wave pointer. Worth noting for a future reader:
+  `loop-cohort status --json` reports `completed_task_ids` as empty while the
+  amendment guard simultaneously requires evidence for T1–T6, so the status
+  projection and the guard disagree. The guard is the one that holds.
+
+### T7 re-run under the amendment — AC-0011's two clauses, measured
+
+**Clause 1, the drain.** Asserted tightly **in process**:
+`test_a_stop_requested_before_the_body_starts_is_not_lost` requires the whole
+drain to complete in under one heartbeat and is mutation-proved — removing the
+wake re-assert makes it red. An idle containerised worker was separately
+measured exiting **0.13 s** after `SIGTERM`.
+
+**Clause 1 in the container test is an upper bound, and the output says so.**
+The surrender is observable only until the survivor reclaims, and that window
+can close inside any poll granularity: watching for `lease_expires_at <= now()`
+alone timed out while the step had already been reacquired. The observer now
+returns on whichever transition comes first and **reports which** — because
+reacquisition implies the surrender happened at or before it, the number is an
+upper bound either way, but when reacquisition is what was seen the number
+bounds the drain *and* the survivor's poll together. Observed: **10.16 s, seen
+as reacquisition**, against the under-one-heartbeat bound. A reader is told
+that, rather than being left to infer a 10-second drain.
+
+**Clause 2, the poll.** Reacquisition **0.0 s** after that instant, against one
+poll interval — trivially satisfied on the path where the survivor's claim is
+what made the surrender observable. On the other path it is the real
+measurement.
+
+**End-to-end 10.2 s, reported and not asserted.** Asserting the sum sets a
+bound just above what the mechanism can guarantee and hides which term moved.
+
+### Three fixture defects found while doing this, each the shape review had been finding
+
+None was reported by a reviewer; all three were found by running the suite and
+disbelieving it.
+
+1. **A stale container image.** The worker image predated the round-2 `pool.py`
+   changes, so a fault-injection run was exercising superseded code. Rebuilt
+   with `--no-cache`, and the image's own source now verified for both fixes
+   before the suite is trusted. Worth naming because a green container suite
+   against a stale image is indistinguishable from a green one against fresh
+   code.
+2. **A quiesce check that could not fail.** It waited for
+   `count(*) FROM steps == 0` immediately after deleting every row. Replaced
+   once by a canary that proved capacity and then consumed the worker it had
+   proved free, and finally by the honest version: a worker mid-step discovers a
+   deleted row only at its next heartbeat, so the fixture waits one heartbeat
+   **only when it actually deleted a claimed step**.
+3. **A parameter bound to the wrong column.** The canary cleanup ran
+   `DELETE FROM steps WHERE run_id = <step id>`, matched nothing, and the
+   following `DELETE FROM runs` failed on the foreign key. Caught because the
+   suite errored rather than because anything asserted it.
+
+One more, in a test that had been green for two rounds: a connection check
+asserted `SELECT count(*) FROM runs == 0`, coupling it to whatever had run
+before it. It now asserts the read succeeds.
