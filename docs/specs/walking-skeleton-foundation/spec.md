@@ -3,7 +3,7 @@
 - **Status:** Draft <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
-- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), RFC-0002 (repository layout — a forward reference, created by T1 of this spec)
+- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0003 (repository layout — a forward reference, created by T1 of this spec)
 - **Brief:** none — descends from `runtime-architecture.md` § Rollout Phase 1
 - **Discovery:** none
 - **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — a forward reference, created by T6 of this spec
@@ -43,7 +43,7 @@ are met; this one is the hard dependency of the other two.
 
 | Semantic role | Applicability | Destination | Owner | Expected evidence | Closeout condition |
 | --- | --- | --- | --- | --- | --- |
-| Decision rationale | Applicable — repository layout is a new decision, and the framework version pin moves off ADR-0001 D5 | `docs/rfc/0002-*.md`, `docs/adr/0002-*.md` | work-loop | Accepted RFC creating the top-level directories; ADR recording the pin with its grounds | Both exist and the layout on disk matches the RFC |
+| Decision rationale | Applicable — repository layout is a new decision, and the framework version pin moves off ADR-0001 D5 | `docs/adr/0002-*.md`, `docs/adr/0003-*.md` | work-loop | ADR recording the pin with its grounds; ADR recording the layout and the owner's waiver of the RFC route | Both exist and the layout on disk matches ADR-0003 |
 | Interface compatibility | Applicable — the API surface is the first published contract, consumed by the sibling specs | `contracts/openapi/runs.yaml` | work-loop | A test asserting served routes match the contract | Contract and implementation agree under test |
 | Maintainer procedure | Applicable — no install, build, or test command exists in the repository today | `AGENTS.md` § Build and test commands | work-loop | Commands added in the change that introduces them, verified from the manifest | Commands run green from a clean clone |
 | Current architecture | Applicable — this is the first code the architecture describes | `docs/architecture/README.md` | work-loop | README names the built subsystems | Names match what the repository contains |
@@ -61,12 +61,12 @@ are met; this one is the hard dependency of the other two.
 
 - Any change to a ratified decision — the DR decisions, ADR-0001's decisions, or the changes `worker-runtime.md` asks of r7. The plan gives each change asked of r7 a disposition, so this boundary is enforceable rather than aspirational.
 - Adding a dependency beyond those in the plan's § Dependencies & integration.
-- Creating a top-level directory not authorized by the layout RFC.
+- Creating a top-level directory ADR-0003 does not name. The RFC route is waived, not the record: a directory nobody wrote down is still an unreviewed structural change.
 - Relaxing a criterion because it is expensive to demonstrate.
 
 ### Never do
 
-- **No new top-level directory without an accepted RFC.** This gates the first commit.
+- **No top-level directory that ADR-0003 does not name.** The owner waived `AGENTS.md`'s RFC requirement for this delivery on 2026-09-18, under the same shaping-phase exception the charter amendment used. The waiver removes the proposal process, not the durable record.
 - **No AWS SDK import outside `adapters/`, and no `pydantic_ai` import outside `agents/` and `adapters/`.** Weakening the test to pass the build is the failure this gate exists to catch.
 - **No real personal identifier, account id, ARN, or absolute home path in any committed file** — including one embedded inside a larger identifier, which is the shape that reached a draft of this spec before the gate was fixed.
 - **No `bigserial` for the per-run event sequence.** A rolled-back allocation survives and leaves a hole, which is the defect the row-update counter exists to avoid.
@@ -129,7 +129,7 @@ obligations go beyond those sources, and the approval gate rules on each:
 - Technical: Python 3.13.13 and Docker 29.7.2 are available locally (source: `python3 --version`, `docker --version`).
 - Technical: `tools/lint-no-identifiers.py` had a word-boundary gap that let an account id embedded in an identifier pass. AC-0008 exists because that gap was found by walking through it, and the fix ships in this spec (source: probe against the pattern, 2026-09-18).
 - Technical: spike P2's lock-ordering and sequence-density results were obtained against a local Postgres container with `deadlock_timeout` at 200 ms, not against RDS or Aurora. That qualification travels with AC-0003 and AC-0004 (source: `spikes/README.md` § What these results do not establish).
-- Process: creating a top-level directory requires an accepted RFC, so T1 precedes the first line of application code (source: `AGENTS.md` § Development workflow).
+- Process: `AGENTS.md` § Development workflow requires an RFC before a top-level directory is created. **The owner waived that requirement for this delivery on 2026-09-18**, under the same shaping-phase exception used for the charter amendment, so the layout is recorded in ADR-0003 instead and T1 no longer blocks on an acceptance round (source: user decision 2026-09-18).
 - Process: every change goes on a branch and through a PR; there is no CI, so the repository lints are the whole gate (source: `AGENTS.md`).
-- Process: **eugenelim approves both gates — unconfirmed.** The project is single-operator and `AGENTS.md` names no other approver, but this cannot be confirmed from inside the gate it governs (source: assumption stated 2026-09-18, open).
+- Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents — a shaping review over two rounds and an adversarial spec-mode review — and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
 - Governance: r7 and r4 are ratified as of 2026-09-18, r7 with its Known-at-ship gaps accepted open, and the DR decisions settled (source: both documents' Sign-off and Status headers).

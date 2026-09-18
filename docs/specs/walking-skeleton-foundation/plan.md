@@ -17,10 +17,11 @@
 
 Governance, then the database, then the two things that sit on it.
 
-The order is forced rather than preferred. `AGENTS.md` requires an RFC before a
-top-level directory exists, and this repository has no home for source — so T1
-is genuinely first. Every durability claim in this spec is a claim about
-Postgres, so the schema and its two append paths precede anything that appends.
+The order is forced rather than preferred. This repository has no home for
+source, and although the owner waived the RFC route on 2026-09-18 the layout
+still gets a decision record — so T1 stays first, and is now a write rather
+than a wait. Every durability claim in this spec is a claim about Postgres, so
+the schema and its two append paths precede anything that appends.
 The API and the pool are then independent of each other and both depend only on
 the schema, which is the one place this plan's task graph forks.
 
@@ -36,7 +37,7 @@ AC-0005 exists rather than being inherited.
 
 - [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) — the framework decision. **D5's 2.44.0 pin is superseded in part by ADR-0002 in T1**, to 2.45.0, on the owner's decision of 2026-09-18. No code in this spec imports the framework; the pin is recorded here because T1 is where decision records are authored.
 - `runtime-architecture.md` r7 — ratified with its Known-at-ship gaps accepted **open**. They are limits of the design, not work this spec closes.
-- RFC-0002, authored in T1 — the top-level layout. `AGENTS.md` forbids creating a directory without it.
+- ADR-0003, authored in T1 — the top-level layout. `AGENTS.md` § Development workflow would require an RFC; the owner waived that on 2026-09-18 under the same shaping-phase exception the charter amendment used, so the layout is recorded as a decision rather than proposed as one.
 - **Out of scope:** everything the sibling specs own — the agent layer, the authorization and quarantine boundaries, the provider call, the run state machine, the browser stream, and the Phase 1 measurements.
 
 ## Changes asked of r7
@@ -67,7 +68,7 @@ disposition. This spec owns the schema-shaped ones.
 
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
-| Decision rationale — `docs/rfc/0002-*.md`, `docs/adr/0002-*.md` | T1 | Accepted RFC; ADR recording the pin | Layout on disk matches the RFC |
+| Decision rationale — `docs/adr/0002-*.md`, `docs/adr/0003-*.md` | T1 | ADR recording the pin; ADR recording the layout and the waiver | Layout on disk matches ADR-0003 |
 | Interface compatibility — `contracts/openapi/runs.yaml` | T6 | Route-versus-contract agreement test | Contract and implementation agree under test |
 | Maintainer procedure — `AGENTS.md` § Build and test commands | T2 | Commands added with the manifest that introduces them | Commands run green from a clean clone |
 | Current architecture — `docs/architecture/README.md` | T7 | README names the built subsystems | Names match the repository |
@@ -144,22 +145,22 @@ test path.
 
 ## Tasks
 
-### T1: The layout RFC is accepted and the pin is recorded
+### T1: The layout and the pin are recorded
 
 **Depends on:** none
 
-**Touches:** docs/rfc/0002-repository-layout.md, docs/adr/0002-pydantic-ai-version-pin.md, workspace.toml
+**Touches:** docs/adr/0002-pydantic-ai-version-pin.md, docs/adr/0003-repository-layout.md, workspace.toml
 
 **Tests:**
-- `python3 tools/hooks/pre-pr.py` exits 0 — it carries the ADR shape lint, the only mechanical check either record has.
-- After T2 lands, `find . -maxdepth 1 -type d` introduces no directory the RFC omits. This is what makes the RFC binding rather than decorative.
+- `python3 tools/hooks/pre-pr.py` exits 0 — it carries the ADR shape lint, the only mechanical check either record has, and it now covers both.
+- After T2 lands, `find . -maxdepth 1 -type d` introduces no directory ADR-0003 omits. With the RFC waived this check is the only thing keeping the layout reviewed, so it is a test rather than a note.
 
 **Approach:**
-- RFC-0002 proposes the narrowest set T2–T7 actually need: `src/`, `tests/`, `contracts/`, `deploy/`. A directory proposed and unused is worse than one added later under a second RFC.
+- ADR-0003 records the narrowest set T2–T7 actually need: `src/`, `tests/`, `contracts/`, `deploy/`. A directory recorded and unused is worse than one added later. It also records the owner's waiver and its date, so the exception is attributable rather than folklore.
 - ADR-0002 **supersedes ADR-0001 D5 in part**, recording 2.45.0, the owner's decision date, and the offline probe as evidence. ADR-0001's other decisions stand.
 - Register all three walking-skeleton specs in `workspace.toml` with their hard dependencies, and add the follow-ons the spec names.
 
-**Done when:** both records exist, `pre-pr.py` is green, and RFC-0002 is marked accepted by the owner.
+**Done when:** both ADRs exist, `pre-pr.py` is green, and T2's directory check finds nothing ADR-0003 omits.
 
 ### T2: The project builds, lints, and refuses a misplaced import
 
@@ -265,15 +266,16 @@ test path.
 - **Review shape:** T4 is **DEEP** — the schema, the grant matrix, the definer functions and the append paths are dependency-ordered layers within one task, and it is the task most likely to exceed a reviewable diff. If it does, it splits at the seam between the schema and the append paths, which has no dependency running backwards. Every other task is well under the threshold.
 - **Reversible:** entirely. Nothing is deployed; the rollback unit is a `git revert` of a layer. The one-way door is `owner_scope`, taken now because backfilling ownership onto executed runs is guesswork.
 - **Infrastructure:** local Docker Compose only — Postgres and MinIO. No AWS, no cloud credential.
-- **Deployment sequencing:** migrations precede the code that reads them within each PR; the RFC precedes every directory it authorises.
+- **Deployment sequencing:** migrations precede the code that reads them within each PR; ADR-0003 precedes every directory it names.
 
 ## Risks
 
 - **The privilege split is the one mechanism that cannot be verified from application code.** If the grant matrix is wrong, the failure is silent until an audit. Mitigated by AC-0005 asserting both the refusal and the legitimate path.
 - **Local Postgres is not RDS.** Connection pooling, failover and `deadlock_timeout` defaults are untested, and the deliberately low timeout makes deadlocks surface faster than production would. Recorded with the result rather than mitigated.
 - **T4 is the largest task here.** Named above with its split seam, so an oversized diff has a planned response rather than an improvised one.
+- **The waived RFC removes a review the layout would otherwise have had.** Nothing now blocks a wrong directory set except ADR-0003 and T2's check, and the layout is the one decision every later task inherits. Mitigated by recording the narrowest set the plan uses and by making the check a test rather than a note.
 - **The sibling specs depend on this one.** A schema change discovered while building the agent runtime is an amendment to a shipped spec, which is expensive. Mitigated by creating `agent_role`, `integration_registry` and `entitlements` here even though nothing in this spec populates them.
 
 ## Changelog
 
-- 2026-09-18: initial plan. Split out of a single `walking-skeleton` spec after three review rounds did not converge and the findings clustered by subsystem — the agent and authorization work carried seven of eight blockers, which is the seam this split follows.
+- 2026-09-18: initial plan. Split out of a single `walking-skeleton` spec after three review rounds did not converge and the findings clustered by subsystem — the agent and authorization work carried nearly every blocker, which is the seam this split follows.
