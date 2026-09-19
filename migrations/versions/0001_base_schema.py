@@ -87,6 +87,20 @@ def upgrade() -> None:
             -- sibling spec adds whatever `foo.bar` types it emits without a
             -- migration. See `src/ced/domain/events.py`.
             --
+            -- **Dots only, and at least one.** Round 5 shipped
+            -- `([._-][a-z0-9]+)*`, which admitted `tool_invoked` and
+            -- `tool-invoked` while seven records described the rule as dotted
+            -- — the code-versus-record defect this review keeps finding,
+            -- introduced by the commit that fixed it. Round 6 narrowed the
+            -- enforced set rather than restating the records, because every
+            -- type in the system is `x.y`, nothing needs the other two
+            -- separators, and a smaller admitted set is the safer default for
+            -- a rule this load-bearing. The consequence to know about: a
+            -- single dotless word is refused, so a sibling wanting one needs a
+            -- migration. Adjudication refuted the framing of the separators as
+            -- a dedup bypass — `tool-invoked` is a distinct type name, not a
+            -- spelling of `tool.invoked` — so that is not the ground here.
+            --
             -- Here rather than only in the append functions, because it is the
             -- structural closure. Two review rounds tried to close the
             -- reserved-type rule with a denylist of invisible characters
@@ -104,7 +118,7 @@ def upgrade() -> None:
             -- pure-padding argument used to canonicalise down to and store.
             type         text NOT NULL
                          CONSTRAINT events_type_is_canonical
-                         CHECK (type ~ '^[a-z0-9]+([._-][a-z0-9]+)*$'),
+                         CHECK (type ~ '^[a-z0-9]+(\.[a-z0-9]+)+$'),
             -- Null for run-lifecycle events, which are appended by `api`
             -- before any step exists. r7 § Event log: the envelope's step_id
             -- and agent_role are null on that path.

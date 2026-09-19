@@ -168,7 +168,7 @@ until docker-compose -f deploy/compose.yaml exec -T postgres \
       pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 ./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
 docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
-./.venv/bin/python -m pytest           # ~2.5-3 min; `pytest` reports the count
+./.venv/bin/python -m pytest           # minutes, not seconds; see below
 docker-compose -f deploy/compose.yaml down -v
 ```
 
@@ -191,16 +191,20 @@ this block on a fresh volume.
 `--build` matters: the stack includes two worker containers built from
 `deploy/Dockerfile`, and `tests/fault_injection` kills and restarts them. That
 suite runs at r7's real lease timings — TTL 60 s, heartbeat 20 s, poll 30 s, so
-it dominates that figure almost entirely — and it is why the figure is a range
-rather than a number: a survivor's poll offset is uniform on [0, 30 s), so
-consecutive runs vary by tens of seconds. Measured at 156 s after round 5
-removed a subsumed fault-injection check; the two runs before that removal were
-186 s and 205 s, which is the spread to expect rather than a regression.
-Compressed timings would demonstrate the mechanism and not the 150-second
-number the criterion states.
-**This is the only place a suite duration is published.** Three files used to
+it dominates the wall clock almost entirely.
+
+**No range is published for the suite, and that is deliberate.** A survivor's
+poll offset is uniform on [0, 30 s), so the whole suite has been measured at
+156 s, 186 s and 205 s on the same machine with nothing wrong. Every range
+published here so far excluded one of those, and the earlier two predate round
+5 removing a subsumed fault-injection check, so they are not comparable to the
+current suite anyway. Expect minutes, expect the spread, and read the number
+`pytest` prints rather than one written down here. Compressed timings would
+demonstrate the mechanism and not the 150-second number the criterion states.
+
+**This is the only place a suite duration is discussed.** Three files used to
 carry figures that contradicted each other, one of them a sub-suite longer than
-the whole; the rest now describe the shape and leave the number here. The workers also run on
+the whole; the rest describe the shape and point here. The workers also run on
 their own `CED_POOL_CLASS`, so they cannot claim the default-class rows the
 other suites assert on; `deploy/compose.yaml` records why.
 

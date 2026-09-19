@@ -23,8 +23,9 @@ row.** The five dispositions:
   * completion and failure — join, then `release`;
   * fence loss and a terminal run — join, then return without touching the
     row, because the step is already someone else's or the run is over. If the
-    body cannot be joined on either path it is **not** joined, and the worker
-    additionally stops claiming, exactly as in the drain case below;
+    join times out on either path the row is left untouched for the same
+    reason, and the worker additionally stops claiming rather than pick up
+    another step beside a body still running — as in the drain case below;
   * drain where the body had already finished — join, then `release` with the
     recorded outcome, so a step that completed on its own is not handed back
     to a survivor to re-run;

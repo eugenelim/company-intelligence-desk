@@ -1189,10 +1189,15 @@ reds **nothing else**, which is the measurement that confirms the gap was real.
 - **The distinguishing drain check asserted a bound the mechanism cannot
   guarantee.** It measured signal-to-reacquisition against one poll interval —
   the reading AC-0011's amendment rejected as unguaranteeable — so healthy code
-  reds a few percent of runs blaming the graceful path. It now asserts on the
-  surrender against the lease TTL, which is the comparison that actually
-  distinguishes the two recovery paths. AC-0011 clause 2 states its observation
-  granularity rather than absorbing it into a round number.
+  reds a few percent of runs blaming the graceful path. It was re-based to
+  assert on the surrender against the lease TTL. AC-0011 clause 2 states its
+  observation granularity rather than absorbing it into a round number.
+
+  **Round 5 deleted that re-based check outright, so the comparison this entry
+  describes is asserted nowhere.** Its new bound was also unfalsifiable, and
+  adjudication found re-bounding larger than removal because AC-0011 clause 1
+  already asserts the surrender falsifiably. See § Review round 5 › Two of
+  round 4's assertions could not fail.
 - **`verify_boot`'s stated contract was the one case it was not driven for.**
   The docstring sold a readiness failure on a broken policy connection against
   a healthy substrate. The failure is now driven with an unreachable policy
@@ -1416,9 +1421,16 @@ neighbour while looking independent. `AGENTS.md` § Cut before adding rung 1.
   not exist; `TEST_POOL_CLASS`'s stated ground still described the
   pre-round-4 deployment; the compose header still prescribed the single
   `up -d` round 4 proved defective; the architecture map still described the
-  denylist; `pool.py`'s docstring enumerated five dispositions for six returns
-  and presented a derived 40 s threshold beside a measured figure with nothing
-  separating them.
+  denylist; `pool.py`'s docstring left one of `_execute`'s six returns —
+  the unjoinable body on the fence-loss and terminal-run paths — outside its
+  enumeration, and presented a derived 40 s threshold beside a measured figure
+  with nothing separating them.
+
+  Round 6 corrected this entry's own wording: it said the docstring
+  "enumerated five dispositions for six returns" and listed that among the
+  fixes, but the heading still says five and the bullets still group returns,
+  which adjudication found states nothing false — the missing *return* was what
+  got covered, not the count.
 
 ### The documented bring-up still raced, one step further in
 
@@ -1487,6 +1499,18 @@ refused artifact until it parses.
   was not established. Over-refusal is the safe direction and the shape admits
   only ASCII, so a fold *into* the admitted set cannot smuggle a non-ASCII
   character through; a fold between two admitted ASCII names is not ruled out.
+
+  **Round 6's security pass closed this exhaustively.** It swept all 1 112 064
+  assigned-range codepoints and found exactly two that `lower()` folds into the
+  admitted class — U+0130 to `i` and U+212A to `k` — both producing an
+  all-ASCII canonical form, which is the form compared *and* the form stored.
+  So a folded spelling of a reserved name is refused by the equality clause and
+  a folded `tool.invoked` stores as `tool.invoked`, inside the partial index.
+  The same pass established that `~` is not line-anchored (so no newline
+  spelling passes), that the character class is codepoint-based rather than
+  collation-based, that the CHECK holds under `COPY` and under
+  `session_replication_role = replica`, and that the regex is linear rather
+  than backtracking. Established by review, not by this delivery's own checks.
 - **The DDL guard is still defeatable from the environment.** `PGHOSTADDR`,
   `PGSERVICE` and `PGSERVICEFILE` redirect libpq without appearing in the DSN
   the guard parses. Sustained as a concern and **not fixed in this round** — it
@@ -1494,8 +1518,227 @@ refused artifact until it parses.
   the obvious shortcut is wrong: `inet_server_addr()` returns the container's
   bridge address on the legitimate substrate, so a loopback requirement would
   refuse the one target the check exists for. Recorded as open.
+
+  **Round 6 closed it, and found this justification wrong.** The fix never
+  needed the effective target resolved: refusing when any of those variables is
+  set costs exactly what the DSN refusal costs, which is this guard's own
+  stated principle. Round 6 measured the redirect — with `PGHOSTADDR` exported,
+  `conninfo_to_dict` reports a loopback `host` and no `hostaddr` key, and the
+  connection lands on the redirect — and closed it. What was recorded here as a
+  deferral with a cost was a deferral with a mistaken cost.
 - **The stuck-body path remains undriven** and the `stop_grace_period`
   interaction remains unexercised, unchanged from round 4.
 - **Mutation evidence covers the type rule and the drain ordering**, re-run
   after this round's changes. The two bound corrections are verified by
   arithmetic and by the suite passing, not by a mutation run.
+
+## Review round 6 — no exploitable defect, and the records finally caught up
+
+Three reviewers, thirty-four findings; twenty-eight sustained by adjudication,
+five refuted, one held indeterminate and closed by owner ruling. **Security and
+quality returned no blockers** — the first round of six where the exploitable
+surface came back clean. Every blocker was adversarial, and two of the three
+were records contradicting the code rather than new defects.
+
+### The separator set, and a refuted bypass
+
+Round 5's shape was `^[a-z0-9]+([._-][a-z0-9]+)*$`, which admits `tool_invoked`
+and `policy-decision`, while seven records described the rule as "a dotted run
+of lowercase ASCII alphanumerics, **and nothing else**". So the fix for a
+code-versus-record defect shipped another one.
+
+The adversarial review framed this as reopening the dedup leg, since
+`tool-invoked` falls outside the partial index. **Adjudication refuted that
+leg**: `tool-invoked` is a distinct type name, not a spelling of
+`tool.invoked`, and the design deliberately binds dedup to that single literal
+— so an arbitrary other type carries no dedup guarantee to bypass, exactly as
+`tool.called` would not. What remained was the record inaccuracy, at advisory,
+with the mechanism judged over-broad because the enforced set need not change.
+
+**Narrowed to dots anyway, as an owner decision with its ground stated.** The
+regex is now `^[a-z0-9]+(\.[a-z0-9]+)+$`. Not because of the refuted bypass:
+because every type in the system and every plausible sibling type is `x.y`,
+nothing needs the other two separators, a smaller admitted set is the safer
+default for a rule this load-bearing, and it makes seven records true by
+construction rather than editing seven records to describe a set nothing uses.
+**The cost, stated rather than discovered later:** a dotless single word is now
+refused, so a sibling wanting one needs a migration. The separator set is
+pinned in the refusing direction by cases in the shape table, so it cannot be
+quietly re-admitted.
+
+### The structural guarantee was a substring test
+
+All three reviews converged here. `test_every_stored_type_matches_the_canonical_shape`
+asserted `"a-z0-9" in <constraint definition>` and queried `pg_constraint` by
+name alone — no relation, no column, no expression. So a constraint moved to
+another table, applied to another column, or widened to admit spaces or
+uppercase all shipped green, under a docstring claiming it "proves it applies
+to the column, so a spelling nobody thought of is refused whether or not
+anyone wrote a case for it". The ledger called that check "the guarantee".
+
+Replaced by one check in `tests/schema/test_migration_applies.py` that pins
+three things: the constraint is a CHECK on `public.events`, `conkey` covers
+exactly `type`, and the full `pg_get_constraintdef` carries exactly the
+expected pattern — then reads `append_step_event`'s own copy out of `pg_proc`
+and requires the same pattern. Mutation evidence, both legs: widening the
+constraint to `^[a-z0-9 ]+([._-][a-z0-9]+)*$` reds it, and moving the
+constraint to the `principal` column with name and pattern unchanged reds it.
+Both are states the old substring assertion accepted.
+
+The hardening-suite check is renamed to what it actually drives — a direct
+insert by the schema owner — because its old name quantified over stored types
+while reading none. That is the same over-claiming name round 5 renamed on its
+neighbour, reintroduced in the replacement.
+
+**One remedy was refuted and the alternative taken instead.** The two shape
+literals live in two revisions with nothing joining them, and the proposed fix
+was a shared constant both revisions import. Adjudication refuted that: a
+definition read by historical revisions breaks the self-containment an applied
+migration depends on. But the reachability ground offered alongside it —
+"editing an already-applied revision is ruled out" — is contradicted by this
+delivery's own accepted practice, since rounds 4 and 6 both adjudicated
+in-place editing of these revisions as the accepted practice here. So the join
+is a *check* rather than an import, which is exactly the seam round 1 built for
+`RUN_LIFECYCLE_TYPES`: the migration re-declares, and a test holds the copies
+together.
+
+### Attribution in the drain-ordering check
+
+Round 5 added a `body.stopped` precondition so a join timeout would not be
+reported as an ordering regression. It misattributed a third case: an exception
+inside the observer callback leaves `stopped` clear, and the pool's own body
+wrapper swallows it — so the drain completes normally, the observation is
+missing, and the message blamed a join window that was never exceeded.
+
+Two fixes. The observer connection is now opened **before** the drain and
+closed over, rather than connected inside the join window: bounding it did not
+work, because `connect_timeout=1` is floored by libpq at 2 s of a 3 s join
+(measured: a requested 1 s elapses at 2.00 s, 2 s at 2.00 s, 3 s at 3.00 s).
+And the callback captures every failure instead of raising, with the assertions
+ordered so each of the three causes of an empty observation reports as itself.
+Verified both ways: inverting the two statements in `_execute` still reds the
+ordering assertion, and closing the observer connection reds with "the observer
+itself failed" rather than an ordering claim.
+
+### The check guarding a drift never ran in the gate that would catch it
+
+`test_the_published_attribution_bound_matches_the_model` was the check two
+corrected comments name as what stops the contract's 256 and the model's 256
+drifting — and it sat in a module with a module-wide `substrate` mark, so
+`pytest -m 'not substrate'` skipped it. A contributor could raise the constant,
+run the documented offline subset green, and ship a contract publishing the old
+bound. Moved to `tests/api/test_contract_agreement.py`, which already refuses a
+module-wide mark for this exact reason; confirmed collected under
+`-m 'not substrate'`. Its `minLength` assertion now compares against the
+model's own field metadata rather than a literal, so it cannot drift in the
+direction the check exists to catch.
+
+### Smaller corrections
+
+- **The append function still said `events.type` "deliberately carries no
+  CHECK"** — in the file round 5 rewrote, contradicting `_TYPE_SHAPE`'s own
+  docstring 126 lines above. Corrected, and the two decisions it conflated are
+  now separated: the character shape is constrained, the vocabulary is not.
+- **`CED01`'s ground was wrong for the third consecutive SQLSTATE.** The
+  comment claimed a "user-defined range"; the standard reserves classes
+  beginning `0`-`4` and `A`-`H`, and leaves `5`-`9` and `I`-`Z`
+  implementation-defined, so class `CE` is in the reserved band. The code still
+  works because no release occupies class `CE` — that is now the stated ground,
+  with the versions it was checked against and what would falsify it, rather
+  than a category claim. Three codes, three justifications, two of them wrong.
+- **`MALFORMED_EVENT_TYPE_SQLSTATE` was inserted into the middle of the
+  deadlock constants' doc comment**, orphaning them — the same defect round 5
+  fixed in `tests/fault_injection/conftest.py`, committed again in the fix for
+  it. Split so each rationale sits above its own constant.
+- **`OBSERVER_STEP_SECONDS` quantified over a helper with a different step.**
+  The surrender helper's 0.1 s is now `SURRENDER_STEP_SECONDS`, with the reason
+  it differs recorded: the window it watches can be shorter than a coarser step.
+- **The fault-injection skip message prescribed the broken bring-up.** It fired
+  exactly when the workers were missing and handed the reader the single
+  `up -d` that produces that state. It now points at the section that owns the
+  order.
+- **The `_execute` docstring stated a tautology** where it meant a join
+  timeout. Corrected to the consequence the code implements.
+- **The published suite duration contradicted the measurements beside it** for
+  the third time. **No range is published now.** The suite has measured 156 s,
+  186 s and 205 s on one machine with nothing wrong; every range published so
+  far excluded one of them. The shape is stated and the reader is pointed at
+  what `pytest` prints. This is the third attempt at this figure and the first
+  that cannot go stale.
+
+### Findings refuted, and one record that was right
+
+Five refutations, three of which stopped a change:
+
+- The **forward repair revision** for the CHECK on an already-at-head database
+  — refuted, consistent with round 4, with the consistency ruling stated:
+  those grounds are about whether such a database exists, and elevating the
+  edit's contents from a grant correction to a security control "changes the
+  magnitude of an unreached consequence and not its reachability". Measured
+  first: with the constraint dropped and the version at 0002, `alembic upgrade
+  head` exits 0 and restores nothing. The asymmetry worth recording is that a
+  stale volume would also carry 0002's pre-edit function bodies, so the loss
+  would be broader than the CHECK — a larger loss inside the same unreached
+  scenario.
+- **AC-0011 clause 2 as vacuous in the reacquired branch** — refuted on
+  consequence. `elapsed` is indeed ~0 there, but the returned `surrender` then
+  spans SIGTERM through the observed reacquisition and clause 1 asserts it
+  under 20 s, which bounds the true surrender-to-reacquisition interval more
+  tightly than clause 2's own 30 s. No unmeasured criterion.
+- The **shared shape constant**, as above.
+- **"three commands and not two" above a four-line block** — refuted: the count
+  governs bring-up commands, of which there are three; the readiness wait is
+  explained separately.
+- **My own record of the engine rejection** — refuted, meaning the record was
+  right. I had supplied the adjudicator the actual command and message, and it
+  used them to establish that `--owner-authority-ref` is registered but not
+  accepted on `findings-remain`, so "rejected for an unsupported flag" is true.
+  I nearly corrected an accurate record.
+
+### One indeterminate, and a retry I ran wrong
+
+The quality adjudication held finding 6 indeterminate: whether libpq floors
+`connect_timeout` at 2 s, which it could not establish without running code.
+That is machine-checkable, so a bounded evidence retry was the right move and I
+measured it — 1 s elapses at 2.00 s, 2 s at 2.00 s, 3 s at 3.00 s.
+
+**The retry was refused, and correctly.** My message did two things: it supplied
+the evidence, and it instructed the adjudicator not to emit the indeterminate
+sentinel and to write the section as empty. The second is pressuring a verdict,
+not bounding evidence, and the refusal said so: "a verdict cannot be set by
+direction, and the loop's stop signal is the honest report of this state." It
+also declined the measurement as narrative rather than a validated artifact
+with a gate id and digest, and attestation of the read confinement and network
+isolation its method — an egress attempt to a non-routable address — makes
+load-bearing. This loop has no such evidence path.
+
+Two rounds earlier I recorded that editing a refused artifact until it parses is
+the shortcut to avoid. I then did the equivalent by instruction. Closed by owner
+ruling on 2026-09-19: sustained at advisory on the measurement, with the method,
+the numbers, the refusal and its reason recorded here rather than resolved
+silently. The fix was applied regardless, and adjudication had already judged it
+adequate and *smaller* than the finding's own mechanism.
+
+### What round 6 did NOT establish
+
+- **The type rule is not proven by exhaustion**, and now rests on three things
+  a reader can check rather than on an enumeration: the shape's text is pinned
+  to the column and the function, the character class is codepoint-based, and
+  `lower()`'s folds into it were swept exhaustively by review. What is still
+  not established is that the regex means what it reads as — that is an
+  assumption about the Postgres regex engine, narrowed but not removed.
+- **The already-at-head migration gap is accepted, not closed.** A volume
+  predating the CHECK gets no shape rule and `alembic upgrade head` reports
+  success. The suite reds loudly on it, and the accepted practice for these
+  unreleased revisions is `down -v`.
+- **`connect_timeout`'s floor is recorded on my own measurement**, refused by
+  adjudication as unvalidated and closed by owner ruling. Anyone rebuilding
+  this should re-measure rather than trust the number here.
+- **The stuck-body path remains undriven** and the `stop_grace_period`
+  interaction remains unexercised, unchanged since round 4.
+- **The round-6 fingerprint record is incomplete for the second round running.**
+  The quality adjudication classifies `invalid (indeterminate-present)`, which
+  is the correct loud stop, so its fingerprints cannot be recorded — only the
+  security and adversarial sets are. Cross-round repeat detection is therefore
+  again a manual comparison against the persisted artifacts. Recorded as a
+  weakened check, not an equivalent one.

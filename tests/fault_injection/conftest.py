@@ -67,12 +67,24 @@ CONTAINER_POOL_CLASS = "fault-injection"
 #: asserted after it.
 OBSERVATION_MARGIN_SECONDS = 20
 
-#: What the observer's own polling can add to a measured interval — the helpers
-#: below sleep this long between reads, so a returned figure can overshoot the
-#: true one by up to one step. This is the *only* slack an assertion may carry,
-#: and it is three orders of magnitude smaller than the headroom above, which
-#: is why conflating the two made two assertions unfailable.
+#: What the observer's own polling can add to a measured interval, for the two
+#: helpers that use it — `wait_until_claimed` and `wait_for_reacquisition` — so
+#: a figure either returns can overshoot the true one by up to one step. This
+#: is the *only* slack an assertion may carry, and it is far smaller than the
+#: headroom above, which is why conflating the two made two assertions
+#: unfailable.
+#:
+#: `wait_for_lease_surrender` deliberately does **not** use it: it polls at
+#: `SURRENDER_STEP_SECONDS` because the window it watches — between the drain
+#: stamping the expiry and the survivor reclaiming — can be shorter than any
+#: coarser step, and missing it turns a measured surrender into a measured
+#: reacquisition. The docstring here used to quantify over "the helpers below",
+#: which was false of that one; a constant whose whole purpose is to give a
+#: quantity one home cannot carry a claim about a helper with a different one.
 OBSERVER_STEP_SECONDS = 0.5
+
+#: The finer step `wait_for_lease_surrender` polls at, for the reason above.
+SURRENDER_STEP_SECONDS = 0.1
 
 
 def docker(*args: str) -> subprocess.CompletedProcess[str]:
@@ -95,9 +107,17 @@ def running_workers(require_substrate: None) -> list[str]:
     """
     missing = [name for name in WORKER_CONTAINERS if not container_is_running(name)]
     if missing:
+        # Points at the section that owns the order rather than restating a
+        # command. The restated one was `up -d --build` with no service list,
+        # which is the single command `AGENTS.md` and `deploy/compose.yaml`
+        # both document as starting the workers against an empty database and
+        # leaving them dead — so this message fired exactly when the workers
+        # were missing and handed the reader the command that reproduces it.
         pytest.skip(
-            f"worker containers not running: {missing}. Run "
-            f"`docker-compose -f {COMPOSE_FILE.relative_to(REPO_ROOT)} up -d --build`"
+            f"worker containers not running: {missing}. Bring the substrate up "
+            "in the order given in AGENTS.md § The local substrate — the "
+            "database and the migration first, then the workers; a single "
+            "`up -d` starts them against an empty schema and they stay dead."
         )
     return list(WORKER_CONTAINERS)
 
@@ -286,7 +306,7 @@ def wait_for_lease_surrender(
                 return time.monotonic() - started, "reacquired"
             if expired:
                 return time.monotonic() - started, "surrendered"
-        time.sleep(0.1)
+        time.sleep(SURRENDER_STEP_SECONDS)
     pytest.fail(
         f"step {step_id} was neither surrendered nor reacquired within "
         f"{timeout} s of SIGTERM; the drain did not act on the signal"

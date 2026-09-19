@@ -140,7 +140,7 @@ _TYPE_SPACE_CLASS = (
 #: Also enforced as a CHECK on `events.type` in revision 0001, so it holds on
 #: every path including direct DML by the schema owner, not only on the two
 #: append functions. Verified against a direct owner insert.
-_TYPE_SHAPE = r"^[a-z0-9]+([._-][a-z0-9]+)*$"
+_TYPE_SHAPE = r"^[a-z0-9]+(\.[a-z0-9]+)+$"
 
 
 def _canonical_type(arg: str) -> str:
@@ -266,11 +266,19 @@ def upgrade() -> None:
             -- Decided on a *normalised* form. The refusal used to compare the
             -- raw argument, so `'run.completed '` and `'RUN.COMPLETED'` were
             -- both admitted and stored verbatim — a negative rule narrower
-            -- than the rule it states. `events.type` deliberately carries no
+            -- than the rule it states. Normalising the comparison keeps the
+            -- rule negative while closing the padded and case-varied spellings
+            -- of a refused name.
+            --
+            -- This sentence used to say `events.type` "deliberately carries no
             -- CHECK, because enumerating the step-scoped vocabulary is the
-            -- decision T4 declined; normalising the comparison keeps the rule
-            -- negative while closing the padded and case-varied spellings of a
-            -- refused name.
+            -- decision T4 declined". Revision 0001 falsified that in the same
+            -- commit that added the shape clause below, and `_TYPE_SHAPE`'s
+            -- docstring above said so while this said the opposite. The CHECK
+            -- exists and constrains the character shape; the *vocabulary* is
+            -- still unenumerated, which is what T4 declined. The two are
+            -- different decisions and conflating them is what made this
+            -- comment read as a reason to remove the constraint.
             --
             -- **The order matters, and so does which clause does the work.**
             -- The shape clause below is the closure; this equality clause only
@@ -301,7 +309,18 @@ def upgrade() -> None:
                 RAISE EXCEPTION
                     'append_step_event refuses a type outside the canonical '
                     'shape: % (caller %)', p_type, session_user
-                    -- **`CED01`, a code this repository owns.** Round 4 used
+                    -- **`CED01`, verified unoccupied rather than reserved for
+                    -- us.** No PostgreSQL release allocates SQLSTATE class
+                    -- `CE`, and psycopg's generated table carries none either,
+                    -- so nothing but this `RAISE` produces it — checked
+                    -- against PostgreSQL 17.11 and psycopg 3.3.6, and
+                    -- falsified by any future release that claims class `CE`.
+                    -- It is **not** in a range reserved for user codes: the
+                    -- standard leaves classes beginning `5`-`9` or `I`-`Z`
+                    -- implementation-defined, and `CE` is in the `A`-`H` band
+                    -- it reserves. An earlier comment claimed the range as the
+                    -- ground, which was the third ungrounded justification
+                    -- this one refusal has carried. Round 4 used
                     -- `invalid_parameter_value`, which the adapter already
                     -- maps to `StepRunMismatch`, so a malformed type arrived
                     -- as "step does not belong to run". The replacement,

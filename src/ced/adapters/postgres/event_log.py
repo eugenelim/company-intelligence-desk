@@ -41,16 +41,28 @@ __all__ = [
     "start_run",
 ]
 
+#: The private SQLSTATE `append_step_event` raises when a type fails the
+#: canonical shape, matched by code rather than by a `psycopg` exception class
+#: because the driver has no class for it.
+#:
+#: **Verified unoccupied, not reserved for us.** No PostgreSQL release
+#: allocates class `CE` and psycopg's generated table carries none, so nothing
+#: but that one `RAISE` produces this code — checked against PostgreSQL 17.11
+#: and psycopg 3.3.6, and falsified by any future release claiming class `CE`.
+#: An earlier version of this comment claimed the code sat "in Postgres's
+#: user-defined range", which is wrong: the standard leaves classes beginning
+#: `5`-`9` or `I`-`Z` implementation-defined, and `CE` is inside the `A`-`H`
+#: band it reserves. That was the third ungrounded justification this one
+#: refusal has carried, after `invalid_parameter_value` and
+#: `invalid_text_representation` were each claimed exact and each found to
+#: collide — so the ground stated here is a fact with a version attached and a
+#: named way to be wrong, rather than a category.
+MALFORMED_EVENT_TYPE_SQLSTATE = "CED01"
+
 #: r7 § Event log: "Deadlock (40P01) is retried with backoff." Three attempts
 #: over ~350 ms in total, which is well inside the 200 ms `deadlock_timeout`
 #: the test container runs with and bounded enough not to hide a real ordering
 #: defect behind patience.
-#: The private SQLSTATE `append_step_event` raises when a type fails the
-#: canonical shape. In Postgres's user-defined range, so nothing in the server
-#: or the driver can produce it — which is the point, and the reason this is
-#: matched by code rather than by a `psycopg` exception class.
-MALFORMED_EVENT_TYPE_SQLSTATE = "CED01"
-
 DEADLOCK_ATTEMPTS = 3
 DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15, 0.30)
 
@@ -94,8 +106,10 @@ class MalformedEventType(Exception):
     sent. Covers an unenumerated invisible character, a homoglyph, interior
     padding, and the empty string a pure-padding argument trims down to.
 
-    **Recognised by SQLSTATE `CED01`, which this repository owns**, and the
-    third code this refusal has had. `invalid_parameter_value` arrived as
+    **Recognised by SQLSTATE `CED01`**, verified unoccupied by any PostgreSQL
+    release or psycopg condition rather than drawn from a range reserved for
+    private codes — see `MALFORMED_EVENT_TYPE_SQLSTATE`. It is the third code
+    this refusal has had. `invalid_parameter_value` arrived as
     `StepRunMismatch`, because the adapter already mapped it. Its replacement
     `invalid_text_representation` was no better: 22P02 is what Postgres raises
     for any failed input cast on the same statement, so a non-UUID `run_id`

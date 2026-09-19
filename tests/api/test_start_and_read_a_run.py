@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pathlib
 import uuid
 
 import psycopg
@@ -155,7 +154,8 @@ def test_an_oversized_attribution_field_is_refused(
 
     Both are self-asserted attribution on an unauthenticated surface and land
     in unconstrained `text` columns, so without a bound one request persists an
-    arbitrarily large string that every later read of the run returns. The
+    arbitrarily large string that every later read of the run returns.
+
     The contract and the model carry the same number;
     `test_the_published_attribution_bound_matches_the_model` is what holds them
     in step, since AC-0009's route-table comparison excludes
@@ -186,30 +186,3 @@ def test_an_oversized_attribution_field_is_refused(
         api_server.post("/runs", {"principal": "operator", "agent_role": over_bound}).status
         == 422
     )
-
-
-def test_the_published_attribution_bound_matches_the_model() -> None:
-    """The one check that holds the contract's number and the model's in step.
-
-    AC-0009 compares a route table and excludes `components.schemas` by
-    design, so nothing there notices if these two drift — and two comments
-    used to claim otherwise. This is deliberately *not* an extension of
-    AC-0009: widening that criterion's artifact would change what a ratified
-    acceptance criterion asserts, which is not this delivery's call. It is a
-    construction check over the two files that publish the same number.
-    """
-    import yaml
-
-    contract = yaml.safe_load(
-        (pathlib.Path(__file__).parents[2] / "contracts" / "openapi" / "runs.yaml").read_text()
-    )
-    published = contract["components"]["schemas"]["StartRunRequest"]["properties"]
-
-    for field in ("principal", "agent_role"):
-        assert published[field]["maxLength"] == ATTRIBUTION_MAX_LENGTH, (
-            f"{field}'s published maxLength is "
-            f"{published[field]['maxLength']} but the model enforces "
-            f"{ATTRIBUTION_MAX_LENGTH}; a client trusting the contract would "
-            "be told the wrong limit"
-        )
-        assert published[field]["minLength"] == 1

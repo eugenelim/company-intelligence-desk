@@ -733,6 +733,16 @@ def test_a_padded_spelling_of_a_refused_type_reaches_the_reserved_name_rule(
         "policy.decision.",
         "policy..decision",
         "Policy.Decision\xad",
+        # The separator set, pinned in the refusing direction. Round 5 shipped
+        # `[._-]`, which admitted these while seven records described the rule
+        # as dotted; round 6 narrowed the rule, and these cases are what stop
+        # the separators being quietly re-admitted. A dotless single word is
+        # refused too, which is the stated cost of requiring the dot.
+        "policy_decision",
+        "policy-decision",
+        "tool_invoked",
+        "tool-invoked",
+        "policydecision",
     ],
 )
 def test_a_type_outside_the_canonical_shape_is_refused(
@@ -762,31 +772,25 @@ def test_a_type_outside_the_canonical_shape_is_refused(
         )
 
 
-def test_every_stored_type_matches_the_canonical_shape(
+def test_the_shape_constraint_refuses_a_direct_insert_by_the_schema_owner(
     owner_conn: psycopg.Connection,
 ) -> None:
-    """The guarantee itself, asserted structurally rather than by enumeration.
+    """The CHECK holds on paths that bypass the append functions entirely.
 
-    A table of inputs cannot establish a claim about every spelling — that is
-    the lesson of rounds 3, 4 and 5, each of which found the previous round's
-    enumeration incomplete. This reads the constraint out of the catalogue and
-    proves it applies to the column, so a spelling nobody thought of is
-    refused whether or not anyone wrote a case for it.
+    **Named for what it evaluates.** It was
+    `test_every_stored_type_matches_the_canonical_shape`, which quantified over
+    stored types while reading none — the same over-claiming name round 5 had
+    just renamed on its neighbour, reintroduced in the replacement. What this
+    establishes is narrower and still worth having: the constraint refuses the
+    strongest caller in the system, so no function-level rule has to be
+    trusted for the guarantee to hold.
 
-    Asserted against the schema owner, deliberately: the CHECK is what makes
-    the rule hold on paths that bypass the append functions entirely.
+    The structural half — that the constraint is on `events.type`, covers only
+    that column, and carries exactly the shipped pattern — is
+    `tests/schema/test_migration_applies.py`'s
+    `test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function`,
+    which is also what joins this rule to the copy inside the append function.
     """
-    row = owner_conn.execute(
-        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
-        "WHERE conname = 'events_type_is_canonical'"
-    ).fetchone()
-    assert row is not None, (
-        "events.type carries no canonical-shape constraint; the reserved-name "
-        "rule is then only as complete as the trim class, which is the defect "
-        "rounds 4 and 5 both found"
-    )
-    assert "a-z0-9" in row[0], f"the constraint is not the shape rule: {row[0]}"
-
     run_id = uuid.uuid4()
     with owner_conn.transaction():
         owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (run_id,))

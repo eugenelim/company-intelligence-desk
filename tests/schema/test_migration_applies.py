@@ -241,6 +241,77 @@ def test_the_run_lifecycle_function_admits_exactly_the_domain_vocabulary(
     )
 
 
+#: The canonical event-type shape, declared once here so the two revisions that
+#: each spell it can be joined to a single expectation. Deliberately **not**
+#: imported by the migrations: adjudication established that a shared
+#: definition read by historical revisions breaks the self-containment an
+#: applied migration depends on, and that the join belongs in a check instead —
+#: which is exactly the seam review round 1 built for `RUN_LIFECYCLE_TYPES`.
+EXPECTED_TYPE_SHAPE = r"^[a-z0-9]+(\.[a-z0-9]+)+$"
+
+
+def test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """The shape rule is written twice; this is what holds the copies together.
+
+    **Three separate findings converge here, and a substring test satisfied
+    none of them.** The previous check asserted `"a-z0-9" in <definition>`,
+    which stays green under a rule widened to admit spaces or uppercase — so
+    the claim that the guarantee was "asserted structurally" rested on an
+    assertion that could not discriminate the shipped rule from a broken one.
+    It also never established that the constraint was on `events.type` at all:
+    the catalogue query matched on name alone, so a constraint moved to another
+    relation or column passed.
+
+    So this check pins three things: the constraint is a CHECK on
+    `public.events`, it covers exactly the `type` column, and its full
+    expression carries exactly the expected pattern. Then it reads the append
+    function's own copy out of `pg_proc` and requires the same pattern, because
+    a drift between the two in the tightening direction would let the function
+    admit a type the column refuses — surfacing as a bare `CheckViolation` past
+    the adapter's `CED01` filter, an error shape no handler covers.
+    """
+    row = owner_conn.execute(
+        """
+        SELECT pg_get_constraintdef(c.oid), array_length(c.conkey, 1), a.attname
+          FROM pg_constraint c
+          JOIN pg_attribute a
+            ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+         WHERE c.conname = 'events_type_is_canonical'
+           AND c.conrelid = 'public.events'::regclass
+           AND c.contype = 'c'
+        """
+    ).fetchone()
+    assert row is not None, (
+        "no CHECK constraint named events_type_is_canonical on public.events — "
+        "the reserved-type rule is then only as complete as the trim class, "
+        "which is the defect rounds 4 and 5 both found"
+    )
+    definition, columns, column_name = row
+    assert columns == 1 and column_name == "type", (
+        f"the constraint covers {columns} column(s) including {column_name!r}; "
+        "it must constrain events.type and nothing else"
+    )
+    assert EXPECTED_TYPE_SHAPE in definition, (
+        f"the shipped constraint is {definition!r}, which does not carry the "
+        f"expected shape {EXPECTED_TYPE_SHAPE!r} — a widened character class "
+        "reopens the bypass class rounds 3 through 5 were spent closing"
+    )
+
+    body = owner_conn.execute(
+        "SELECT prosrc FROM pg_proc p JOIN pg_namespace n "
+        "ON n.oid = p.pronamespace "
+        "WHERE n.nspname = 'public' AND p.proname = 'append_step_event'"
+    ).fetchone()
+    assert body is not None, "append_step_event is absent"
+    assert EXPECTED_TYPE_SHAPE in body[0], (
+        "append_step_event does not refuse on the same shape the column "
+        "enforces; a type the function admits and the column rejects reaches "
+        "the caller as an unmapped CheckViolation"
+    )
+
+
 def test_the_migration_applies_to_a_database_at_no_revision(
     require_substrate: None, owner_conn: psycopg.Connection
 ) -> None:
@@ -379,6 +450,25 @@ def _require_local_substrate() -> None:
     # legitimate local substrate returns the container's bridge address
     # (measured as 172.18.0.3), not a loopback, so a guard requiring loopback
     # from the server's own view would refuse the one target this check is for.
+    # **The environment is checked before the DSN, because libpq reads it too.**
+    # Round 5 closed the DSN-carried spellings and left these, on a recorded
+    # ground that turned out to be wrong: the fix was said to need the
+    # effective target resolved, when this guard's own principle — refusing
+    # beats resolving — closes it for the same cost as the DSN check three
+    # lines down. Measured before the fix: with `PGHOSTADDR` exported,
+    # `conninfo_to_dict` reports `host='127.0.0.1'` with no `hostaddr` key at
+    # all, every condition below passes, and the `CREATE`/`DROP DATABASE` runs
+    # against wherever that variable points. The realistic victim is not an
+    # attacker but a developer with one of these set for an unrelated cluster.
+    for variable in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"):
+        if os.environ.get(variable):
+            pytest.skip(
+                f"refusing cluster DDL: ${variable} is set, and libpq honours "
+                "it at connect time without it appearing in the DSN this "
+                "guard parses, so the target cannot be established from the "
+                "DSN alone"
+            )
+
     for redirecting in ("hostaddr", "service"):
         if resolved.get(redirecting):
             pytest.skip(

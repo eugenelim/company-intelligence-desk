@@ -627,25 +627,38 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
     Inverted order — it is already expired, and the assertion reds.
     """
     _run_id, step_id = runnable_step
+    from ced.adapters.postgres.dsn import database_url
+
     live_when_asked_to_stop: list[bool] = []
+    observer_failed: list[BaseException] = []
+
+    # **The connection is opened here, before the drain, and not inside the
+    # callback.** A connect inside `look()` runs while the supervisor is inside
+    # `stop_body`'s join, which is one lease TTL — 3 s under `FAST`. Bounding
+    # it did not work: `connect_timeout=1` is floored by libpq at 2 s
+    # (measured: a requested 1 s elapses at 2.00 s, 2 s at 2.00 s, 3 s at
+    # 3.00 s), leaving under a second of a 3 s join for the connect plus the
+    # query. Hoisting it out removes the race instead of retuning a margin
+    # against it, and the callback closes over the connection exactly as it
+    # already closes over `step_id`.
+    observer = psycopg.connect(database_url("migration"))
 
     def look() -> None:
-        from ced.adapters.postgres.dsn import database_url
-
-        # **Bounded, and well inside the join window.** `stop_body` joins for
-        # one lease TTL, which is 3 s under `FAST`; an unbounded connect here
-        # could outlast it, leaving `stop_body` to return False, `_execute` to
-        # take the stuck-body branch, and the assertion below to read an empty
-        # list — reporting a production ordering regression when what actually
-        # happened was a slow connect. The assertion on `body.stopped` below is
-        # the other half of telling those two apart.
-        with psycopg.connect(database_url("migration"), connect_timeout=1) as observer:
+        # Every failure is captured, not raised. An exception here is swallowed
+        # by the pool's own body wrapper, which sets `body_done` and lets the
+        # drain complete normally — so the observation would simply be missing
+        # and the assertion below would blame the production ordering for what
+        # was actually a broken observer. The pool logs it as a failed step and
+        # nothing surfaces the cause.
+        try:
             row = observer.execute(
                 "SELECT lease_expires_at > clock_timestamp() FROM steps WHERE step_id = %s",
                 (step_id,),
             ).fetchone()
-            assert row is not None
+            assert row is not None, "the step row vanished mid-drain"
             live_when_asked_to_stop.append(bool(row[0]))
+        except BaseException as exc:  # noqa: BLE001 — reported, not handled
+            observer_failed.append(exc)
 
     body = make_body(on_stop=look)
     worker = pool.Worker(FAST, step_body=body)
@@ -659,17 +672,25 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
 
     drainer = threading.Thread(target=drain)
     drainer.start()
-    worker._execute(worker_conn, lease)
-    drainer.join(timeout=10)
+    try:
+        worker._execute(worker_conn, lease)
+    finally:
+        drainer.join(timeout=10)
+        observer.close()
 
-    # Attribution first: if the body was never stopped and joined, the
-    # observation below is missing for a reason that has nothing to do with the
-    # ordering, and the message would blame the wrong thing.
+    # **Attribution, in the order the causes actually separate.** Each of these
+    # produces an empty observation list, and the last message is the only one
+    # that may blame the production ordering.
+    assert not observer_failed, (
+        f"the observer itself failed, so nothing was observed: {observer_failed[0]!r}. "
+        "This is not an ordering regression — the pool swallows an exception "
+        "raised in the body, so the drain completed normally and the missing "
+        "observation says nothing about when the lease was surrendered"
+    )
     assert body.stopped.is_set() and body.finished.is_set(), (
         "the body was not stopped and joined within the drain's join window, "
         "so `_execute` took the stuck-body branch — this is a join timeout, "
-        "not an ordering regression, and the observation below is absent "
-        f"rather than false (observed {live_when_asked_to_stop!r})"
+        "not an ordering regression"
     )
     assert live_when_asked_to_stop == [True], (
         "the lease was already surrendered when the body was asked to stop, "

@@ -161,3 +161,43 @@ def test_every_response_status_the_contract_declares_is_served(
 
     for route, expected in committed_table.items():
         assert expected["responses"] == served_table[route]["responses"], route
+
+
+def test_the_published_attribution_bound_matches_the_model() -> None:
+    """The one check that holds the contract's number and the model's in step.
+
+    AC-0009 compares a route table and excludes `components.schemas` by design,
+    so nothing there notices if these two drift — and two comments used to
+    claim otherwise. This is deliberately *not* an extension of AC-0009:
+    widening that criterion's artifact would change what a ratified acceptance
+    criterion asserts, which is not this delivery's call.
+
+    **It lives here, and that is the point of the move.** It was written in
+    `test_start_and_read_a_run.py`, whose module-wide `substrate` mark meant
+    the one check guarding against this drift never ran in the offline gate — a
+    contributor could raise the constant, run the documented offline subset
+    green, and ship a contract publishing the old bound. This file already
+    refuses a module-wide mark for exactly that reason.
+    """
+    from ced.api.models import ATTRIBUTION_MAX_LENGTH, StartRunRequest
+
+    published = yaml.safe_load(CONTRACT.read_text())["components"]["schemas"][
+        "StartRunRequest"
+    ]["properties"]
+
+    for field in ("principal", "agent_role"):
+        model_field = StartRunRequest.model_fields[field]
+        bounds = {type(meta).__name__: meta for meta in model_field.metadata}
+        assert published[field]["maxLength"] == ATTRIBUTION_MAX_LENGTH, (
+            f"{field}'s published maxLength is {published[field]['maxLength']} "
+            f"but the model enforces {ATTRIBUTION_MAX_LENGTH}; a client "
+            "trusting the contract would be told the wrong limit"
+        )
+        # The minimum is compared to the model's own metadata rather than to a
+        # literal, so it cannot drift in the direction this check exists to
+        # catch. Pinning it against `1` on both sides would have compared two
+        # literals and caught nothing.
+        assert published[field]["minLength"] == bounds["MinLen"].min_length, (
+            f"{field}'s published minLength is {published[field]['minLength']} "
+            f"but the model enforces {bounds['MinLen'].min_length}"
+        )
