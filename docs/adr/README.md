@@ -3,3 +3,7 @@
 | # | Title | Status | Date |
 | --- | --- | --- | --- |
 | 0001 | [Pydantic AI as the agent framework](0001-pydantic-ai-as-the-agent-framework.md) | Accepted | 2026-09-17 |
+| 0002 | [The `pydantic-ai` pin is 2.45.0](0002-pydantic-ai-version-pin.md) | Accepted | 2026-09-18 |
+| 0003 | [Five top-level directories for the application](0003-repository-layout.md) | Accepted | 2026-09-18 |
+| 0004 | [The fence function has its own owner, not the worker's](0004-fence-function-owner.md) | Accepted | 2026-09-18 |
+| 0005 | [The append fence proves lease possession, not epoch knowledge](0005-the-fence-proves-lease-possession.md) | Accepted | 2026-09-18 |

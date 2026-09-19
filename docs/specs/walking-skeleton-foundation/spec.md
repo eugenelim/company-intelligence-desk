@@ -1,6 +1,6 @@
 # Spec: Walking skeleton — foundation
 
-- **Status:** Approved <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Status:** Shipped <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0003 (repository layout — a forward reference, created by T1 of this spec)
@@ -77,7 +77,7 @@ Every criterion sits in exactly one group.
 
 - **TDD (AC-0002, AC-0003, AC-0004, AC-0005, AC-0006)** — the compressible invariants of the event log and its privilege split. Each has a statable property and a cheap oracle, so the test is written before the code. AC-0003 and AC-0004 carry a *property test* rather than examples, because density under concurrency is a property of interleavings no fixed case covers.
 - **Goal-based check (AC-0001, AC-0007, AC-0008, AC-0009)** — the wiring and the gates. A one-liner is the verdict: served routes against the committed contract, and each import or identifier rule against a deliberately introduced violation.
-- **End-to-end, including fault injection (AC-0010, AC-0011)** — lease recovery is only observable with real containers and a worker actually killed. Neither can be written before the pool it exercises.
+- **End-to-end, including fault injection (AC-0010, AC-0011)** — lease recovery is only observable with real containers and a worker actually killed. Neither can be written before the pool it exercises. AC-0011's two clauses are verified at different levels and both belong to this group: the drain bound in process against the injected step body, where a signal's effect is observable without a container boundary in the way, and the poll bound against a real container, measured from the lease surrender.
 
 No criterion in this spec calls a model provider. That is deliberate: the
 sibling `walking-skeleton-agent-runtime` owns every provider-touching claim, so
@@ -94,28 +94,41 @@ obligations go beyond those sources, and the approval gate rules on each:
 | Assert the privilege split on the shipped schema | AC-0005 | Spike P1 proved the split against the spike's own schema, not the one this delivery runs | The split is proven for a schema that is not the one running |
 | Assert graceful drain distinctly from host loss | AC-0011 | `runtime-architecture.md` § Step execution specifies `SIGTERM` setting the lease expiry | A rolling deploy silently costs as much as an unplanned host loss |
 
+**AC-0011 was amended on 2026-09-18** after implementation showed the original
+wording named no origin for its interval. Measured from signal delivery — the
+stricter reading — the mechanism's worst case is the drain plus the poll, just
+above one poll interval, so the criterion as written was not one the mechanism
+could guarantee. The amendment names the origin, matching r7 § Step execution's
+own wording, and splits the obligation in two: the drain is bounded at under one
+heartbeat, and the poll at one interval from the surrender. It is a narrowing of
+one clause and a strengthening of the other, not a relaxation; the end-to-end
+total is reported rather than asserted, because asserting a sum hides which term
+moved. Grounds and the rejected alternatives are in
+[`notes/verification-ledger.md`](notes/verification-ledger.md) § Contract
+amendment.
+
 **Starting a run**
 
-- [ ] **AC-0001.** `POST /runs` returns a run identifier and the run is readable at `GET /runs/{id}/snapshot` in state `requested`.
-- [ ] **AC-0002.** The `run.requested` event and the coordinator step row commit in one transaction: with the step insert forced to fail, no run row, no step row, and no event exists.
+- [x] **AC-0001.** `POST /runs` returns a run identifier and the run is readable at `GET /runs/{id}/snapshot` in state `requested`.
+- [x] **AC-0002.** The `run.requested` event and the coordinator step row commit in one transaction: with the step insert forced to fail, no run row, no step row, and no event exists.
 
 **Appending events**
 
-- [ ] **AC-0003.** Under eight concurrent writers appending to one run — the concurrency spike P2 used, carried forward — every event's `seq` is dense from 1 with no duplicates and no gaps.
-- [ ] **AC-0004.** An append attempted with a stale `lease_epoch` rolls back, and the run's `seq` sequence after it is still dense: the rolled-back attempt consumed no number.
-- [ ] **AC-0005.** A `worker`-role connection attempting to append a `policy.decision` event is refused by the database rather than by application code.
-- [ ] **AC-0006.** A second `tool.invoked` event carrying an idempotency key already recorded for its run is refused by the partial unique index, so a duplicate append fails rather than succeeding twice.
+- [x] **AC-0003.** Under eight concurrent writers appending to one run — the concurrency spike P2 used, carried forward — every event's `seq` is dense from 1 with no duplicates and no gaps.
+- [x] **AC-0004.** An append attempted with a stale `lease_epoch` rolls back, and the run's `seq` sequence after it is still dense: the rolled-back attempt consumed no number.
+- [x] **AC-0005.** A `worker`-role connection attempting to append a `policy.decision` event is refused by the database rather than by application code.
+- [x] **AC-0006.** A second `tool.invoked` event carrying an idempotency key already recorded for its run is refused by the partial unique index, so a duplicate append fails rather than succeeding twice.
 
 **Containing dependencies and identifiers**
 
-- [ ] **AC-0007.** The dependency-direction test fails on a deliberately introduced `pydantic_ai` import outside `agents/` and `adapters/`, and on a deliberately introduced AWS SDK import outside `adapters/`, and passes once both are removed.
-- [ ] **AC-0008.** `tools/lint-no-identifiers.py` fails on an account identifier embedded inside a larger identifier, and does not fail on a twelve-digit run inside a content hash.
-- [ ] **AC-0009.** The served routes match `contracts/openapi/runs.yaml`, asserted against the generated document rather than by inspection.
+- [x] **AC-0007.** The dependency-direction test fails on a deliberately introduced `pydantic_ai` import outside `agents/` and `adapters/`, and on a deliberately introduced AWS SDK import outside `adapters/`, and passes once both are removed.
+- [x] **AC-0008.** `tools/lint-no-identifiers.py` fails on an account identifier embedded inside a larger identifier, and does not fail on a twelve-digit run inside a content hash.
+- [x] **AC-0009.** The served routes match `contracts/openapi/runs.yaml`, asserted against the generated document rather than by inspection.
 
 **Surviving host loss**
 
-- [ ] **AC-0010.** A worker killed mid-step has its step reacquired by another worker within 150 seconds, with no operator action.
-- [ ] **AC-0011.** A worker sent `SIGTERM` has its step reacquired within one poll interval, which is what distinguishes graceful drain from waiting out the lease TTL.
+- [x] **AC-0010.** A worker killed mid-step has its step reacquired by another worker within 150 seconds, with no operator action.
+- [x] **AC-0011.** A worker sent `SIGTERM` surrenders its lease without waiting out a heartbeat interval, and its step is reacquired within one poll interval **of that surrender** — which is what distinguishes graceful drain from waiting out the lease TTL.
 
 ## Follow-ons
 

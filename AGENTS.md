@@ -16,9 +16,16 @@ not restate them, and its silence on a direction is not permission.
 
 The architecture is
 [`docs/architecture/inspectable-multi-agent-diligence/`](docs/architecture/inspectable-multi-agent-diligence/README.md)
-— a Draft design awaiting owner sign-off, with two companions covering
-observability/evaluation and experience/presentation. Nothing in it is built
-yet; that folder carries a `STATUS: PLANNED` marker.
+— **ratified 2026-09-18**, with its five *Known at ship* gaps accepted open,
+and with two companions covering observability/evaluation and
+experience/presentation. The worker and pool are specified in
+[`docs/architecture/pydantic-ai-worker-runtime/`](docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md).
+
+**Part of it is now built.** The walking skeleton's foundation ships the event
+log, the privilege split, the HTTP surface and the worker pool;
+[`docs/architecture/README.md`](docs/architecture/README.md) § What is built is
+the current map, and everything else in those folders is still designed rather
+than built, which is why they keep their `STATUS: PLANNED` markers.
 
 ## Rule lookups
 
@@ -97,6 +104,11 @@ refuses — is in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
   before building. Record disagreement rather than complying silently.
 - Get confirmation before destructive or irreversible operations.
 - Propose a new top-level directory through an RFC rather than creating one.
+  The owner waived this once, for the walking skeleton on 2026-09-18; the
+  five directories it created are recorded in
+  [ADR-0003](docs/adr/0003-repository-layout.md) and a sixth still needs the
+  RFC. The waiver was a one-time shaping-phase exception, not a change to
+  this rule.
 - Keep unrelated discoveries out of the current change unless the accepted
   contract admits them. Note them somewhere durable instead.
 
@@ -117,20 +129,118 @@ done here.
 
 ## Build and test commands
 
-There is no application code yet, so there is no install, build or test
-command to run. Two checks run against every change, and both are cheap:
+Every command below was run to produce this section; none is inferred from the
+detected language. The manifest is [`pyproject.toml`](pyproject.toml) and the
+layout it fills is [ADR-0003](docs/adr/0003-repository-layout.md).
+
+### Install
+
+```bash
+python3 -m venv .venv                  # Python 3.13 — pinned by requires-python
+./.venv/bin/pip install -e '.[dev]'
+```
+
+### Gates, in the order to run them
+
+```bash
+./.venv/bin/ruff format --check .      # style
+./.venv/bin/ruff check .               # lint
+./.venv/bin/mypy                       # types — strict, over src/ced only
+./.venv/bin/python -m pytest -m 'not substrate'   # offline suites
+./.venv/bin/python -m pytest                      # everything, needs the substrate below
+```
+
+`ruff` and `mypy` govern the code this project authors. `pyproject.toml`
+`[tool.ruff] extend-exclude` names what they skip and why — vendored agent
+packs, `spikes/` (throwaway by that directory's own rule), and the `tools/`
+lints, which predate this manifest. `mypy` runs over `src/ced` and not over
+`tests/`.
+
+### The local substrate
+
+Tests marked `substrate` need Postgres and MinIO. **Use `docker-compose`, not
+`docker compose`** — the Compose CLI plugin is not installed in this
+environment, and the standalone binary is:
+
+```bash
+docker-compose -f deploy/compose.yaml up -d --build postgres minio
+until docker-compose -f deploy/compose.yaml exec -T postgres \
+      pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
+docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
+./.venv/bin/python -m pytest           # minutes, not seconds; see below
+docker-compose -f deploy/compose.yaml down -v
+```
+
+The `until` line is not decoration. `up -d` returns when the containers have
+**started**, not when Postgres accepts connections, and on a fresh volume
+`initdb` plus the role-creation hook in `deploy/postgres-init/` run first —
+the healthcheck budgets up to 60 s for it. The worker step is gated by
+`depends_on: service_healthy`; the migration is not, so without the wait
+`alembic` races startup on exactly the clean clone this block is written for.
+
+**The schema has to exist before the workers start, which is why this is three
+commands and not two.** A single `up -d --build` starts the workers against an
+empty database; they die on their first claim with `relation "steps" does not
+exist`, and `restart: "no"` — load-bearing for AC-0010, so a killed worker
+stays dead and the recovery observed is the *other* worker's — keeps them dead.
+The stack then looks healthy while every `tests/fault_injection` check fails on
+its two-worker precondition. Reproduced by following the previous version of
+this block on a fresh volume.
+
+`--build` matters: the stack includes two worker containers built from
+`deploy/Dockerfile`, and `tests/fault_injection` kills and restarts them. That
+suite runs at r7's real lease timings — TTL 60 s, heartbeat 20 s, poll 30 s, so
+it dominates the wall clock almost entirely.
+
+**No range is published for the suite, and that is deliberate.** A survivor's
+poll offset is uniform on [0, 30 s), so the whole suite has been measured at
+186 s and 205 s, then — after a subsumed fault-injection check was removed,
+which is why the earlier pair is not comparable — at 156 s and 160 s, all on
+the same machine with nothing wrong. Every range published here so far excluded
+one of those measurements. Expect minutes, expect the spread, and read the
+number `pytest` prints rather than one written down here. Compressed timings would
+demonstrate the mechanism and not the 150-second number the criterion states.
+
+**This is the only place a suite duration is discussed.** Three files used to
+carry figures that contradicted each other, one of them a sub-suite longer than
+the whole; the rest describe the shape and point here. The workers also run on
+their own `CED_POOL_CLASS`, so they cannot claim the default-class rows the
+other suites assert on; `deploy/compose.yaml` records why.
+
+### Running the two deployables
+
+One package, two entry points, per [ADR-0003](docs/adr/0003-repository-layout.md) D3:
+
+```bash
+CED_API_PORT=58080 ./.venv/bin/ced-api      # default 8000, loopback only
+./.venv/bin/ced-worker                      # set CED_WORKER_ID to tell two apart
+```
+
+Both need the substrate up. `CED_API_HOST` and `CED_API_PORT` exist because
+8000 is the most contended port on a developer machine; the default binds
+loopback, since nothing here is authenticated and r7 puts OIDC at the ingress.
+
+### Repository checks
+
+These predate the application and still run against every change:
 
 ```bash
 python3 tools/lint-no-identifiers.py --staged   # no account ids, ARNs, keys,
                                                 # emails or absolute home paths
 python3 tools/lint-intents.py                   # structural lint for docs/product/intents/
 python3 tools/hooks/pre-pr.py                   # knowledge lint + work-loop caps + ADR shape lint
+python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all
 ```
 
+The last one checks spec and plan status metadata across every spec. It is
+listed here because T7's pinned `Tests` says it is, and it was not — so the
+command T7 verifies against was invisible from a clean clone.
+
 Run the first two before committing and the third before opening a PR. There is
-no CI: these are the whole gate. Add the install, build and test commands here
-in the same change that introduces them, verified from the manifest or task
-runner that owns them — never guessed from the detected language.
+no CI: the gates on this page are the whole gate. Add a new install, build or
+test command here in the same change that introduces it, verified from the
+manifest or task runner that owns it — never guessed from the detected language.
 
 ## Coding conventions
 

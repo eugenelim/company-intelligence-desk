@@ -38,6 +38,17 @@ __pycache__/
 *.pyc
 build/
 
+# The AC-0007 dependency-direction probe writes a real forbidden import into
+# `src/ced/<layer>/` and removes it in a fixture finalizer. Ignored so an
+# abnormal exit that skips the finalizer leaves debris that cannot be staged.
+src/ced/**/_ac0007_violation_probe.py
+
+# Python toolchain — local environment and tool caches.
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
 # Build pipeline output.
 dist/
 
@@ -77,3 +88,4 @@ docs/knowledge/*.lock.stale-*
 
 # Spike virtualenvs — local, disposable.
 spikes/**/.venv/
+.loop-run/

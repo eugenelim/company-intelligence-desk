@@ -43,12 +43,13 @@ status = "active"
 # the other two build.
 draft = []
 approved = [
-  { path = "docs/specs/walking-skeleton-foundation/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 foundation: layout RFC, project gates, schema and both append paths, privilege split, API, worker pool and lease recovery", needs = [] },
   { path = "docs/specs/walking-skeleton-agent-runtime/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 agent runtime: role compiler, toolset stack with the policy decision point outermost, containment fragment, quarantine boundary, scoped-role provider call, persistence and resume", needs = ["docs/specs/walking-skeleton-foundation/spec.md"] },
   { path = "docs/specs/walking-skeleton-evidence/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 evidence: run state machine and publication, browser stream, the four Phase 1 measurements, analytical re-baseline, and the record of what was not established", needs = ["docs/specs/walking-skeleton-foundation/spec.md", "docs/specs/walking-skeleton-agent-runtime/spec.md"] },
 ]
 implementing = []
-shipped = []
+shipped = [
+  { path = "docs/specs/walking-skeleton-foundation/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 foundation: layout RFC, project gates, schema and both append paths, privilege split, API, worker pool and lease recovery", needs = [] },
+]
 
 ["ini-001".brief_queue]
 draft     = []

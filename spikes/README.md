@@ -257,7 +257,7 @@ To unblock: obtain one filing from an unblocked network, once, and record it as
 a fixture. That is precisely what § Local development's recorded-fixture replay
 exists for, and the fetch adapter then replays it for every subsequent run.
 
-## What these results do not establish
+## What the Postgres spike results do not establish
 
 - Both Postgres spikes ran against a **local container**, not RDS or Aurora.
   Lock behaviour is core Postgres and should carry, but managed-service
@@ -353,3 +353,151 @@ cd phase-0
 python3 -m venv .venv && ./.venv/bin/pip install 'pydantic-ai-slim[bedrock]' boto3
 AWS_PROFILE=<an-admin-profile> ./.venv/bin/python pydantic_ai_bedrock_spike.py
 ```
+
+## Phase 1 — walking skeleton foundation
+
+Not a spike. `walking-skeleton-foundation` is delivered code with an
+acceptance suite, and it is recorded here because Phase 0 is where this
+repository keeps the answer to *what do we actually know*. The same standard
+applies: **a check that cannot fail is not evidence**, so setup checks are
+reported apart from hypothesis checks.
+
+All checks green — the count is deliberately not stated here, because it moved three times during review and a stale tally is worse than none; `pytest` reports it. The same goes for the duration: `AGENTS.md` § The local substrate describes the shape and publishes no figure, because four published ranges each excluded a run the same section called normal. Most of that time is the
+fault-injection suite running at r7's real lease timings. No model provider is
+called, no cloud credential is used, and the spend is **$0.00** — by design:
+`walking-skeleton-agent-runtime` owns every provider-touching claim.
+
+Run it with the commands in [`AGENTS.md`](../AGENTS.md) § Build and test
+commands. Per-check detail, including every finding the suite produced while
+being built, is in
+[`docs/specs/walking-skeleton-foundation/notes/verification-ledger.md`](../docs/specs/walking-skeleton-foundation/notes/verification-ledger.md).
+
+### What this established
+
+| Claim | Criterion | Evidence |
+| --- | --- | --- |
+| A run starts over HTTP and is readable in `requested` | AC-0001 | 201 with a run id, snapshot `{"state":"requested","as_of_seq":1}`, one `run.requested` event with `step_id` and `agent_role` null. Driven against a real uvicorn server, and separately against the shipped `ced-api` binary by hand |
+| The run row, its coordinator step and `run.requested` are atomic | AC-0002 | With the step insert forced to fail by an already-taken `step_id` — a real unique violation on the real statement — all three rows are absent |
+| `seq` is dense from 1 under eight concurrent writers | AC-0003 | 200/200 events, dense, zero duplicates, `next_seq` 200, zero deadlocks. Spike P2's shape against the **shipped** schema rather than the spike's |
+| A rolled-back append consumes no sequence number | AC-0004 | A stale epoch raises `Fenced`; the sequence stays `[1,2,3]`, `next_seq` stays 3, and the next legitimate append gets 4 |
+| The **database** refuses the worker the reserved event type, in any spelling | AC-0005 | A real `app_worker` connection is refused with `insufficient_privilege`, and the message names `app_worker` — `session_user`, which is P1's finding, now pinned on the shipped schema. The worker is also refused `EXECUTE` on the policy function, and no role holds a direct `INSERT` on `events`. **Three review rounds were spent on the "any spelling" half**: a padding denylist was defeated by a tab, then by six invisible characters, then by a Cyrillic homoglyph, which is not whitespace at all. The shipped rule is positive — the canonical form must be a dotted run of lowercase ASCII alphanumerics — and it is enforced by a CHECK on the column as well as by the function, so it holds against direct DML by the schema owner and `COPY`. Verified over 18 spellings |
+| A duplicate derived idempotency key is refused | AC-0006 | `UniqueViolation` on the second `tool.invoked`, consuming no sequence number; the index's partiality checked in both directions |
+| The dependency-direction gate fails on a real violation | AC-0007 | Seven injected imports each reported, four permitted placements each not reported, three dynamic-import forms caught, and zero findings once removed |
+| The identifier lint catches an embedded account id, and not a content hash | AC-0008 | Five embedding shapes exit 1; a hash containing a twelve-digit run exits 0. The real script, as a subprocess, against a throwaway git repository |
+| The served routes match the committed contract | AC-0009 | Route table equality against `/openapi.json`, and the comparison shown failing on three mutations of a copy |
+| A killed worker's step is reacquired with no operator action | AC-0010 | `docker kill`; reacquired after **59.5 s** and **80.3 s** on two runs, `lease_epoch` 1 → 2 |
+| A drained worker surrenders its lease promptly, and its step returns in one poll interval | AC-0011 (amended 2026-09-18) | `docker kill --signal=TERM`, with the clock started at signal delivery. Clause 1: the lease stopped being held after 0.04 s, observed as the surrender itself, against a bound of under one heartbeat. Clause 2: reacquired 19.2 s after that surrender, against one poll interval. End-to-end 19.2 s, reported and not asserted |
+
+Two further results that no criterion asked for and that a reader needs:
+
+- **The lock-ordering rule is shown failing.** Mixed orders on one
+  `(run, step)` pair deadlock; a **uniformly** inverted order does not, because
+  every writer serialises on the same `runs` row; the designed order is clean
+  under the same pressure. Phase 0 sharpened the claim that way and the suite
+  carries the sharpening rather than the weaker version of it.
+- **`fence_step` is owned by `ced_fence`**, a `NOLOGIN` role granted to no
+  application identity, verified in `pg_proc` — so the fence runs far below the
+  schema owner's privilege *and* the role the split distrusts cannot `DROP` or
+  `ALTER` it. `app_policy` is refused `SELECT ... FOR UPDATE` on `steps`
+  directly — and since ADR-0005 D4 it holds no table access at all, so that
+  refusal is attributable to holding nothing rather than to the `UPDATE` the
+  row lock needs. Either way the fence had to be a function rather than a
+  grant. [ADR-0004](../docs/adr/0004-fence-function-owner.md)
+  records this as an owner-approved narrowing of `worker-runtime.md` item 1,
+  whose preferred option — owning the fence as `worker` — review established as
+  unsafe.
+
+### What was substituted
+
+Each of these is a real stand-in, not a weaker version of the same thing.
+
+- **"No operator action" rests on a second worker already running**, not on
+  anything replacing the killed one. `restart: "no"` keeps the victim dead so
+  the recovery observed is the survivor's. A deployed ECS service with a
+  desired count would replace the task; nothing here does.
+- **The step body is a sleep, not a model call.** That is what keeps this
+  suite free of a credential and of spend, and it means nothing here exercises
+  a fenced worker abandoning an in-flight model call.
+- **Role creation is a container init hook, not a migration.** In a deployed
+  system the roles and their credentials come from whoever owns the database
+  instance, and `alembic` authenticates as r7's `migration` identity. Locally
+  the bootstrap superuser stands in for both, so **nothing ran as r7's
+  `migration` role** and its privileges are unverified.
+- **The `migration` identity also creates the login roles**, which a real
+  deployment would not let it do.
+- **`quay.io/minio/minio` replaces the Docker Hub path**, because
+  `docker pull minio/minio` is refused from this network — the same class of
+  network-dependent failure as spike 4's SEC 403, and worth recording for the
+  same reason.
+
+### What this did NOT establish
+
+**Two lists exist and they cover different things.** This one carries the
+Phase-0-facing limits — what the spikes and this suite together do and do not
+license a reader to believe about the platform. The delivery's own consolidated
+limits, roughly thirty of them across the schema, the worker, the privilege
+model and the checks themselves, live in
+[`verification-ledger.md`](../docs/specs/walking-skeleton-foundation/notes/verification-ledger.md)
+§ What is not established, which is authoritative for anything about this
+spec's code. They are deliberately not duplicated here: two copies of a limit
+list diverge, and round 8 of this delivery was largely spent on records that
+had.
+
+- **Nothing about a managed database.** Both the Phase 0 Postgres spikes and
+  this suite ran against a local container with `deadlock_timeout` at **200 ms**,
+  well below the 1 s default, which makes deadlocks surface faster than
+  production would. Connection pooling, failover and managed-service
+  `deadlock_timeout` defaults remain untested, exactly as § What the Postgres
+  spike results do not establish records for Phase 0.
+- **Nothing about Fargate.** Local containers on one Docker host. Task
+  replacement, its timing and its notice period are unmeasured — and the vCPU
+  quota being 4000 in the target account is a property of the account, not of
+  the design.
+- **Nothing about the AWS identity layer.** No cloud credential is used
+  anywhere in this suite. What is proven is the *database* privilege model,
+  which is where the `policy.decision` split actually lives.
+- **The 150-second bound is not established; two observations inside it are.**
+  AC-0010 measured 59.5 s and 80.3 s on two runs. Measurements below a bound do
+  not prove the bound.
+
+  **And r7's 150 is not derivable from r7's own timings.** A worker dying
+  immediately after a renewal leaves one full TTL of valid lease, then at most
+  one poll interval before the survivor finds the step claimable: 60 + 30 =
+  **90 s**. No arrangement of 60, 20 and 30 reaches 150. The criterion is the
+  looser of the two, so this implementation is inside both, and the 80.3 s
+  observation confirms 90 rather than 60 is the real ceiling. Reconciling the
+  architecture's arithmetic belongs to the r8 consistency pass r7's header
+  already names as outstanding — not to this spec, which is forbidden from
+  designing around a ratified decision.
+- **`append_policy_decision`'s lock ordering is argued, not demonstrated.**
+  Spike P2 ran with no second locker on `steps`, so the claim that the policy
+  path preserves P2's proven ordering rests on it taking the fence in the same
+  order. What *is* demonstrated is that a mixed order still deadlocks.
+- **No terminal event has a writer here.** `append_run_event` admits exactly
+  r7's two names, so `run.completed` and `run.failed` cannot be appended by
+  anything in this spec. The run state machine that produces them belongs to
+  `walking-skeleton-evidence`.
+- **Nothing about the stream.** The events route serves a cursor projection.
+  Reconnect semantics, the `Last-Event-ID` preference over `after=`, keepalives
+  and stream termination are all the evidence spec's, and Phase 0 spike 3 is
+  still the only evidence for any of them.
+- **Nothing about cancellation.** No cancellation token, no `step_deadline`.
+  The heartbeat reads run state in the same statement that renews the lease, so
+  the signal exists; nothing here produces a cancelled run.
+- **Nothing about the object store.** MinIO is reachable and nothing reads or
+  writes an object. The worker's boot sequence checks both database connections
+  and deliberately not the object store, because an S3 client in `worker/`
+  would put the AWS SDK outside `adapters/`.
+- **Nothing about the agent layer.** `src/ced/agents/` is empty. The role
+  compiler, the policy decision point, the containment fragment, the quarantine
+  boundary and the provider call are all unbuilt, and `pydantic-ai` is pinned in
+  the manifest and imported by no code — it is there so the
+  dependency-direction gate has something real to forbid.
+- **The framework pin moved without re-running spike 7.** ADR-0002 records
+  2.45.0 on the strength of an offline probe and the vendor's additive-minor
+  policy; spike 7's 10/10 ran under 2.44.0 and was not re-run.
+- **The layout had no independent review.** The RFC route was waived, so
+  ADR-0003 plus one test is the whole review the five top-level directories
+  received.
+- **`mypy` does not check the tests.** It runs over `src/ced` only, and `ruff`
+  skips the vendored agent packs, `spikes/` and `tools/`.

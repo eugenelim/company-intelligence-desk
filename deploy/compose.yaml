@@ -1,0 +1,136 @@
+# The local substrate for the walking skeleton. Local only, throwaway, no data
+# of value. There is no AWS in this spec's test path and no cloud credential.
+#
+# **Bring-up is three commands, not one, and they live in `AGENTS.md` § The
+# local substrate.** This header used to restate `up -d`, which starts the
+# workers against an empty database: they die on their first claim and
+# `restart: "no"` below keeps them dead, leaving a stack that looks healthy
+# while every fault-injection check fails its two-worker precondition. The
+# canonical order is in that section; it is not repeated here, because two
+# copies is how this one came to contradict it.
+#
+# The Compose CLI *plugin* (`docker compose`) is not installed in the
+# development environment this was verified in; the standalone binary is.
+services:
+  postgres:
+    # Digest-pinned: a mutable tag lets the substrate a recorded result was
+    # measured against change with no diff.
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      # A throwaway container on a loopback port. Not a credential.
+      POSTGRES_PASSWORD: local_only_not_a_secret
+      POSTGRES_DB: ced
+    # Bound to the host loopback explicitly. Compose short syntax without a
+    # host IP publishes on every interface AND bypasses the host firewall, so
+    # the committed passwords below would be reachable from the local network.
+    # The three "local only" comments in this repository are defensible only
+    # under this binding, and before review round 1 they were not implemented.
+    ports: ["127.0.0.1:55432:5432"]
+    # `deadlock_timeout` at 200 ms matches Phase 0 spike P2 exactly, which is
+    # what lets T4's results be compared with the spike's. It is well below the
+    # 1 s default, so deadlocks surface faster here than in production — that
+    # qualification travels with every result measured against this container.
+    command: >
+      postgres -c log_lock_waits=on
+               -c deadlock_timeout=200ms
+               -c log_min_messages=warning
+    volumes:
+      # Role creation is provisioning, not migration. In a deployed system the
+      # roles and their credentials are created by whatever owns the database
+      # instance, and `alembic` authenticates as r7's `migration` identity.
+      # Locally the container's init hook stands in for that owner, which keeps
+      # `alembic upgrade head` purely about schema.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ced"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # The S3-API subset, per runtime-architecture.md § Object store contract.
+  #
+  # **No criterion in this spec reads or writes an object, and the worker does
+  # NOT check it at boot.** `src/ced/worker/pool.py` verifies the two database
+  # connections and deliberately not the object store, because an S3 client in
+  # `worker/` would put the AWS SDK outside `adapters/` and trip AC-0007's
+  # gate. An earlier version of this comment claimed the opposite and was the
+  # stated reason the service exists; review round 1 caught it.
+  #
+  # It is here so the substrate the sibling specs need is already standing when
+  # `walking-skeleton-agent-runtime` writes the first payload object. Until
+  # then it is unused, which is recorded rather than hidden.
+  minio:
+    # quay.io, not Docker Hub: `docker pull minio/minio` returns "repository
+    # does not exist or may require 'docker login'" from this network, and
+    # quay.io is MinIO's own registry. Verified 2026-09-18.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: local_only_not_a_secret
+      MINIO_ROOT_PASSWORD: local_only_not_a_secret
+    ports: ["127.0.0.1:59000:9000", "127.0.0.1:59001:9001"]
+    healthcheck:
+      # The image ships `mc`, but not configured against this server, so
+      # `mc ready local` has no alias to resolve. The liveness endpoint needs
+      # no credential. This checks the container is up; nothing in this spec
+      # reads or writes an object through it.
+      test: ["CMD-SHELL", "mc ready local || curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # Two workers, running throughout. AC-0010's "no operator action" holds
+  # because the replacement **already existed** — not because a scheduler
+  # created one. That is a substitution this spec makes against a deployed
+  # ECS service with a desired count, and it is recorded as one.
+  #
+  # r7's capacity table is a fixed count of 2 with no autoscaling, and at one
+  # step in flight per worker that is also the concurrency ceiling: two
+  # sequential runs, or one that fans out to two specialists.
+  worker-a: &worker
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      CED_WORKER_ID: worker-a
+      # Inside the Compose network, Postgres is on its own hostname and the
+      # container port, not the published 55432.
+      CED_DATABASE_URL_WORKER: postgresql://app_worker:local_only_not_a_secret@postgres:5432/ced
+      CED_DATABASE_URL_POLICY: postgresql://app_policy:local_only_not_a_secret@postgres:5432/ced
+      # **The partition, and this is where it is chosen.** These containers run
+      # continuously while every suite runs, so any step row left at the
+      # default class is fair game for them: `tests/api` asserts
+      # `state = "runnable"` on the row `POST /runs` enqueues, and a claim
+      # landing in that gap reds it for a reason unrelated to the code. Keeping
+      # the containers on their own class means the only rows they can take are
+      # the ones `tests/fault_injection` creates for them. `tests/worker`
+      # partitions itself the same way on `in-process-tests`; the API and its
+      # suite keep the column default.
+      CED_POOL_CLASS: fault-injection
+      # A sleep, not a model call: this suite needs no credential and no spend.
+      CED_STEP_BODY_SECONDS: "600"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The pool polls; nothing depends on the container being restarted for the
+    # step to come back, which is what AC-0010 measures. `no` keeps a killed
+    # worker dead so the recovery observed is the *other* worker's.
+    restart: "no"
+    # Above the pool's join bound, which is one lease TTL (60 s). Docker's
+    # default is 10 s, and at that value a cooperative-but-slow body is
+    # SIGKILLed before the drain can surrender the lease or take its
+    # stuck-body branch — AC-0011's surrender degrading silently into waiting
+    # out the TTL. `stop_body`'s docstring carries the other half of this
+    # relationship; the two numbers move together.
+    stop_grace_period: 75s
+
+  worker-b:
+    <<: *worker
+    environment:
+      CED_WORKER_ID: worker-b
+      CED_DATABASE_URL_WORKER: postgresql://app_worker:local_only_not_a_secret@postgres:5432/ced
+      CED_DATABASE_URL_POLICY: postgresql://app_policy:local_only_not_a_secret@postgres:5432/ced
+      # `environment` replaces rather than merges under `<<`, so the partition
+      # has to be repeated here; the anchor's other keys are inherited.
+      CED_POOL_CLASS: fault-injection
+      CED_STEP_BODY_SECONDS: "600"

@@ -1,0 +1,188 @@
+"""The lock-ordering rule, demonstrated by showing it failing.
+
+`steps` before `runs`, on every path including the fence. Both that and
+fence-before-allocate follow from one property: the `runs` row lock serialises
+appends per run, so it must be taken last and held briefly.
+
+Phase 0 sharpened the claim and this suite carries that sharpening. A
+*uniformly* inverted order does **not** deadlock — every writer takes the same
+`runs` row first and serialises there, so no cycle can form. The hazard is
+strictly one path inverting **against** another. A test that only showed
+"inverted order deadlocks" would be asserting something false.
+
+The container runs `deadlock_timeout` at 200 ms, so the detector fires quickly
+here. Production defaults to 1 s.
+"""
+
+from __future__ import annotations
+
+import threading
+import uuid
+from collections.abc import Iterator
+from uuid import UUID
+
+import psycopg
+import pytest
+
+from ced.adapters.postgres.dsn import database_url
+
+pytestmark = pytest.mark.substrate
+
+ROUNDS = 12
+_BARRIER_TIMEOUT_SECONDS = 5.0
+
+_LOCK_STEPS = ("SELECT 1 FROM steps WHERE step_id = %s FOR UPDATE", "step")
+_LOCK_RUNS = ("UPDATE runs SET next_seq = next_seq WHERE run_id = %s", "run")
+
+
+@pytest.fixture
+def contended_pair(owner_conn: psycopg.Connection) -> Iterator[tuple[UUID, UUID]]:
+    """One run and one step, so every contender fights over the same two rows."""
+    run_id, step_id = uuid.uuid4(), uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute("INSERT INTO runs (run_id) VALUES (%s)", (run_id,))
+        owner_conn.execute(
+            "INSERT INTO steps (step_id, run_id, lease_epoch) VALUES (%s, %s, 1)",
+            (step_id, run_id),
+        )
+    try:
+        yield run_id, step_id
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+
+def _contend(
+    run_id: UUID,
+    step_id: UUID,
+    order: tuple[str, str],
+    barrier: threading.Barrier,
+    errors: list[str],
+) -> list[str]:
+    """Take two row locks in `order`, pausing between them at the barrier.
+
+    The barrier is what makes the interleaving deterministic enough to observe:
+    both contenders hold their first lock before either asks for its second.
+    """
+    deadlocks: list[str] = []
+    ids = {"step": (step_id,), "run": (run_id,)}
+    for _ in range(ROUNDS):
+        try:
+            with psycopg.connect(database_url("migration")) as conn:
+                with conn.transaction():
+                    for position, which in enumerate(order):
+                        sql = _LOCK_STEPS[0] if which == "step" else _LOCK_RUNS[0]
+                        conn.execute(sql, ids[which])
+                        if position == 0:
+                            try:
+                                barrier.wait(timeout=_BARRIER_TIMEOUT_SECONDS)
+                            except threading.BrokenBarrierError:
+                                pass
+        except psycopg.errors.DeadlockDetected as exc:
+            deadlocks.append(str(exc).splitlines()[0][:100])
+        except psycopg.Error as exc:
+            # Not counted as a deadlock — only 40P01 answers that question —
+            # but recorded, so a run in which every round failed for an
+            # unrelated reason cannot pass an empty-set assertion having
+            # observed nothing.
+            errors.append(f"{type(exc).__name__}: {exc!s:.80}")
+    return deadlocks
+
+
+def _run_contenders(
+    run_id: UUID, step_id: UUID, orders: tuple[tuple[str, str], ...]
+) -> tuple[list[str], list[str]]:
+    """Return `(deadlocks, other_errors)` across every contender."""
+    barrier = threading.Barrier(len(orders))
+    results: list[list[str]] = []
+    errors: list[str] = []
+    threads = [
+        threading.Thread(
+            target=lambda o=order: results.append(_contend(run_id, step_id, o, barrier, errors))
+        )
+        for order in orders
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return [d for group in results for d in group], errors
+
+
+def test_mixing_the_two_orders_deadlocks(
+    contended_pair: tuple[UUID, UUID],
+) -> None:
+    """The rule, shown failing. One path inverting against another cycles."""
+    run_id, step_id = contended_pair
+
+    deadlocks, errors = _run_contenders(run_id, step_id, (("step", "run"), ("run", "step")))
+
+    assert not errors, f"contention did not run cleanly: {errors[:3]}"
+    assert deadlocks, (
+        "no deadlock observed under mixed lock orders — the ordering rule is "
+        "unproven, not satisfied"
+    )
+
+
+def test_a_uniformly_inverted_order_does_not_deadlock(
+    contended_pair: tuple[UUID, UUID],
+) -> None:
+    """Phase 0's sharpening, asserted so the claim above stays precise.
+
+    Every writer takes the same `runs` row first and serialises there, so no
+    cycle forms. Without this test the suite would be read as "inverted order
+    deadlocks", which is false and would send a reader looking for the wrong
+    defect.
+    """
+    run_id, step_id = contended_pair
+
+    deadlocks, errors = _run_contenders(run_id, step_id, (("run", "step"), ("run", "step")))
+
+    # Both halves. Without the error assertion this could pass having taken no
+    # locks at all, which is how an empty-set check becomes decorative.
+    assert not errors, f"contention did not run cleanly: {errors[:3]}"
+    assert deadlocks == [], f"unexpected deadlocks: {deadlocks[:2]}"
+
+
+def test_the_designed_order_does_not_deadlock(
+    contended_pair: tuple[UUID, UUID],
+) -> None:
+    """And the order the code actually uses is clean under the same pressure."""
+    run_id, step_id = contended_pair
+
+    deadlocks, errors = _run_contenders(run_id, step_id, (("step", "run"), ("step", "run")))
+
+    assert not errors, f"contention did not run cleanly: {errors[:3]}"
+    assert deadlocks == [], f"unexpected deadlocks: {deadlocks[:2]}"
+
+
+def test_both_append_paths_take_the_steps_lock_first(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """A structural check on the SQL, so a future edit cannot silently invert it.
+
+    Reads the function bodies out of the catalogue. The behavioural tests above
+    show the rule mattering; this one names where it is written down, which is
+    what a reader needs when one of them starts failing.
+    """
+    for name in ("append_step_event", "append_policy_decision"):
+        row = owner_conn.execute(
+            "SELECT prosrc FROM pg_proc p JOIN pg_namespace n "
+            "ON n.oid = p.pronamespace WHERE n.nspname = 'public' "
+            "AND p.proname = %s",
+            (name,),
+        ).fetchone()
+        assert row is not None, f"{name} is absent"
+        body = row[0]
+
+        fence_at = body.index("fence_step(")
+        # Matches the schema-qualified form the definer functions now use.
+        # Review round 1 qualified every relation reference, which broke an
+        # earlier version of this check that looked for the bare name.
+        allocate_at = body.index("UPDATE public.runs")
+        assert fence_at < allocate_at, (
+            f"{name} allocates from `runs` before fencing on `steps`, "
+            "inverting the ratified lock order"
+        )
