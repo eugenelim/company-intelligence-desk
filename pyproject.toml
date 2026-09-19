@@ -59,7 +59,12 @@ src = ["src", "tests"]
 extend-exclude = [".agents", ".claude", ".codex", "spikes", "tools"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "ASYNC"]
+# `W605` earns its place by history: an invalid escape sequence shipped inside
+# revision 0001's shape CHECK, where silencing the warning by deleting the
+# backslash would have turned `\.` into "any character" and reopened the type
+# bypass rounds 3 through 5 closed. Scoped to that rule rather than all of `W`
+# on adjudication's direction; measured clean tree-wide either way.
+select = ["E", "F", "I", "UP", "B", "ASYNC", "W605"]
 
 [tool.mypy]
 python_version = "3.13"

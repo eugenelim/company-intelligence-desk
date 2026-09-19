@@ -790,8 +790,7 @@ def test_the_shape_constraint_refuses_a_direct_insert_by_the_schema_owner(
     trusted for the guarantee to hold.
 
     The structural half — that the constraint is on `events.type`, covers only
-    that column, carries exactly one pattern operand equal to the shipped
-    shape, and carries no further accepting term — is
+    that column, and has an expression equal to the shipped one — is
     `tests/schema/test_migration_applies.py`'s
     `test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function`,
     which is also what joins this rule to the copy inside the append function.

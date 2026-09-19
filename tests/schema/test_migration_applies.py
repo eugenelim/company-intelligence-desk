@@ -290,16 +290,24 @@ def test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function(
     green, with the column pins untouched because a disjunct on `type` alone
     satisfies them.
 
-    So what this check now pins, exactly and no more: the constraint is a CHECK
-    on `public.events`; it covers exactly the `type` column; its pattern
-    operands are exactly one value equal to `EXPECTED_TYPE_SHAPE`; and it
-    carries no further accepting term. Then the append function's own refusal
-    operand — the one `!~` the guard executes, not the pattern's presence
-    anywhere in `prosrc`, which includes comments — must be that same single
-    value, because a drift between the two in the tightening direction lets the
-    function admit a type the column refuses, surfacing as a bare
-    `CheckViolation` past the adapter's `CED01` filter, an error shape no
-    handler covers.
+    **Round 8 broke that replacement too**, and the fix is the third attempt:
+    pinning the operand plus scanning for further accepting terms was itself a
+    seven-token denylist — the shape rounds 3 through 5 rejected for the type
+    rule — and a `CASE WHEN … THEN true ELSE type ~ '<shape>' END` carries one
+    operand and none of the scanned tokens. The constraint's whole expression is
+    now compared for **equality**, which has no complement to enumerate.
+
+    So what this check pins, exactly and no more: the constraint is a CHECK on
+    `public.events`; it covers exactly the `type` column; its expression equals
+    `EXPECTED_CONSTRAINT_DEF`; and `events.type` is `NOT NULL`, which is the
+    only layer refusing a null type. Then the append function's refusal operand
+    must equal the same shape — **and this leg reads the whole `prosrc`,
+    comments included**, so it establishes that the function mentions exactly
+    that one pattern, not that the executed guard is unwidened. The behavioural
+    table in `tests/event_log/test_definer_hardening.py` is what covers the
+    guard's actual reach. The drift this leg does catch is the tightening
+    direction, where the function admits a type the column refuses and the
+    `CheckViolation` reaches the caller past the adapter's `CED01` filter.
 
     What it does **not** establish: that the regex means what it reads as.
     That is an assumption about the Postgres engine, narrowed by the round-6
