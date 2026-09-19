@@ -407,7 +407,42 @@ clean on this delivery**:
 - The register moved the foundation spec from `approved` to `shipped`,
   resolving its own reconciliation finding: three type-1 findings became two.
 
-**The register still does not dispatch, and this is the owner Follow-on.**
+**The register still does not dispatch, and the cause is now diagnosed
+precisely — the owner approved a migration, it was attempted, and it was
+reverted.** What was established, in order:
+
+- `spec_queue` appears **zero times** in
+  `.claude/skills/workspace-status/scripts/workspace_status_engine.py`. The
+  reconciler recognises exactly three initiative collections: `work`
+  (`queue | active | shipped`, each accepting kind `spec`), `shaping_queue` and
+  `brief_queue`. So the entire `["ini-001".spec_queue]` block is a section the
+  tooling has never read, which is why `canonical.ready` and
+  `canonical.active` are empty.
+- Renaming it to `work` — mapping `approved`→`queue`,
+  `implementing`→`active`, `shipped`→`shipped`, dropping the empty `draft` —
+  does make the section readable: both sibling type-1 reconciliation findings
+  cleared and `work.shipped` resolved the foundation spec correctly.
+- **But `work` entries carry a provenance contract `spec_queue` never did.**
+  An entry is checked for a parent mirrored from the spec's own
+  source-authority block; with none, the reconciler emits `provenance_mismatch`
+  plus `invalid_artifact_path` against the *parent's* empty path. All three
+  specs declare `Brief: none — descends from `runtime-architecture.md`
+  § Rollout Phase 1`, so they have no parent to mirror, deliberately.
+- **Reverted on that basis.** Completing the migration would mean inventing a
+  lineage the specs explicitly disclaim, and the reverted state is strictly
+  safer than the migrated one: before, the block was invisible and inert;
+  after, the foundation entry was live and carrying two findings in
+  coordination state other sessions reconcile against. The closeout move of the
+  foundation entry from `approved` to `shipped` is kept, since it resolved that
+  spec's own finding under the existing shape.
+
+**What this needs from whoever owns the register contract**, since it is not
+resolvable from inside this spec: either `work` must accept a parentless spec
+entry, or these specs need a registered provenance parent, or `spec_queue`
+needs to become a recognised collection. The mapping above is recorded so the
+next attempt does not have to re-derive it.
+
+**The original statement of the gap, which stands:**
 `workspace-status reconcile` returns empty `canonical.ready` and
 `canonical.active`, and reports both sibling specs with an empty `ini_slug` and
 `list_name` — so it is not associating them with `["ini-001".spec_queue]` at
