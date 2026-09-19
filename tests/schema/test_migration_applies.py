@@ -250,6 +250,24 @@ def test_the_run_lifecycle_function_admits_exactly_the_domain_vocabulary(
 #: which is exactly the seam review round 1 built for `RUN_LIFECYCLE_TYPES`.
 EXPECTED_TYPE_SHAPE = r"^[a-z0-9]+(\.[a-z0-9]+)+$"
 
+#: The whole constraint expression, as PostgreSQL deparses it. Compared for
+#: **equality**, which is the only assertion that excludes a widening this
+#: delivery has not thought of.
+#:
+#: Round 7 pinned the pattern operand plus a scan for further accepting terms,
+#: and round 8 broke it: a `CASE WHEN … THEN true ELSE type ~ '<shape>' END`
+#: carries exactly one operand and none of the scanned tokens, so it shipped
+#: green while admitting anything the arm matched. The scan was a seven-token
+#: denylist — the shape rounds 3 through 5 rejected for the type rule itself,
+#: reintroduced as the fix for it. Equality has no complement to enumerate.
+#:
+#: The cost, accepted rather than discovered later: this couples to the
+#: deparser's `::text` cast and parenthesisation, so a server upgrade that
+#: changes either reds this check. That is affordable because the image is
+#: digest-pinned in `deploy/compose.yaml`, and a formatting red is loud and
+#: one-line to resolve, where a widening that ships green is neither.
+EXPECTED_CONSTRAINT_DEF = "CHECK ((type ~ '" + EXPECTED_TYPE_SHAPE + "'::text))"
+
 
 def test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function(
     owner_conn: psycopg.Connection,
@@ -308,32 +326,27 @@ def test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function(
         f"the constraint covers {columns} column(s) including {column_name!r}; "
         "it must constrain events.type and nothing else"
     )
-    # **The operand, and the absence of any other accepting term.** Containment
-    # was the previous spelling and it is what round 7 broke: `<shape> in
-    # definition` detects an *edit* to the pattern but never an *addition*
-    # beside it, so `CHECK (type ~ '<shape>' OR type ~ '^[a-z0-9_]+$')` — and
-    # even `OR type <> 'zzz'`, which admits every string but one — shipped
-    # green. The column and column-name pins above do not help: a disjunct on
-    # `type` alone keeps both true.
-    #
-    # The operand set is pinned rather than the whole `pg_get_constraintdef`
-    # text, so the check does not couple to the deparser's `::text` cast and
-    # doubled parentheses and red on a formatting change instead of a widening.
-    # Literals are blanked before the extra-term scan so that a pattern which
-    # legitimately contains `OR` could never false-positive.
-    accepting = re.findall(r"~ '((?:[^']|'')*)'", definition)
-    assert accepting == [EXPECTED_TYPE_SHAPE], (
-        f"the constraint's pattern operands are {accepting!r}, not exactly "
-        f"[{EXPECTED_TYPE_SHAPE!r}] — a second operand is a widening, and a "
-        "different one reopens the bypass class rounds 3 through 5 closed"
+    # **Equality on the whole expression.** Nothing weaker survives: round 7's
+    # operand pin plus a token scan was defeated by a `CASE` arm carrying one
+    # operand and no scanned token. See `EXPECTED_CONSTRAINT_DEF`.
+    assert definition == EXPECTED_CONSTRAINT_DEF, (
+        f"the shipped constraint is {definition!r}, not {EXPECTED_CONSTRAINT_DEF!r}. "
+        "Any difference is either a widening — which reopens the bypass class "
+        "rounds 3 through 5 closed — or a deparser change on a server upgrade; "
+        "check which before relaxing this assertion"
     )
-    literals_blanked = re.sub(r"'(?:[^']|'')*'", "''", definition)
-    for token in (" OR ", " or ", "<>", "!=", " IS ", " ANY", " IN "):
-        assert token not in literals_blanked, (
-            f"the constraint carries an additional term ({token.strip()!r}) "
-            f"beside the shape: {definition!r}. Any further accepting term "
-            "widens the column regardless of the operand above"
-        )
+    # The column's `NOT NULL` is the only layer that refuses a null type: both
+    # guards in `append_step_event` test the canonicalised value, and null
+    # canonicalises to null, so neither `IF` fires. Pinned here because it was
+    # the one layer doing real work with nothing holding it.
+    notnull = owner_conn.execute(
+        "SELECT attnotnull FROM pg_attribute "
+        "WHERE attrelid = 'public.events'::regclass AND attname = 'type'"
+    ).fetchone()
+    assert notnull == (True,), (
+        "events.type is nullable; a null argument passes both of "
+        "append_step_event's guards, so this constraint is what stops it"
+    )
 
     body = owner_conn.execute(
         "SELECT prosrc FROM pg_proc p JOIN pg_namespace n "

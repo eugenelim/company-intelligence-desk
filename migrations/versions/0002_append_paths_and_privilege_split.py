@@ -289,6 +289,19 @@ def upgrade() -> None:
             -- unenumerated character by default, which is the only way this
             -- rule can be exhaustive without enumerating the vocabulary T4
             -- declined to enumerate.
+            -- Null first, because both clauses below test the *canonicalised*
+            -- value and null canonicalises to null: neither `IF` fires, and
+            -- the insert then failed on the column's `NOT NULL` as an
+            -- unmapped `not_null_violation` — a malformed type arriving with a
+            -- different error shape from every other malformed type. Refused
+            -- here so the layer and the code match the rest of the rule.
+            IF p_type IS NULL THEN
+                RAISE EXCEPTION
+                    'append_step_event refuses a null type (caller %)',
+                    session_user
+                    USING ERRCODE = 'CED01';
+            END IF;
+
             IF {_canonical_type("p_type")} IN ({_NON_STEP_SQL_LIST}) THEN
                 -- session_user, not current_user: inside a definer function
                 -- current_user is ced_owner, which would name the wrong

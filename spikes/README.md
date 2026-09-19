@@ -380,7 +380,7 @@ being built, is in
 | The run row, its coordinator step and `run.requested` are atomic | AC-0002 | With the step insert forced to fail by an already-taken `step_id` — a real unique violation on the real statement — all three rows are absent |
 | `seq` is dense from 1 under eight concurrent writers | AC-0003 | 200/200 events, dense, zero duplicates, `next_seq` 200, zero deadlocks. Spike P2's shape against the **shipped** schema rather than the spike's |
 | A rolled-back append consumes no sequence number | AC-0004 | A stale epoch raises `Fenced`; the sequence stays `[1,2,3]`, `next_seq` stays 3, and the next legitimate append gets 4 |
-| The **database** refuses the worker the reserved event type | AC-0005 | A real `app_worker` connection is refused with `insufficient_privilege`, and the message names `app_worker` — `session_user`, which is P1's finding, now pinned on the shipped schema. The worker is also refused `EXECUTE` on the policy function, and no role holds a direct `INSERT` on `events` |
+| The **database** refuses the worker the reserved event type, in any spelling | AC-0005 | A real `app_worker` connection is refused with `insufficient_privilege`, and the message names `app_worker` — `session_user`, which is P1's finding, now pinned on the shipped schema. The worker is also refused `EXECUTE` on the policy function, and no role holds a direct `INSERT` on `events`. **Three review rounds were spent on the "any spelling" half**: a padding denylist was defeated by a tab, then by six invisible characters, then by a Cyrillic homoglyph, which is not whitespace at all. The shipped rule is positive — the canonical form must be a dotted run of lowercase ASCII alphanumerics — and it is enforced by a CHECK on the column as well as by the function, so it holds against direct DML by the schema owner and `COPY`. Verified over 18 spellings |
 | A duplicate derived idempotency key is refused | AC-0006 | `UniqueViolation` on the second `tool.invoked`, consuming no sequence number; the index's partiality checked in both directions |
 | The dependency-direction gate fails on a real violation | AC-0007 | Seven injected imports each reported, four permitted placements each not reported, three dynamic-import forms caught, and zero findings once removed |
 | The identifier lint catches an embedded account id, and not a content hash | AC-0008 | Five embedding shapes exit 1; a hash containing a twelve-digit run exits 0. The real script, as a subprocess, against a throwaway git repository |
@@ -431,6 +431,17 @@ Each of these is a real stand-in, not a weaker version of the same thing.
   same reason.
 
 ### What this did NOT establish
+
+**Two lists exist and they cover different things.** This one carries the
+Phase-0-facing limits — what the spikes and this suite together do and do not
+license a reader to believe about the platform. The delivery's own consolidated
+limits, roughly thirty of them across the schema, the worker, the privilege
+model and the checks themselves, live in
+[`verification-ledger.md`](../docs/specs/walking-skeleton-foundation/notes/verification-ledger.md)
+§ What is not established, which is authoritative for anything about this
+spec's code. They are deliberately not duplicated here: two copies of a limit
+list diverge, and round 8 of this delivery was largely spent on records that
+had.
 
 - **Nothing about a managed database.** Both the Phase 0 Postgres spikes and
   this suite ran against a local container with `deadlock_timeout` at **200 ms**,

@@ -230,7 +230,12 @@ python3 tools/lint-no-identifiers.py --staged   # no account ids, ARNs, keys,
                                                 # emails or absolute home paths
 python3 tools/lint-intents.py                   # structural lint for docs/product/intents/
 python3 tools/hooks/pre-pr.py                   # knowledge lint + work-loop caps + ADR shape lint
+python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all
 ```
+
+The last one checks spec and plan status metadata across every spec. It is
+listed here because T7's pinned `Tests` says it is, and it was not — so the
+command T7 verifies against was invisible from a clean clone.
 
 Run the first two before committing and the third before opening a PR. There is
 no CI: the gates on this page are the whole gate. Add a new install, build or

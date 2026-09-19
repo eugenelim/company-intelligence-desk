@@ -125,3 +125,18 @@ def test_an_append_to_an_absent_run_is_refused(api_conn: psycopg.Connection) -> 
         event_log.append_run_event(
             api_conn, run_id=uuid.uuid4(), type="run.requested", principal="operator"
         )
+
+
+def test_the_backoff_tuple_has_one_value_per_gap_between_attempts() -> None:
+    """`retry_on_deadlock` sleeps between attempts, never after the last.
+
+    Held here rather than by a module-level `assert`, which `python -O` strips
+    — leaving the invariant as the trust the assert claimed to replace. A
+    fourth attempt would otherwise sleep off the end of the tuple, and a
+    shortened tuple would silently skip a sleep.
+    """
+    assert len(event_log.DEADLOCK_BACKOFF_SECONDS) == event_log.DEADLOCK_ATTEMPTS - 1, (
+        f"{event_log.DEADLOCK_ATTEMPTS} attempts need "
+        f"{event_log.DEADLOCK_ATTEMPTS - 1} backoff values, but the tuple has "
+        f"{len(event_log.DEADLOCK_BACKOFF_SECONDS)}"
+    )

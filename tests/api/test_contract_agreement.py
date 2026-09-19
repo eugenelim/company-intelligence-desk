@@ -210,6 +210,15 @@ def test_the_published_attribution_bound_matches_the_model() -> None:
                 f"are {sorted(bounds)}"
             )
             enforced = getattr(bounds[kind], attribute)
+            # Symmetric to the guard above: the contract dropping a bound the
+            # model still enforces is drift in the other direction, and it was
+            # raising the bare `KeyError` the same commit removed on the model
+            # side.
+            assert published_key in published[field], (
+                f"the contract no longer publishes a {published_key} for "
+                f"{field}, while the model enforces {enforced}; the published "
+                f"keys are {sorted(published[field])}"
+            )
             assert published[field][published_key] == enforced, (
                 f"{field}'s published {published_key} is "
                 f"{published[field][published_key]} but the model enforces "

@@ -75,10 +75,11 @@ MALFORMED_EVENT_TYPE_SQLSTATE = "CED01"
 #: patience. 200 ms does.
 DEADLOCK_ATTEMPTS = 3
 #: One sleep per gap between attempts, hence `DEADLOCK_ATTEMPTS - 1` values
-#: read. Asserted rather than trusted, so a fourth attempt cannot silently
-#: sleep off the end of the tuple nor a shortened tuple silently skip a sleep.
+#: read. The relationship is held by
+#: `tests/event_log/test_retry_and_terminal_guard.py`, not by a module-level
+#: `assert` — an `assert` is stripped under `python -O`, so it would have been
+#: exactly the trust it claimed to replace.
 DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15)
-assert len(DEADLOCK_BACKOFF_SECONDS) == DEADLOCK_ATTEMPTS - 1
 
 
 class Fenced(Exception):

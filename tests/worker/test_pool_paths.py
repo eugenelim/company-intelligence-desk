@@ -665,12 +665,23 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
 
     lease = pool.claim_one(worker_conn, FAST)
     assert lease is not None
-    # The expiry `claim_one` stamped. The observation compares against this
-    # rather than against `clock_timestamp()`, which is what makes the check
-    # immune to `FAST`'s 3 s TTL simply lapsing: a liveness test cannot tell a
-    # lease the drain surrendered from one whose TTL ran out while the test was
-    # stalled, and it blamed the production ordering for both. An *unchanged*
-    # expiry is the property the correct order actually has.
+    # The expiry `claim_one` stamped, as the reference point for the one
+    # question this check asks: **did the expiry move backwards** by the time
+    # the body was asked to stop?
+    #
+    # That direction is what distinguishes the two orders and nothing else
+    # does. `_expire_now` sets the expiry to `now()`, which is a whole TTL
+    # *earlier* than the claim-time value; `renew` sets it to `now() + TTL`,
+    # which is *later*. So "not earlier than claim time" passes under a
+    # renewal and reds under a surrender.
+    #
+    # Two weaker predicates were tried and both produced false reds that
+    # accused the production ordering. A liveness test (`expiry >
+    # clock_timestamp()`) reds when `FAST`'s 3 s TTL merely lapses during a
+    # stall. Demanding the expiry be *unchanged* reds when the heartbeat
+    # renews it, which under `FAST` happens every second — strictly more
+    # stall-sensitive than what it replaced, though it was committed as the
+    # immunity fix.
     claimed_expiry = worker_conn.execute(
         "SELECT lease_expires_at FROM steps WHERE step_id = %s", (step_id,)
     ).fetchone()[0]
@@ -713,9 +724,13 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
         "drain completed normally, leaving the observation absent rather than "
         "false"
     )
-    assert expiry_when_asked_to_stop == [claimed_expiry], (
-        "the lease expiry had already been rewritten when the body was asked "
-        "to stop, so the step was surrendered beside a body that was still "
-        f"running — observed {expiry_when_asked_to_stop!r}, expected the "
-        f"untouched claim-time value {claimed_expiry!r}"
+    assert len(expiry_when_asked_to_stop) == 1, (
+        f"expected exactly one observation, got {expiry_when_asked_to_stop!r}"
+    )
+    assert expiry_when_asked_to_stop[0] >= claimed_expiry, (
+        "the lease expiry had been moved *backwards* by the time the body was "
+        "asked to stop, which is what `_expire_now` does and what `renew` "
+        "never does — so the step was surrendered beside a body that was "
+        f"still running. Observed {expiry_when_asked_to_stop[0]!r}, which is "
+        f"earlier than the claim-time {claimed_expiry!r}"
     )
