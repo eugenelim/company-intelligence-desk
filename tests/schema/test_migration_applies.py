@@ -10,6 +10,7 @@ the exit code is only one of the things it asserts.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -264,13 +265,27 @@ def test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function(
     the catalogue query matched on name alone, so a constraint moved to another
     relation or column passed.
 
-    So this check pins three things: the constraint is a CHECK on
-    `public.events`, it covers exactly the `type` column, and its full
-    expression carries exactly the expected pattern. Then it reads the append
-    function's own copy out of `pg_proc` and requires the same pattern, because
-    a drift between the two in the tightening direction would let the function
-    admit a type the column refuses — surfacing as a bare `CheckViolation` past
-    the adapter's `CED01` filter, an error shape no handler covers.
+    **Round 7 found the replacement was a substring test too**, one level up:
+    `<shape> in definition` detects an *edit* to the pattern but never an
+    *addition* beside it, so `CHECK (type ~ '<shape>' OR type ~ '^[a-z0-9_]+$')`
+    — and even `OR type <> 'zzz'`, admitting every string but one — shipped
+    green, with the column pins untouched because a disjunct on `type` alone
+    satisfies them.
+
+    So what this check now pins, exactly and no more: the constraint is a CHECK
+    on `public.events`; it covers exactly the `type` column; its pattern
+    operands are exactly one value equal to `EXPECTED_TYPE_SHAPE`; and it
+    carries no further accepting term. Then the append function's own refusal
+    operand — the one `!~` the guard executes, not the pattern's presence
+    anywhere in `prosrc`, which includes comments — must be that same single
+    value, because a drift between the two in the tightening direction lets the
+    function admit a type the column refuses, surfacing as a bare
+    `CheckViolation` past the adapter's `CED01` filter, an error shape no
+    handler covers.
+
+    What it does **not** establish: that the regex means what it reads as.
+    That is an assumption about the Postgres engine, narrowed by the round-6
+    security pass and recorded as open.
     """
     row = owner_conn.execute(
         """
@@ -293,11 +308,32 @@ def test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function(
         f"the constraint covers {columns} column(s) including {column_name!r}; "
         "it must constrain events.type and nothing else"
     )
-    assert EXPECTED_TYPE_SHAPE in definition, (
-        f"the shipped constraint is {definition!r}, which does not carry the "
-        f"expected shape {EXPECTED_TYPE_SHAPE!r} — a widened character class "
-        "reopens the bypass class rounds 3 through 5 were spent closing"
+    # **The operand, and the absence of any other accepting term.** Containment
+    # was the previous spelling and it is what round 7 broke: `<shape> in
+    # definition` detects an *edit* to the pattern but never an *addition*
+    # beside it, so `CHECK (type ~ '<shape>' OR type ~ '^[a-z0-9_]+$')` — and
+    # even `OR type <> 'zzz'`, which admits every string but one — shipped
+    # green. The column and column-name pins above do not help: a disjunct on
+    # `type` alone keeps both true.
+    #
+    # The operand set is pinned rather than the whole `pg_get_constraintdef`
+    # text, so the check does not couple to the deparser's `::text` cast and
+    # doubled parentheses and red on a formatting change instead of a widening.
+    # Literals are blanked before the extra-term scan so that a pattern which
+    # legitimately contains `OR` could never false-positive.
+    accepting = re.findall(r"~ '((?:[^']|'')*)'", definition)
+    assert accepting == [EXPECTED_TYPE_SHAPE], (
+        f"the constraint's pattern operands are {accepting!r}, not exactly "
+        f"[{EXPECTED_TYPE_SHAPE!r}] — a second operand is a widening, and a "
+        "different one reopens the bypass class rounds 3 through 5 closed"
     )
+    literals_blanked = re.sub(r"'(?:[^']|'')*'", "''", definition)
+    for token in (" OR ", " or ", "<>", "!=", " IS ", " ANY", " IN "):
+        assert token not in literals_blanked, (
+            f"the constraint carries an additional term ({token.strip()!r}) "
+            f"beside the shape: {definition!r}. Any further accepting term "
+            "widens the column regardless of the operand above"
+        )
 
     body = owner_conn.execute(
         "SELECT prosrc FROM pg_proc p JOIN pg_namespace n "
@@ -305,10 +341,16 @@ def test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function(
         "WHERE n.nspname = 'public' AND p.proname = 'append_step_event'"
     ).fetchone()
     assert body is not None, "append_step_event is absent"
-    assert EXPECTED_TYPE_SHAPE in body[0], (
-        "append_step_event does not refuse on the same shape the column "
-        "enforces; a type the function admits and the column rejects reaches "
-        "the caller as an unmapped CheckViolation"
+    # The *refusing statement's* operand, not the pattern's presence anywhere
+    # in the body — `prosrc` includes the comments, so the previous
+    # containment check stayed green whenever any comment quoted the canonical
+    # pattern, and a guard widened to `!~ '<shape>' AND lower(p_type) !~ '...'`
+    # passed it too. Requiring exactly one `!~` operand reds on both.
+    refusing = re.findall(r"!~ '((?:[^']|'')*)'", body[0])
+    assert refusing == [EXPECTED_TYPE_SHAPE], (
+        f"append_step_event's refusal operands are {refusing!r}, not exactly "
+        f"[{EXPECTED_TYPE_SHAPE!r}]; a type the function admits and the column "
+        "rejects reaches the caller as an unmapped CheckViolation"
     )
 
 
@@ -412,13 +454,26 @@ def _classify_provisioning(statement: str) -> str:
 def _require_local_substrate() -> None:
     """Refuse cluster-level DDL unless the target is the local throwaway stack.
 
-    **Decided from the parameters libpq will actually resolve, not from the
-    DSN's text.** An earlier version tested whether the string contained
+    **Refuses rather than resolves, and the difference matters.** An earlier
+    version tested whether the string contained
     `@127.0.0.1:55432/`, which cannot constrain where a connection goes: the
     literal can be carried inside a parameter value, and a later `host=`
     keyword overrides a loopback-looking authority. Both shapes passed the
     substring test while resolving off-box, after which this check would have
     run `CREATE`/`DROP DATABASE` there.
+
+    This check does **not** resolve where libpq will land: `conninfo_to_dict`
+    applies no environment defaults and reads no service file. What it does is
+    refuse whenever anything that could retarget the connection invisibly to
+    the DSN is present — `hostaddr` or `service` in the DSN, and `PGHOSTADDR`,
+    `PGSERVICE` or `PGSERVICEFILE` in the environment. The round-7 security
+    review established that those five are the complete set: `PGHOST` and
+    `PGPORT` are overridden by an explicit DSN and fail closed when the DSN
+    omits them, `PGSYSCONFDIR` is inert with no service requested, and the
+    session-attribute and load-balance variables can only reorder hosts the
+    DSN already lists. So the enumeration is closed rather than open-ended,
+    which is what distinguishes it from the character denylists rounds 3
+    through 5 rejected for the type rule.
 
     `database_url` honours `$CED_DATABASE_URL`, and the only other precondition
     proves merely that something answers on it. `AGENTS.md` § Development
@@ -450,7 +505,7 @@ def _require_local_substrate() -> None:
     # legitimate local substrate returns the container's bridge address
     # (measured as 172.18.0.3), not a loopback, so a guard requiring loopback
     # from the server's own view would refuse the one target this check is for.
-    # **The environment is checked before the DSN, because libpq reads it too.**
+    # **The environment, which libpq reads and the parsed DSN never shows.**
     # Round 5 closed the DSN-carried spellings and left these, on a recorded
     # ground that turned out to be wrong: the fix was said to need the
     # effective target resolved, when this guard's own principle — refusing

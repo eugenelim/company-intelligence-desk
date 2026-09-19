@@ -185,19 +185,44 @@ def test_the_published_attribution_bound_matches_the_model() -> None:
         "StartRunRequest"
     ]["properties"]
 
+    # **Both bounds are compared to what the field enforces, never to the
+    # constant.** The maximum was compared to `ATTRIBUTION_MAX_LENGTH` — the
+    # YAML against a module constant, which is the two-literals comparison this
+    # check rejects for the minimum three lines down. The model merely
+    # *references* that constant today, so giving a field its own literal
+    # maximum left the published value equal to the constant and this check
+    # green while the API accepted more than the contract promised.
     for field in ("principal", "agent_role"):
         model_field = StartRunRequest.model_fields[field]
         bounds = {type(meta).__name__: meta for meta in model_field.metadata}
-        assert published[field]["maxLength"] == ATTRIBUTION_MAX_LENGTH, (
-            f"{field}'s published maxLength is {published[field]['maxLength']} "
-            f"but the model enforces {ATTRIBUTION_MAX_LENGTH}; a client "
-            "trusting the contract would be told the wrong limit"
-        )
-        # The minimum is compared to the model's own metadata rather than to a
-        # literal, so it cannot drift in the direction this check exists to
-        # catch. Pinning it against `1` on both sides would have compared two
-        # literals and caught nothing.
-        assert published[field]["minLength"] == bounds["MinLen"].min_length, (
-            f"{field}'s published minLength is {published[field]['minLength']} "
-            f"but the model enforces {bounds['MinLen'].min_length}"
-        )
+        for kind, attribute, published_key in (
+            ("MinLen", "min_length", "minLength"),
+            ("MaxLen", "max_length", "maxLength"),
+        ):
+            # A missing bound is itself drift in a direction this check exists
+            # to catch — the contract publishing a limit the model no longer
+            # enforces. Reported rather than left to raise `KeyError` from a
+            # bare lookup, which named neither the field nor the value.
+            assert kind in bounds, (
+                f"the model no longer enforces a {published_key} on {field}, "
+                f"while the contract still publishes "
+                f"{published[field].get(published_key)!r}; the field's bounds "
+                f"are {sorted(bounds)}"
+            )
+            enforced = getattr(bounds[kind], attribute)
+            assert published[field][published_key] == enforced, (
+                f"{field}'s published {published_key} is "
+                f"{published[field][published_key]} but the model enforces "
+                f"{enforced}; a client trusting the contract would be told the "
+                "wrong limit"
+            )
+
+    # The constant is still worth asserting, but as its own fact: that the
+    # published value and the model agree is the drift this check exists for;
+    # that both equal `ATTRIBUTION_MAX_LENGTH` is what keeps the named constant
+    # meaningful to a reader.
+    assert published["principal"]["maxLength"] == ATTRIBUTION_MAX_LENGTH, (
+        f"the published maximum is {published['principal']['maxLength']} while "
+        f"ATTRIBUTION_MAX_LENGTH is {ATTRIBUTION_MAX_LENGTH}; the constant no "
+        "longer names the shipped bound"
+    )

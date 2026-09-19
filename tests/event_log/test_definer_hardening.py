@@ -682,9 +682,13 @@ def test_a_padded_spelling_of_a_refused_type_reaches_the_reserved_name_rule(
     quantified over spellings, evidenced by an enumeration of characters that
     happened to be in the trim class. It was green in round 5 against U+00AD,
     U+180E, U+2800 and a Cyrillic homoglyph, because a table of inputs cannot
-    establish a statement about all inputs. The guarantee now lives in
-    `test_every_stored_type_matches_the_canonical_shape` and in the CHECK it
-    reads; these cases only pin that the *trimming* still behaves.
+    establish a statement about all inputs. The guarantee now lives in two
+    checks that do exist —
+    `tests/schema/test_migration_applies.py::test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function`,
+    which pins the shipped rule, and
+    `test_the_shape_constraint_refuses_a_direct_insert_by_the_schema_owner`
+    below, which drives it against the strongest caller. These cases only pin
+    that the *trimming* still behaves.
 
     Every variant here refuses as a privilege failure, because trimming leaves
     a string equal to a reserved name. Spellings that do **not** trim away are
@@ -786,7 +790,8 @@ def test_the_shape_constraint_refuses_a_direct_insert_by_the_schema_owner(
     trusted for the guarantee to hold.
 
     The structural half — that the constraint is on `events.type`, covers only
-    that column, and carries exactly the shipped pattern — is
+    that column, carries exactly one pattern operand equal to the shipped
+    shape, and carries no further accepting term — is
     `tests/schema/test_migration_applies.py`'s
     `test_the_type_shape_is_one_rule_in_the_column_and_in_the_append_function`,
     which is also what joins this rule to the copy inside the append function.

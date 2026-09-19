@@ -59,12 +59,26 @@ __all__ = [
 #: named way to be wrong, rather than a category.
 MALFORMED_EVENT_TYPE_SQLSTATE = "CED01"
 
-#: r7 § Event log: "Deadlock (40P01) is retried with backoff." Three attempts
-#: over ~350 ms in total, which is well inside the 200 ms `deadlock_timeout`
-#: the test container runs with and bounded enough not to hide a real ordering
-#: defect behind patience.
+#: r7 § Event log: "Deadlock (40P01) is retried with backoff."
+#:
+#: **Three attempts sleep twice, for 200 ms in total.** `retry_on_deadlock`
+#: sleeps only *between* attempts, so it reads indices 0 and 1 and never the
+#: last element — the tuple is therefore exactly one element longer than the
+#: attempt count, by construction rather than by accident. The comment here
+#: used to claim "~350 ms in total, which is well inside the 200 ms
+#: `deadlock_timeout`", which was false on every reading: the code's total is
+#: 200 ms, the tuple's own sum is 500 ms, and neither is inside 200 ms.
+#:
+#: The bound that matters is not a comparison against `deadlock_timeout` — the
+#: detector has already fired by the time a 40P01 reaches this code — but that
+#: the total stays short enough not to hide a real ordering defect behind
+#: patience. 200 ms does.
 DEADLOCK_ATTEMPTS = 3
-DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15, 0.30)
+#: One sleep per gap between attempts, hence `DEADLOCK_ATTEMPTS - 1` values
+#: read. Asserted rather than trusted, so a fourth attempt cannot silently
+#: sleep off the end of the tuple nor a shortened tuple silently skip a sleep.
+DEADLOCK_BACKOFF_SECONDS = (0.05, 0.15)
+assert len(DEADLOCK_BACKOFF_SECONDS) == DEADLOCK_ATTEMPTS - 1
 
 
 class Fenced(Exception):

@@ -362,7 +362,7 @@ repository keeps the answer to *what do we actually know*. The same standard
 applies: **a check that cannot fail is not evidence**, so setup checks are
 reported apart from hypothesis checks.
 
-All checks green — the count is deliberately not stated here, because it moved three times during review and a stale tally is worse than none; `pytest` reports it. The same goes for the duration: `AGENTS.md` § The local substrate carries the one measured figure, and the three that used to be published here and there disagreed with each other. Most of that time is the
+All checks green — the count is deliberately not stated here, because it moved three times during review and a stale tally is worse than none; `pytest` reports it. The same goes for the duration: `AGENTS.md` § The local substrate describes the shape and publishes no figure, because four published ranges each excluded a run the same section called normal. Most of that time is the
 fault-injection suite running at r7's real lease timings. No model provider is
 called, no cloud credential is used, and the spend is **$0.00** — by design:
 `walking-skeleton-agent-runtime` owns every provider-touching claim.

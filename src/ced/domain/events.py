@@ -57,9 +57,11 @@ TOOL_INVOKED: Final = "tool.invoked"
 #: the worker path refuses the reserved type, and the run-lifecycle path
 #: accepts only the two names above.
 #:
-#: The **character shape** is constrained, and that is a different thing. Since
-#: review round 5, `events.type` carries a CHECK requiring a dotted run of
-#: lowercase ASCII alphanumerics (revision 0001). Any `foo.bar` name is still
+#: The **character shape** is constrained, and that is a different thing.
+#: `events.type` has carried a CHECK on the character shape since review
+#: round 5 (revision 0001); round 5's admitted `_` and `-` as separators and
+#: round 6 narrowed it to a dotted run of lowercase ASCII alphanumerics, which
+#: is the rule now. Any `foo.bar` name is still
 #: admitted without a migration, so the declined decision stands; what the
 #: shape buys is that the negative rule above is exhaustive by construction,
 #: because no invisible character or homoglyph spelling of a refused name can

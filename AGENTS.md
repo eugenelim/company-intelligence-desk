@@ -195,11 +195,11 @@ it dominates the wall clock almost entirely.
 
 **No range is published for the suite, and that is deliberate.** A survivor's
 poll offset is uniform on [0, 30 s), so the whole suite has been measured at
-156 s, 186 s and 205 s on the same machine with nothing wrong. Every range
-published here so far excluded one of those, and the earlier two predate round
-5 removing a subsumed fault-injection check, so they are not comparable to the
-current suite anyway. Expect minutes, expect the spread, and read the number
-`pytest` prints rather than one written down here. Compressed timings would
+186 s and 205 s, then — after a subsumed fault-injection check was removed,
+which is why the earlier pair is not comparable — at 156 s and 160 s, all on
+the same machine with nothing wrong. Every range published here so far excluded
+one of those measurements. Expect minutes, expect the spread, and read the
+number `pytest` prints rather than one written down here. Compressed timings would
 demonstrate the mechanism and not the 150-second number the criterion states.
 
 **This is the only place a suite duration is discussed.** Three files used to

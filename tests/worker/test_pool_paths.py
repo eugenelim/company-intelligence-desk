@@ -629,7 +629,7 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
     _run_id, step_id = runnable_step
     from ced.adapters.postgres.dsn import database_url
 
-    live_when_asked_to_stop: list[bool] = []
+    expiry_when_asked_to_stop: list[object] = []
     observer_failed: list[BaseException] = []
 
     # **The connection is opened here, before the drain, and not inside the
@@ -652,11 +652,11 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
         # nothing surfaces the cause.
         try:
             row = observer.execute(
-                "SELECT lease_expires_at > clock_timestamp() FROM steps WHERE step_id = %s",
+                "SELECT lease_expires_at FROM steps WHERE step_id = %s",
                 (step_id,),
             ).fetchone()
             assert row is not None, "the step row vanished mid-drain"
-            live_when_asked_to_stop.append(bool(row[0]))
+            expiry_when_asked_to_stop.append(row[0])
         except BaseException as exc:  # noqa: BLE001 — reported, not handled
             observer_failed.append(exc)
 
@@ -665,6 +665,15 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
 
     lease = pool.claim_one(worker_conn, FAST)
     assert lease is not None
+    # The expiry `claim_one` stamped. The observation compares against this
+    # rather than against `clock_timestamp()`, which is what makes the check
+    # immune to `FAST`'s 3 s TTL simply lapsing: a liveness test cannot tell a
+    # lease the drain surrendered from one whose TTL ran out while the test was
+    # stalled, and it blamed the production ordering for both. An *unchanged*
+    # expiry is the property the correct order actually has.
+    claimed_expiry = worker_conn.execute(
+        "SELECT lease_expires_at FROM steps WHERE step_id = %s", (step_id,)
+    ).fetchone()[0]
 
     def drain() -> None:
         body.started.wait(timeout=10)
@@ -676,24 +685,37 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
         worker._execute(worker_conn, lease)
     finally:
         drainer.join(timeout=10)
+        # **Waited for, and bounded.** `_execute` can return through the
+        # stuck-body branch with the body thread still inside `look()`;
+        # closing the connection under it made `observer.execute` raise, which
+        # the capture below then reported as a broken observer — turning a
+        # join timeout into the wrong diagnosis, the round-6 misattribution
+        # reappearing in the opposite direction. The wait is bounded because a
+        # body stuck in `look()` would otherwise hold this open to its own cap.
+        body.finished.wait(timeout=FAST.lease_ttl_seconds + 2)
         observer.close()
 
-    # **Attribution, in the order the causes actually separate.** Each of these
-    # produces an empty observation list, and the last message is the only one
-    # that may blame the production ordering.
-    assert not observer_failed, (
-        f"the observer itself failed, so nothing was observed: {observer_failed[0]!r}. "
-        "This is not an ordering regression — the pool swallows an exception "
-        "raised in the body, so the drain completed normally and the missing "
-        "observation says nothing about when the lease was surrendered"
-    )
+    # **Attribution, ordered so each cause reports as itself.** The stuck-body
+    # condition is tested *first*: it is the one that can also produce an
+    # observer failure as a side effect, so testing the observer first named
+    # the symptom rather than the cause.
     assert body.stopped.is_set() and body.finished.is_set(), (
         "the body was not stopped and joined within the drain's join window, "
-        "so `_execute` took the stuck-body branch — this is a join timeout, "
-        "not an ordering regression"
+        "so `_execute` took the stuck-body branch and `_expire_now` never ran "
+        "— this is a join timeout, not an ordering regression, and any "
+        f"observer failure below is a consequence of it (observed "
+        f"{observer_failed[:1]!r})"
     )
-    assert live_when_asked_to_stop == [True], (
-        "the lease was already surrendered when the body was asked to stop, "
-        "so the step was claimable beside a body that was still running — "
-        f"observed {live_when_asked_to_stop!r}"
+    assert not observer_failed, (
+        f"the observer itself failed, so nothing was observed: {observer_failed[0]!r}. "
+        "The body stopped and was joined, so this is not an ordering "
+        "regression: the pool swallows an exception raised in the body and the "
+        "drain completed normally, leaving the observation absent rather than "
+        "false"
+    )
+    assert expiry_when_asked_to_stop == [claimed_expiry], (
+        "the lease expiry had already been rewritten when the body was asked "
+        "to stop, so the step was surrendered beside a body that was still "
+        f"running — observed {expiry_when_asked_to_stop!r}, expected the "
+        f"untouched claim-time value {claimed_expiry!r}"
     )

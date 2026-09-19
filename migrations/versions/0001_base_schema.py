@@ -75,7 +75,15 @@ def upgrade() -> None:
     """)
     op.execute("CREATE INDEX steps_run_id_idx ON steps (run_id)")
 
-    op.execute("""
+    # **Raw string, and that is load-bearing.** The shape CHECK below contains
+    # `\.`, which is not a recognised Python escape: in a non-raw string it
+    # emits `SyntaxWarning: invalid escape sequence` and is a future
+    # `SyntaxError`. The backslash survived, so the shipped constraint was
+    # correct — but the dangerous repair is a contributor silencing the warning
+    # by deleting the backslash, which turns `\.` into `.` and matches any
+    # character, reopening the admitted set rounds 3 through 5 closed. The
+    # sibling copy in revision 0002 was already raw; this was the divergence.
+    op.execute(r"""
         CREATE TABLE events (
             run_id       uuid NOT NULL REFERENCES runs(run_id),
             -- Dense from 1 per run, allocated inside the append transaction.
