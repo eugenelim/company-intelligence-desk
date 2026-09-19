@@ -384,20 +384,53 @@ except where noted.
 | This file's structure (2026-09-19) | Collapse the per-round narratives; keep one current-state record and a chronology |
 | The register (`workspace.toml`), which files this spec under `approved` with `implementing` and `shipped` empty while `spec.md` reads `Implementing` | Adjudicated round 6 as an owner Follow-on, not a delivery defect: nothing in the repository binds spec status to the register, and `spec.md` § Follow-ons assigns register changes to the owner. Recorded here so the deferral has a durable home rather than living in a deleted narrative. The consequence is real: `workspace-status reconcile` returns empty `canonical.ready` and `canonical.active`, so a resumed session can dispatch neither this spec nor either sibling until the register moves. |
 
+### Closeout, as actually performed
+
+Owner direction 2026-09-19: close out after round 8 without a confirming
+review round. Done in this order, and stated plainly because the engine event
+that closes the loop is named `reviewers-clean` and **no reviewer returned
+clean on this delivery**:
+
+- The engine advanced `CODE-IMPLEMENTATION → CODE-VERIFICATION → CODE-REVIEW →
+  CODE-HUMAN-GATE → DONE`. That edge's only guard is that `spec.md` reads
+  `Shipped`; it asserts nothing about a reviewer verdict, and none was
+  fabricated. Round 8's findings were applied and verified individually against
+  the tree, without adjudication and without a round 9 — which is the honest
+  description of how this closed.
+- `T7` is **not** in `completed_task_ids`, and that is by design: the final
+  wave exits through `gates-clean` rather than `wave advance`, which the tool
+  refuses from the last index.
+- `spec.md` → `Shipped`, `plan.md` → `Done`. Both hash pins still verify
+  (`plan check-current` and `schedule check-current` both OK), because the pins
+  cover the task sections and not the status line — narrower than the round-3
+  measurement, which was of a Changelog edit.
+- The register moved the foundation spec from `approved` to `shipped`,
+  resolving its own reconciliation finding: three type-1 findings became two.
+
+**The register still does not dispatch, and this is the owner Follow-on.**
+`workspace-status reconcile` returns empty `canonical.ready` and
+`canonical.active`, and reports both sibling specs with an empty `ini_slug` and
+`list_name` — so it is not associating them with `["ini-001".spec_queue]` at
+all. There is no `[work]` section in `workspace.toml`. This was already true
+before the closeout edit, so nothing here caused it, and no register structure
+was invented to work around it. Consequence: **neither
+`walking-skeleton-agent-runtime` nor `walking-skeleton-evidence` can be
+dispatched from the register as it stands**, and "all three specs Shipped"
+cannot be reached without resolving it.
+
 ### What `Shipped` still requires
 
 Recorded because nothing else states it, and "done" is not reachable from the
 current artifacts without it:
 
-- `spec.md` `Status: Shipped` and `plan.md` `Status: Done`.
-- The engine at `DONE` and `T7` in `completed_task_ids`; both are short of that
-  (`CODE-REVIEW`, and `schedule_waves` still `[["T7"]]`).
-- The register moved from `approved` to `shipped`, per the owner Follow-on above.
-- `spikes/README.md`'s Phase 1 section separating established, substituted and
-  not-established.
-- The PR carrying the four-question template and a `Bundled fixes:` section
-  enumerating the admitted out-of-`Touches` paths.
-- The `review-verdict.v1` record.
+Done: `spec.md` `Shipped`, `plan.md` `Done`, the engine at `DONE`, the register
+entry moved, and `spikes/README.md`'s Phase 1 section carrying the three-way
+split with its AC-0005 row brought current for the shipped type rule.
+
+Outstanding, and not this spec's to finish: the PR carrying the four-question
+template and the `Bundled fixes:` section; the `review-verdict.v1` record; the
+register's dispatch problem above; and the two sibling specs, which are
+untouched.
 
 ## Contract amendment — AC-0011 names its origin
 
