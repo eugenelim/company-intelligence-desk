@@ -55,7 +55,8 @@ pass, or interrupted report is not that gate.
    architecture, and command sources they map for the target — especially the
    contract-vs-construction split and verification modes. These are first-class;
    do not invent rival terminology or require a specific filename.
-2. The targeted `spec.md` if any — its **Objective**, **Boundaries**,
+2. The targeted `spec.md` if any — its **Outcome**, **Agent Rules**
+   (headed `Boundaries` in specs authored before this rename),
    **Testing Strategy**, and **Acceptance Criteria** sections together
    are the contract.
 3. The targeted `plan.md` if any — task list, per-task **Tests:**
@@ -450,6 +451,11 @@ and line range**, state what's wrong in one sentence, and end with
 
 Omit empty sections. If everything's clean, output `Clean — ready to commit.`
 with no findings list and no praise padding.
+
+Use backticks, never italics, to quote a phrase inside a finding's bold
+title: the consuming parser rejects any `*` between the opening and closing
+`**`, and a title carrying one silently parses as zero findings. Emphasis
+after the closing `**` is fine.
 
 Return **only** the findings block above (or that one clean line) — no
 pre-findings methodology recap, scope summary, or process narration. The

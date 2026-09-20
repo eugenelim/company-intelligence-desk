@@ -97,8 +97,9 @@ spin up this reviewer for spelling fixes.
 2. `docs/architecture/security.md` or `docs/guides/reference/security.md`
    if either exists. If not, that absence is itself a finding for any
    non-trivial diff in this space.
-3. The targeted `spec.md` if one exists, particularly its **Boundaries**
-   (especially `Never do` and `Ask first`) and any claims under
+3. The targeted `spec.md` if one exists, particularly its **Agent Rules** —
+   headed `Boundaries` in specs authored before this rename — and especially
+   its `Never do` and `Ask first` entries, plus any claims under
    `Acceptance Criteria` about data handling, retention, or trust
    boundaries. In spec-stage mode this *is* your primary input.
 4. The diff (`git diff <base>..HEAD` if not enumerated). Identify the
@@ -255,6 +256,11 @@ attack scenario in one sentence, and end with
 
 Omit empty sections. If everything's clean, output `Clean — ready to commit.`
 with no findings list and no praise padding.
+
+Use backticks, never italics, to quote a phrase inside a finding's bold
+title: the consuming parser rejects any `*` between the opening and closing
+`**`, and a title carrying one silently parses as zero findings. Emphasis
+after the closing `**` is fine.
 
 Every `## Not checked` bullet names a **class you did not examine** — never a
 defect you found. A defect belongs in a numbered severity section above, always.

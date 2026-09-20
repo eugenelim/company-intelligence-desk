@@ -15,8 +15,11 @@
 >
 > **Not every field is contract.** `Touches`, `Tests` and `Done when` are what a
 > completion gate reads, and they are pinned. `Design`, `Approach`, `Grounding`
-> and `Risks` are working material: an implementer corrects them in place as the
-> work teaches, without an amendment and without a review round. Treating them as
+> and `Risks` are working material that an implementer corrects in place only
+> before approval: approval hashes the whole plan. After approval, grounding for
+> a seam recorded as `no stub (implementation-discovered)` goes to the
+> verification ledger; a settled design decision that execution falsified is a
+> plan error that follows the controlled-amendment procedure. Treating them as
 > contract is how a review spends a round on prose no gate consumes — the
 > measured share is over half the plan's lines. `Grounding` stays *recorded*,
 > because a per-task resolution that nobody wrote is not grounding; what it stops
@@ -125,42 +128,61 @@ Delete every sub-heading the shape doesn't select. -->
 ### Design decisions
 <!-- optional — the load-bearing choices and the alternatives rejected, one line
 of why each. Traces to: <AC(s) this satisfies> · <contracts/… it implements>. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### Data & schema
 <!-- optional — entities, fields, types, ownership, migrations, retention.
 Traces to: <AC(s)> · <contracts/…>. -->
+<!-- When this feature migrates existing data, name backfill checkpointing,
+restartability, and cutover validation. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### Interfaces & contracts
 <!-- optional — the surfaces this feature exposes or consumes (REST API, event
 interface, BFF, RPC). Point at the `contracts/<type>/` file each implements.
 Traces to: <AC(s)> · <contracts/…>. -->
+<!-- When this feature crosses a boundary, name a test seam for each
+crossed boundary. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### Component / module decomposition
 <!-- optional — the parts and their responsibilities; what's new vs. reused; for
 UI, the component tree. Traces to: <AC(s)> · <contracts/…>. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### State & control flow
 <!-- optional — state model and transitions; sequencing across components; for
 UI, screen states and navigation. Traces to: <AC(s)> · <contracts/…>. -->
+<!-- When state changes concurrently, name concurrency, consistency,
+locking, atomicity, and transaction boundaries. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### Behavior & rules
 <!-- optional — the business and validation rules and the decisions they drive.
 Traces to: <AC(s)> · <contracts/…>. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### Failure, edge cases & resilience
 <!-- optional — what can go wrong and the response: retries, fallbacks, timeouts,
 partial failure, idempotency, degraded modes. Traces to: <AC(s)> · <contracts/…>. -->
+<!-- When external failures are possible, name stable error classes,
+retryability, and external failure mapping. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### Quality attributes (NFRs)
 <!-- optional — how the design meets each NFR-with-a-bar from the spec's
 Acceptance Criteria (performance, accessibility, security posture, operability).
 Traces to: <AC(s)> · <contracts/…>. -->
+<!-- When this feature needs operational visibility, name a concrete
+observability surface. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 ### Dependencies & integration
 <!-- optional — external systems, services, and libraries this design leans on,
 and the coupling between them. (Reuse `Depends on:` / `Touches:` on the tasks
 below for *execution* ordering; this sub-section is for *design*-level coupling.)
 Traces to: <AC(s)> · <contracts/…>. -->
+<!-- Owned by: <task ID(s) that implement this sub-section, e.g. T3, T4a>. -->
 
 > **Rollout & deployment** — the tenth design dimension — is **not** a
 > sub-heading here. It is realized by [`## Rollout`](#rollout) below (infra,
@@ -173,9 +195,18 @@ The work-breakdown. Tasks are sized so each one is a coherent commit or PR.
 **Phrase each task as a verifiable goal, not a procedure.** The task name
 *is* the success criterion: *"Add validation"* → *"All invalid-input tests
 pass"*; *"Refactor X"* → *"Tests for X green before and after; public
-surface unchanged"*. **Within each task, `Tests:` comes before `Approach:`** —
-tests drive implementation, not the other way around. Use red-green-refactor
-with separate commits when the change is non-trivial.
+surface unchanged"*. Tests drive implementation, not the other way around, so
+`Tests:` leads every task. Use red-green-refactor with separate commits when
+the change is non-trivial.
+
+**`Approach:` is conditional.** Write one when the task carries a decision a
+reader cannot infer from `Tests:` and `Done when:` — an *ordering* decision
+(step B must follow step A for a reason the tests do not show) or a *seam*
+decision (which module, which existing helper, which boundary). Omit it when
+those two fields already say what to build and how it is observed: an
+`Approach:` that restates them is a second home for the same instruction, and
+no completion gate reads it. The field order is unchanged where it appears —
+`Tests:`, then `Approach:`, then `Done when:`.
 
 **Every task must declare `Depends on:` explicitly** — list prior task IDs
 or `none`. Don't omit the field; "obvious from order" is the failure mode
@@ -235,9 +266,9 @@ could pick it up and complete it without follow-up questions:
      one compilable red contract-surface assertion (`stub: true`). It need not
      encode the finished edge-case matrix. -->
 
-**Approach:**
-- <step 1>
-- <step 2>
+**Approach:** <omit this field unless the task carries an ordering or seam
+decision the two fields around it do not show>
+- <the decision, and why this way>
 
 **Done when:** <name a concrete observable — specific test green, gate
   passing, behaviour visible at <surface>. Never name `spec.md` or `plan.md` as
@@ -280,22 +311,21 @@ slow the database", "this changes a behavior X teams depend on".
 ## Changelog
 
 <!--
-While the plan is `Drafting` and changes meaningfully, add a dated entry. This
-isn't bureaucracy — it's how a reviewer (or a returning agent) understands why
-the current plan looks different from yesterday's plan. After approval this
-section is pinned like the rest of the plan: an execution observation goes to
-the verification ledger, not to a new changelog entry.
+Approvals, and nothing else. Drafting history does not belong here: while the
+plan is `Drafting` its current text is the only version anyone acts on, so a
+dated account of how it got there is the draft narration `spec.md`'s
+present-tense rule already refuses, one document over. After approval this
+section is pinned like the rest of the plan, and an execution observation goes
+to the verification ledger, not to a new changelog entry.
 
-**Each approval is an entry.** Write
-`- YYYY-MM-DD: spec approved by <handle>` and
-`- YYYY-MM-DD: plan approved by <handle>` — one per gate, real date, the
-approver's own handle. Both live here because the plan carries the only dated
-history in the spec directory. Without them nothing in the artifacts says when
+**Each approval is an entry.** The two forms are given at the end of this
+note — one per gate, a real date, the approver's own handle. Both live here
+because the plan carries the only dated history in the spec directory. Without them nothing in the artifacts says when
 the contract froze or on whose authority, so a later reader cannot tell which
 claims were in it at approval and which arrived afterwards. `work-loop`'s
 G-plan sequence owns *when* each is written and why the order matters; this
 template owns only the form.
 
-- YYYY-MM-DD: initial plan
-- YYYY-MM-DD: switched from approach A to B because <reason>
+- YYYY-MM-DD: spec approved by <handle>
+- YYYY-MM-DD: plan approved by <handle>
 -->

@@ -199,6 +199,29 @@
         "The consequence of being wrong is the discriminator, not the claim's subject matter",
         "An ordinary fact moving none of the six consequences is verified by the step's ordinary means and filed, with no routing decision owed and no fixed check count"
       ]
+    },
+    {
+      "id": "tests-bullet-names-the-production-seam",
+      "prompt": "A plan task verifies that a command renderer refuses an unsafe path. Its Tests: bullet reads \"tests/renderer/test_safe_command.py -- asserts the rendered command is safe for a hostile path\", naming the suite it lives in but no production code. Review the bullet against the step's mechanism rule.",
+      "expected_output": "The bullet names no production seam: nothing in it says which production code the check drives, so an implementer cannot tell what the assertion is meant to hold against. The bullet must name the production seam the check drives, alongside the suite and its location. Naming an honest proxy for a property the oracle cannot reach is a separate obligation in the same step and does not substitute for naming the seam.",
+      "assertions": [
+        "Identifies that the bullet names no production seam",
+        "States the consequence: an implementer cannot tell which production code the check must drive",
+        "Requires the bullet to name the production seam the check drives",
+        "Does not treat naming the test's own suite or fixture as satisfying the seam obligation"
+      ]
+    },
+    {
+      "id": "lld-ownership-traces-downward-with-declared-field-lint",
+      "prompt": "A plan's `## Design (LLD)` subsection names an interface and says `Owned by: T2, T4a`; another body-bearing LLD subsection omits `Owned by:`. Task headings define T2, T4a, and T7, but T7 cites no LLD decision. Explain the pre-review walk and what lint-contract-item-alignment.py decides. Does T7 need to cite a design decision before review can proceed?",
+      "expected_output": "The pre-review walk traverses from every LLD interface, type, symbol, or ownership decision down to an owning task. It repairs the body-bearing LLD subsection that omits `Owned by:`. Because the plan uses the field, lint-contract-item-alignment.py checks declared-field integrity: each body-bearing LLD subsection names at least one task ID and every named ID has a task heading. The lint does not decide whether every semantic design decision has an owner; that remains the walk's review question. T7 needs no LLD citation: there is no reverse task-to-design obligation.",
+      "assertions": [
+        "Traverses ownership from LLD decisions down to tasks",
+        "Requires an Owned by field for the body-bearing LLD subsection once the plan carries the field",
+        "Limits lint-contract-item-alignment.py to declared-field completeness and task-heading existence",
+        "Keeps semantic ownership coverage as a pre-review walk question rather than a lint verdict",
+        "Rejects a reverse obligation requiring T7 to cite an LLD decision"
+      ]
     }
   ]
 }
