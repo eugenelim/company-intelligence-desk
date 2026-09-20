@@ -4,7 +4,8 @@
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
-- **Brief:** none — descends from `runtime-architecture.md` § Rollout Phase 1
+- **Brief:** none
+- **Descends from:** `runtime-architecture.md` § Rollout Phase 1
 - **Discovery:** none
 - **Contract:** none — this spec exposes no interface surface; it is reached through the foundation spec's API and the evidence spec's state machine
 - **Shape:** service
