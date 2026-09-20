@@ -209,7 +209,7 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 - AC-0228 persists a history that carried a reasoning part and asserts the bytes contain none — a storage property, asserted on storage.
 - AC-0245 revokes an entitlement while a step waits for approval, then resumes it, and asserts the call is refused. The revocation must bite through the entitlements conjunct, because AC-0241 pins the ceiling half to the suspended version and it cannot carry revocation.
 - AC-0241 resumes a step whose role version was narrowed after suspension and asserts the tool call is judged against the suspended version's ceiling. The ceiling's source is the assertion; a test that only checks the call is refused passes on the wrong ceiling.
-- AC-0229 replays a history carrying stale instruction text and asserts the model receives the current compilation. This is a security property, not an ergonomic one: the role compilation is where the ceiling's sibling text lives.
+- AC-0229 replays a history carrying stale instruction text and asserts the model receives a fresh compilation of the suspended role version, not the bytes' text and not a later version. Asserting only that the stale text is absent would pass on a compilation of the wrong version, which is the half AC-0241 depends on.
 - AC-0230 injects a crash between the payload write and the fenced append.
 - AC-0231 asserts the key's scope prefix.
 
