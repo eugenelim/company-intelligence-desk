@@ -48,6 +48,58 @@ the answer to "what does this codebase look like today" without replaying ADR
 history. Lifecycle: living. Update whenever the layout or major dependencies
 change.
 
+## Reading the frozen foundation spec
+
+`walking-skeleton-foundation` shipped before `walking-skeleton-agent-runtime`
+was cut into three and that directory deleted on 2026-09-20. A shipped spec
+freezes, so its stale text stays as written and is corrected here. **This
+section is not part of § What is built, and a spec-completion update to that
+map does not clear it.**
+
+What the three frozen files still say:
+
+- `spec.md` line 23 calls itself "the first of three specs" delivering the
+  Phase 1 walking skeleton. Phase 1 is five specs.
+- `spec.md` line 37 names `walking-skeleton-agent-runtime` as the sibling
+  building the reasoning step, the authorization boundary and the quarantine
+  boundary; line 84 gives it every provider-touching claim.
+- `spec.md` line 136 says Phase 1's exit criteria are met when
+  `walking-skeleton-agent-runtime` and `walking-skeleton-evidence` ship, "all
+  three". The four specs queued in `workspace.toml` carry them.
+- `plan.md` hands that directory the behavioural half of the derived
+  idempotency key (line 52), the scope-qualified object keys (line 55), and r4
+  changes 7, 8 and 9 (line 57).
+- `notes/verification-ledger.md` names it three times. Line 277, "owns the
+  real body", has a successor in the table below. Lines 443 and 477 narrate a
+  reconciliation that happened while that directory existed; they are
+  historically true and stay as written.
+
+**Which successor builds each part.** Line 37's "reasoning step" is two parts
+with two owners, and r5's STATUS header already separates them as the agent
+layer and the provider call:
+
+| Part | Built by | Where that spec claims it |
+| --- | --- | --- |
+| The agent layer — the compiler, the toolset stack, the compile-time refusals — and the quarantine boundary | [`walking-skeleton-role-compilation`](../specs/walking-skeleton-role-compilation/spec.md) | § Durable Outputs: "names three things as unbuilt: the agent layer, the authorization boundary and the provider call. This spec builds the first" |
+| The authorization boundary | [`walking-skeleton-authority-containment`](../specs/walking-skeleton-authority-containment/spec.md) | § Durable Outputs: "names the authorization boundary as unbuilt, and this spec builds it" |
+| The idempotency behaviour | `walking-skeleton-authority-containment` | AC-0212 |
+| Fragment narrowing, r4 change 7 | `walking-skeleton-authority-containment` | AC-0217 |
+| The provider call, and with it every provider-touching claim | [`walking-skeleton-step-lifecycle`](../specs/walking-skeleton-step-lifecycle/spec.md) | § Durable Outputs: "names the provider call as unbuilt, and this spec builds it" |
+| The scope-qualified object keys | `walking-skeleton-step-lifecycle` | AC-0231 |
+
+`walking-skeleton-role-compilation` builds no part of the model call: its spec
+disclaims the authorization boundary and the provider call, and its whole suite
+runs with no provider in the loop.
+
+**Two of line 57's changes are deferred, not reassigned.** r4 change 8,
+`may_exist`, and change 9, per-integration credentials, are recorded as
+Follow-ons and no Phase 1 spec builds either: `may_exist` in
+[`walking-skeleton-authority-containment`](../specs/walking-skeleton-authority-containment/spec.md)
+§ Follow-ons, and the credential broker that carries the per-integration scopes
+in [`walking-skeleton-step-lifecycle`](../specs/walking-skeleton-step-lifecycle/spec.md)
+§ Follow-ons. The frozen row classed them as deferred too, so what changed is
+where the record lives, not its status.
+
 ## Two documents, two jobs
 
 `overview.md` is **descriptive** — the map, read to find things.

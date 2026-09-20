@@ -137,7 +137,8 @@ and the approval gate rules on each.
 
 ## Follow-ons
 
-- eugenelim: `workspace.toml` `[backlog].open` — AWS deployment to ECS Fargate with ALB and OIDC, including its IaC and mandatory infra security review. Out of scope by the owner's decision of 2026-09-18. AC-0314 is the record of what that deployment would establish and this delivery does not.
+- eugenelim: `runtime-architecture.md` § 6 Deployment and Operations — AWS deployment to ECS Fargate. § 6 sizes the services; the load balancer and OIDC authentication at the ingress are § 2 and § 4. Its IaC and the mandatory infra security review are recorded nowhere upstream and rest on the owner's decision of 2026-09-18, which put the deployment out of scope. AC-0314 is the record of what that deployment would establish and this delivery does not.
+- eugenelim: this spec § Acceptance Criteria — **no criterion records who approved a publication.** AC-0209 asserts a machine denial names the acting role and the initiating principal, and r8 holds attributable action at 100%, but the one decision a *person* makes has no attributability criterion in any of the five Phase 1 specs; AC-0303 resumes after a grant without asserting the grant event names the grantor. With `require_distinct_approver` defaulting to false for a single operator, the recorded principal is the only control left. A repudiation gap, not an access-control one. This spec owns the transition, so closing it is an amendment here.
 - eugenelim: the approve/reject cycle cap, currently three and arbitrary by r5's own admission (DR5). r5 says Phase 1 should replace it with an observed number; this skeleton runs too few approval cycles to observe one, so the cap ships unchanged and unmeasured.
 
 ## Assumptions
