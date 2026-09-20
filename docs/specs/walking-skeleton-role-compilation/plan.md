@@ -221,9 +221,9 @@ fixture. No task here reaches a provider.
 **Tests:**
 - AC-0201 has two cases, each a compile error rather than a call-time denial.
 - AC-0202 walks the constructed chain and asserts the type order; the checker is separately unit-tested against hand-built wrong chains, which is what lets the ordering be asserted without the compiler accepting a layer list.
-- AC-0203, AC-0204, AC-0205 and AC-0219 are each a role record the compiler must reject or constrain. AC-0205 asserts the compiled budgets are zero rather than that the role record requested zero — the record is the input, the compiled agent is the fact.
+- AC-0203, AC-0204, AC-0205, AC-0219 and AC-0251 are each a role record the compiler must reject or constrain. AC-0203's case set covers every non-quarantined role the skeleton carries, not just the planning one, because that is the scope r5's R2 states. AC-0205 asserts the compiled budgets are zero rather than that the role record requested zero — the record is the input, the compiled agent is the fact.
 - AC-0246 uses a stub model that records whether its request method ran, with a ceiling below the counted tokens. A settings read would pass on a flag that is set and never consulted; the stub is what makes "before the request" observable. AC-0206 cannot see this either way.
-- AC-0206 needs both directions: a role wider than the pool default compiles to the default, a narrower one to itself. Only the widening case protects the operator's reviewable deploy.
+- AC-0206 needs both directions: a role wider than the pool default fails the build, a narrower one compiles to its own value. Only the widening case protects the operator's reviewable deploy, and it fails rather than clamps so the role file and the limit in force cannot disagree.
 - AC-0233 enumerates the skeleton's roles and registered tools, drives a call through each with a spy the tool body increments, and asserts no spy moved. The spy is what makes "did not execute" observable rather than inferred, and the enumeration is what stops the criterion passing on a miss path alone. The suite runs in the no-predicate configuration the criterion names, so it retires with that configuration rather than being carried forward by the successor.
 - AC-0234 asserts the raised type is not the framework's retry type nor a subclass. A bare "raises" assertion passes on the wrong one, and the wrong one degrades the boundary into a negotiation with no visible failure.
 - Tools resolve as module-level callables from the registry; a closure trips the framework's context-parameter inference, which the probe hit directly.
@@ -233,7 +233,7 @@ fixture. No task here reaches a provider.
 - The usage-limit narrowing is applied where the pool default is known, so the compiled agent carries the resolved value and the role record keeps the requested one. Resolving it at call time would make AC-0206's widening case unobservable on the compiled agent.
 - The decision point is installed as the outermost layer with no predicate bound to it. It holds a reference to a resolver that has no entries, which is what makes the interval refuse by construction rather than by a branch someone can delete.
 
-**Done when:** AC-0201 through AC-0206, AC-0219, AC-0233, AC-0234 and AC-0246 are green.
+**Done when:** AC-0201 through AC-0206, AC-0219, AC-0233, AC-0234, AC-0246 and AC-0251 are green.
 
 ### T3: Free text does not cross the boundary
 
