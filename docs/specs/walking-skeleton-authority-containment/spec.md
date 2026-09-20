@@ -154,13 +154,13 @@ review found in text this spec carries unchanged from the deleted
 2026-09-20, so the carry-across stays auditable against the parent; each needs an
 amendment rather than an in-place correction.
 
-- eugenelim: `workspace.toml` `[backlog].open` — **AC-0213 double-counts the row its own task files upstream.** T1 amends the r5 unsafe-prefix table to add the userinfo row, after which the criterion's "plus the userinfo case" names a row already in the table and its own amendment trigger fires on the change the task made.
-- eugenelim: `workspace.toml` `[backlog].open` — **AC-0216 proves rule presence, not rule order.** Disabling one canonicalisation rule at a time cannot see a refactor that keeps every rule and transposes percent-decode with dot-segment removal, which the plan's own probe records as load-bearing.
-- eugenelim: `workspace.toml` `[backlog].open` — **AC-0217 hand-enumerates three of seven domain types.** r5 states the rule at the level of "not parsed by their consumer"; adding an interpreted type later leaves the criterion green and the fragment unsound.
-- eugenelim: `workspace.toml` `[backlog].open` — **no explicit symlink case.** r5 requires normalisation to resolve symlinks, but AC-0213's enumerated cases are all name-only, so CWE-59 confinement escape rests on an implementer reading one prose clause as a listed rule.
+- eugenelim: this spec § Acceptance Criteria — **AC-0213 double-counts the row its own task files upstream.** T1 amends the r5 unsafe-prefix table to add the userinfo row, after which the criterion's "plus the userinfo case" names a row already in the table and its own amendment trigger fires on the change the task made.
+- eugenelim: this spec § Acceptance Criteria — **AC-0216 proves rule presence, not rule order.** Disabling one canonicalisation rule at a time cannot see a refactor that keeps every rule and transposes percent-decode with dot-segment removal, which the plan's own probe records as load-bearing.
+- eugenelim: this spec § Acceptance Criteria — **AC-0217 hand-enumerates three of seven domain types.** r5 states the rule at the level of "not parsed by their consumer"; adding an interpreted type later leaves the criterion green and the fragment unsound.
+- eugenelim: this spec § Acceptance Criteria — **no explicit symlink case.** r5 requires normalisation to resolve symlinks, but AC-0213's enumerated cases are all name-only, so CWE-59 confinement escape rests on an implementer reading one prose clause as a listed rule.
 
-- eugenelim: `workspace.toml` `[backlog].open` — **`may_exist`, the authoring-time containment gate** (`worker-runtime.md` r5 § 4's third gate, `may_exist`). Designed, not built. The charter holds the substrate single-author in operation until the governance gaps are *built*, and this is one of them; a single operator authors every role here, which is the condition that makes deferring it safe.
-- eugenelim: `workspace.toml` `[backlog].open` — **`may_run`, the spawn-time containment gate.** Recording `role.ceiling ⊆ parent_role.ceiling` as an event at spawn needs a coordinator that spawns children, which this skeleton's single analysis step does not exercise. Named rather than absent.
+- eugenelim: `worker-runtime.md` r5 § 4 — **`may_exist`, the first of its three containment gates and the authoring-time one.** Designed, not built. The charter holds the substrate single-author in operation until the governance gaps are *built*, and this is one of them; a single operator authors every role here, which is the condition that makes deferring it safe.
+- eugenelim: `worker-runtime.md` r5 § 4 — **`may_run`, the spawn-time containment gate.** Recording `role.ceiling ⊆ parent_role.ceiling` as an event at spawn needs a coordinator that spawns children, which this skeleton's single analysis step does not exercise. Named rather than absent.
 
 ## Assumptions
 

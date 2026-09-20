@@ -190,8 +190,10 @@ This ADR settles the framework. It does **not** settle:
 
 - **Nothing in § Decisions required remains open.** All thirteen (DR1–DR13)
   were settled by 2026-09-18 — several by checking vendor behaviour rather
-  than by preference — and the design doc records each with its date and
-  grounds. This ADR is not the authority for any of them.
+  than by preference. This ADR is not the authority for any of them. The
+  design doc's § Decisions required has since been removed and its § 9
+  Decisions taken carries the outcomes without the `DR` labels, so the
+  numbers resolve only from here and from the artifacts that cite them.
 - **Nothing.** All four spec-readiness gaps recorded in
   [`portable-identity-first-runtime`](../product/intents/portable-identity-first-runtime.md)
   § Spec-readiness pressure test are closed as of 2026-09-18 — principal-scope
@@ -200,13 +202,14 @@ This ADR settles the framework. It does **not** settle:
   [`assistant-mediated-operation`](../product/intents/assistant-mediated-operation.md),
   and the architecture signed off. Specs may now cite these answers as settled.
   What remains is **evidence, not design**: the Phase 1 exit criteria.
-- **One commissioned follow-on:** the credential broker (DR12), tracked in
-  `workspace.toml` `[backlog].open`.
+- **One commissioned follow-on:** the credential broker (DR12), with its brief in
+  [`worker-runtime.md`](../architecture/pydantic-ai-worker-runtime/worker-runtime.md) § 9 Risks
+  and restated open in its § 11. No work register carries it.
 
 **Settled elsewhere since this ADR was written.** DR12 — per-integration
 credential scoping is blast radius, not isolation — was accepted on 2026-09-18
-with a **credential broker commissioned as a follow-on design**, tracked in
-`workspace.toml` `[backlog].open`. DR13 — `trust_class` — was settled the same
+with a **credential broker commissioned as a follow-on design**, recorded by
+§ Open's *One commissioned follow-on* bullet above. DR13 — `trust_class` — was settled the same
 day as a *construction*: admitted-type output is validated by a deterministic
 parser the runtime owns, and an integration that cannot meet it is
 quarantine-only. DR11 — whether the project may
