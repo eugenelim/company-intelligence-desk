@@ -407,51 +407,59 @@ clean on this delivery**:
 - The register moved the foundation spec from `approved` to `shipped`,
   resolving its own reconciliation finding: three type-1 findings became two.
 
-**The register still does not dispatch, and the cause is now diagnosed
-precisely — the owner approved a migration, it was attempted, and it was
-reverted.** What was established, in order:
+**The register now dispatches. The earlier diagnosis in this section was
+wrong, and is corrected here rather than quietly replaced.**
 
-- `spec_queue` appears **zero times** in
-  `.claude/skills/workspace-status/scripts/workspace_status_engine.py`. The
-  reconciler recognises exactly three initiative collections: `work`
-  (`queue | active | shipped`, each accepting kind `spec`), `shaping_queue` and
-  `brief_queue`. So the entire `["ini-001".spec_queue]` block is a section the
-  tooling has never read, which is why `canonical.ready` and
-  `canonical.active` are empty.
-- Renaming it to `work` — mapping `approved`→`queue`,
-  `implementing`→`active`, `shipped`→`shipped`, dropping the empty `draft` —
-  does make the section readable: both sibling type-1 reconciliation findings
-  cleared and `work.shipped` resolved the foundation spec correctly.
-- **But `work` entries carry a provenance contract `spec_queue` never did.**
-  An entry is checked for a parent mirrored from the spec's own
-  source-authority block; with none, the reconciler emits `provenance_mismatch`
-  plus `invalid_artifact_path` against the *parent's* empty path. All three
-  specs declare `Brief: none — descends from `runtime-architecture.md`
-  § Rollout Phase 1`, so they have no parent to mirror, deliberately.
-- **Reverted on that basis.** Completing the migration would mean inventing a
-  lineage the specs explicitly disclaim, and the reverted state is strictly
-  safer than the migrated one: before, the block was invisible and inert;
-  after, the foundation entry was live and carrying two findings in
-  coordination state other sessions reconcile against. The closeout move of the
-  foundation entry from `approved` to `shipped` is kept, since it resolved that
-  spec's own finding under the existing shape.
+What was recorded on 2026-09-19, and merged: that `work` entries "carry a
+provenance contract `spec_queue` never did", that all three specs "have no
+parent to mirror, deliberately", and that completing the migration "would mean
+inventing a lineage the specs explicitly disclaim". **None of that was true.**
+It was inferred from the finding *codes* — `provenance_mismatch` and
+`invalid_artifact_path` — by reading the emission sites and reasoning backwards,
+without ever inspecting the finding *paths* or testing the predicates.
 
-**What this needs from whoever owns the register contract**, since it is not
-resolvable from inside this spec: either `work` must accept a parentless spec
-entry, or these specs need a registered provenance parent, or `spec_queue`
-needs to become a recognised collection. The mapping above is recorded so the
-next attempt does not have to re-derive it.
+Corrected on owner challenge, 2026-09-20: a spec does **not** need a parent to
+sit in the build queue. `_provenance_path_is_invalid` returns `False` for a
+`None` path, and `_normalized_optional_artifact_value` maps both `""` and
+`none` to `None`. A parentless spec is explicitly supported.
 
-**The original statement of the gap, which stands:**
-`workspace-status reconcile` returns empty `canonical.ready` and
-`canonical.active`, and reports both sibling specs with an empty `ini_slug` and
-`list_name` — so it is not associating them with `["ini-001".spec_queue]` at
-all. There is no `[work]` section in `workspace.toml`. This was already true
-before the closeout edit, so nothing here caused it, and no register structure
-was invented to work around it. Consequence: **neither
-`walking-skeleton-agent-runtime` nor `walking-skeleton-evidence` can be
-dispatched from the register as it stands**, and "all three specs Shipped"
-cannot be reached without resolving it.
+Two separate format defects were causing the findings, and both are fixed:
+
+- **The `Brief:` field carried prose after the word.** All three specs read
+  `Brief: none — descends from runtime-architecture.md § Rollout Phase 1`.
+  Only an exact `none` normalises away, so the parser took the whole sentence
+  as the parent's path — hence `invalid_artifact_path` against the *parent*,
+  not the spec, which is the detail that would have corrected the diagnosis
+  immediately. The field now reads `none`, with the descent preserved on its
+  own `Descends from:` line.
+- **`needs` were bare path strings.** The contract is a table of
+  `{type, kind, path}`, so the sibling entries failed to parse and never
+  reached evaluation at all — which is why they were invisible rather than
+  merely blocked.
+
+With the section renamed to `work` (`approved`→`queue`,
+`implementing`→`active`, `shipped`→`shipped`, the empty `draft` dropped) and
+both format defects fixed, the reconciler reports
+`canonical.ready = [walking-skeleton-agent-runtime]` and blocks
+`walking-skeleton-evidence` on `unsatisfied_dependency` — correct, since it
+needs the agent runtime, which is not shipped. The dependency chain is enforced
+rather than merely declared.
+
+**The process failure worth keeping:** I read finding codes, inferred a cause,
+asserted it as established, and committed it. The finding payload carried the
+offending path all along. This is the same defect class the delivery spent
+eight rounds on — a record asserting something the system does not do — and it
+reached `main` because nothing independently checked the diagnosis.
+
+**How it presented, for anyone debugging something similar:**
+`workspace-status reconcile` returned empty `canonical.ready` and
+`canonical.active` and reported both sibling specs with an empty `ini_slug`
+and `list_name`. That reads like "the section is unrecognised" and it was —
+`spec_queue` is unread — but the renaming alone left the entries still
+invisible, because a malformed `needs` drops an entry before it is ever
+evaluated. An entry that fails to parse and an entry that is blocked look the
+same from the outside; the difference is whether it appears in `evaluations`
+at all.
 
 ### What `Shipped` still requires
 
@@ -462,10 +470,14 @@ Done: `spec.md` `Shipped`, `plan.md` `Done`, the engine at `DONE`, the register
 entry moved, and `spikes/README.md`'s Phase 1 section carrying the three-way
 split with its AC-0005 row brought current for the shipped type rule.
 
-Outstanding, and not this spec's to finish: the PR carrying the four-question
-template and the `Bundled fixes:` section; the `review-verdict.v1` record; the
-register's dispatch problem above; and the two sibling specs, which are
-untouched.
+Also done since: PR #8 merged to `main` as `35382ba` with the four-question
+template and the `Bundled fixes:` section; the `review-verdict.v1` record
+emitted at `READY_WITH_RESIDUAL_RISK` and re-emitted `approved` after the merge;
+and the register's dispatch defect diagnosed correctly and fixed, so
+`walking-skeleton-agent-runtime` is dispatchable.
+
+Outstanding: the two sibling specs, untouched. `walking-skeleton-evidence`
+stays correctly blocked until the agent runtime ships.
 
 ## Contract amendment — AC-0011 names its origin
 

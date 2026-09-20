@@ -4,7 +4,8 @@
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
-- **Brief:** none — descends from `runtime-architecture.md` § Rollout Phase 1
+- **Brief:** none
+- **Descends from:** `runtime-architecture.md` § Rollout Phase 1
 - **Discovery:** none
 - **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — extended here with the stream's reconnect semantics; created by the foundation spec
 - **Shape:** mixed
