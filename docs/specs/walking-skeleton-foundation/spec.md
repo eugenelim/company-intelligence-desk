@@ -55,7 +55,7 @@ are met; this one is the hard dependency of the other two.
 ### Always do
 
 - Treat `runtime-architecture.md` r7 and `worker-runtime.md` r4 as ratified. Implement what they specify; where implementation shows one of them is wrong, stop and say so rather than designing around it.
-- Honour the ordering and identity rules of `worker-runtime.md` § Changes this design asks of r7 item 1 as binding: lock order, write order, and definer identity. The mechanism is the plan's; the obligation is here by reference so it has one home.
+- Honour the ordering and identity rules of `runtime-architecture.md` r8 § 4 Contracts and Invariants — the fence and append-path rows — as binding: lock order, write order, and definer identity. (These were `worker-runtime.md` r4 change 1, folded into the parent at r8.) The mechanism is the plan's; the obligation is here by reference so it has one home.
 - Record what a check does **not** establish alongside what it does.
 
 ### Ask first
@@ -87,7 +87,7 @@ this spec's suite runs with no cloud credential and no spend.
 ## Acceptance Criteria
 
 Obligations here come from `runtime-architecture.md` § Rollout Phase 1
-criteria 1, 3 and 5, and from `worker-runtime.md` § Rollout criterion 3. Two
+criteria 1, 3 and 5, and from `worker-runtime.md` § 10 Rollout, Migration, and Reversal criterion 3. Two
 obligations go beyond those sources, and the approval gate rules on each:
 
 | Obligation | Criteria | Why it is here | If cut |

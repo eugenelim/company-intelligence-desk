@@ -1,498 +1,361 @@
-# Runtime architecture — Company Intelligence Desk
+# Application/System Design — Company Intelligence Desk runtime
 
-**Author(s):** eugenelim
-**Status:** Draft — revision r7, after Phase 0. **Partially superseded
-2026-09-18:** the agent framework is Pydantic AI ([ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)),
-and the platform non-goal is superseded by the amended charter. The worker and
-pool are specified in
-[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md); an r8
-consistency pass folding both in is outstanding.
-**Last updated:** 2026-09-11
-**Sign-off:** **RATIFIED 2026-09-18** by the owner (`eugenelim`). This is the
-authoritative record; other documents cite it rather than restating it.
+**STATUS: PARTIALLY BUILT.** The event log, the privilege split, the HTTP
+surface and the worker pool ship; the agent layer, the authorization boundary
+and the provider call do not. [`../README.md`](../README.md) § What is built is
+the current map.
 
-**What was ratified, and what it accepts.** This document as revised, together
-with [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md),
-which specifies the worker and pool this design left as "the framework is
-invoked inside a step". Ratification is **with the five gaps under *Known at
-ship* open**, exactly as § Known at ship asks — they are accepted limits of
-the design, not a task list, and signing off does not close them. The Phase 0
-spikes that gated ratification all ran; one was falsified and changed the
-design rather than the plan.
+**Decision sought:** accept the ownership split, the structural injection
+defence that follows from it, and the identity model that bounds agent
+authority.
 
-**What was not ratified.** The companion documents carry their own status.
-[`assistant-mediated-operation`](../../product/intents/assistant-mediated-operation.md)
-is `Draft` and its two structural gaps are a separate design effort. The
-thirteen decisions in `worker-runtime.md` § Decisions required are settled;
-its Phase 1 exit criteria are owed, not met.
-**Evidence:** [`prompt-injection-defence-survey.md`](../../product/research/prompt-injection-defence-survey.md)
+**Author:** eugenelim
+**Status:** Accepted — ratified 2026-09-18 by the owner, **with the five
+accepted limits in § 9 open**. Signing off did not close them.
+**Last updated:** 2026-09-20
 
-> **Scope:** execution topology, data ownership, identity and authorization,
-> injection defence, and the human approval gate. Four concerns are deferred to
-> two commissioned companion documents — see *Scope*.
+**Reviewers:** eugenelim (owner). A single-operator project: the independent
+pass came from forked-context reviewer agents, not a second person.
 
-## TL;DR
+**Revision:** r8. This is the consistency pass r7 left outstanding: it folds in
+the framework decision, the amended charter, and the thirteen amendments the
+worker runtime required. Documents citing **r7** cite the revision this one
+supersedes, at commit `f728bd3`, recoverable through git history.
 
-Build a governed multi-agent research workbench where the application — not the
-agent framework — owns run state, the event log, and the authorization boundary,
-with ADK used as a step-level reasoning library behind a stable seam. Injection
-defence is **structural, not detection-based**: every detection approach
-*evaluated* in the published literature has lost under adaptive attack. No
-impossibility result exists, so this is an empirical bet with a shelf life, not a
-proof. The reader is asked to accept that ownership split and the structural
-defence that follows.
+**Subsystem designs bound by this document:**
+[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md) — the
+inside of a leased step and the pool that leases them.
+**Companions:** [`observability-and-evaluation.md`](observability-and-evaluation.md),
+[`experience-and-presentation.md`](experience-and-presentation.md).
 
-## Context
+**Governing decisions:** [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
+(framework), [ADR-0002](../../adr/0002-pydantic-ai-version-pin.md) (version
+pin), [ADR-0003](../../adr/0003-repository-layout.md) (layout),
+[ADR-0004](../../adr/0004-fence-function-owner.md) and
+[ADR-0005](../../adr/0005-the-fence-proves-lease-possession.md) (the fence).
 
-Engineers evaluating how to build a governed multi-agent system have no
-inspectable, production-shaped example to reason from. This project answers that
-with a working diligence workbench: a user analyses one public company as of an
-explicit date, and the workflow, evidence, agent context, policy decisions, and
-evaluations are all open to inspection.
+**Evidence:** [`spikes/README.md`](../../../spikes/README.md) and
+[`prompt-injection-defence-survey.md`](../../product/research/prompt-injection-defence-survey.md).
+Evidence is cited where it is relied on, never accumulated here.
 
-Ratified constraints (owner-set): containerized; React UI in a container separate
-from the API; multiple workspace views; Storybook; **Google ADK** as the agent
-runtime; deployed on **AWS**; **model access via workload identity with no static
-API key**; an explicit context service; SEC filings as the initial evidence tier;
-AWS services only where justified **and substitutable**; no unrestricted shell,
-network, or infrastructure access for production agents.
+---
 
-**Portability is ratified.** The system must be deployable to another cloud with
-bounded, known work. AWS remains the production target. This is *portable*, not
-*simultaneously multi-cloud* — no cross-cloud replication or split-brain is in
-scope.
+## 1. Scope and Context
 
-### Scope
+What does this system own, what does it explicitly not own, and which
+stakeholders' concerns does that boundary answer?
 
-| Deferred concern | Owning intent | Companion |
+| In scope | Out of scope | Why the boundary falls here |
 | --- | --- | --- |
-| Telemetry boundary, redaction, payload inlining | `governed-observable-and-evaluable-operation` | Observability + evaluation |
-| Evaluation architecture, fixture versioning, release gates | `governed-observable-and-evaluable-operation` | Observability + evaluation |
-| UI/API presentation contract, workspace IA, Storybook's role | `multi-workspace-inspectable-experience` | Experience / presentation |
-| Approval UI surface | `multi-workspace-inspectable-experience` | Experience / presentation |
+| Run state, the durable event log, checkpoints, authorization decisions | The agent framework being the system of record for any of them | Inspectability is the product, and it is not retrofittable onto a vendor's session store |
+| The event envelope and the stream contract | Payload inlining and redaction policy | The stream is this document's own interface; the telemetry boundary belongs to [`observability-and-evaluation.md`](observability-and-evaluation.md) |
+| The quarantine boundary's guarantee and the minting pipeline behind it | How a step enforces it internally | The guarantee is system-level; enforcement is [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md) § 4 |
+| Identity, entitlements, and the containment gates | Which library authorizes a call | [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) picks the library; the gates outlive it |
+| Evidence acquisition policy and the as-of dating rule | Multi-company or portfolio analysis | [`evidence-backed-company-diligence`](../../product/intents/evidence-backed-company-diligence.md) § Excluded bars it outright |
+| The human approval gate and the run states that carry it | The approval UI surface | Deferred to [`experience-and-presentation.md`](experience-and-presentation.md) |
+| Typed artifacts as the presentation contract | Workspace information architecture, Storybook's role | Same companion |
+| Evaluation seams — the fixture corpus and the producer tuple | Evaluation architecture and release gates | [`observability-and-evaluation.md`](observability-and-evaluation.md) |
 
-Seams those companions must respect: the **event log** is the observability
-substrate; the **run state machine** carries human intervention; **typed
-artifacts** are the presentation contract. The event *envelope* is specified here
-because the stream is this document's own interface; only payload inlining and
-redaction policy are deferred.
+### Stakeholder concerns
 
-### Four grounded facts
-
-**Detection-based injection defence does not survive adaptive attack.** Eight
-defences on AgentDojo were bypassed at ASR above 50% (arXiv:2503.00061); in-band
-detection "collapsed from near-zero to >90% success" (arXiv:2606.26479); six
-production guardrails including Azure Prompt Shield and Meta Prompt Guard were
-evaded at up to 100% (arXiv:2504.11168). Rated `[high]` in the survey across four
-independent author groups.
-
-**Structural defences held — Progent and ScopeGate under adaptive attack, CaMeL
-largely statically — at `[moderate]` confidence.** Progent fell to 2.6% ASR under adaptive attack; ScopeGate allowed
-0/29 unauthorised calls under a 40-iteration adaptive budget; CaMeL "practically
-solves" AgentDojo security at a 7-point capability cost. **Every one of these is
-evaluated by its own authors, and CaMeL largely statically. No disinterested
-party has re-run any of them.** The survey's downgrade factor is *self-evaluation*
-and this design does not claim more.
-
-**The managed guardrail does not cover this workload class.** AWS states verbatim
-on [`guardrails-use-converse-api`](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-use-converse-api.html)
-that guardrails do not evaluate tool-use fields — `toolResult` content,
-`toolSpec.description`/`inputSchema`, and the model's generated `toolUse.input` —
-and this holds for every filter type. Separately, AWS documents that Bedrock
-*Agents* does not pass tool input and output through guardrails by default. AWS
-publishes no accuracy figures for `PROMPT_ATTACK`; the only two evaluations in
-existence were run by competing vendors.
-
-**ADK has no native Bedrock path and an unstable session seam.** *Established by
-reading the published source tree and release notes, not from documentation* —
-the docs are silent on both. No `bedrock_llm.py` in the model registry; the only
-route is `LiteLlm`, whose workload-identity path is documented only by LiteLLM.
-`BaseSessionService` is a four-method ABC not presented as a public extension
-point, and ADK 2.0 changed the `Event` schema with release notes stating custom
-session storage requires updates.
-
-## Goals and Non-goals
-
-### Quality attributes, ranked
-
-**Legibility as a reference implementation is a satisfaction condition, not a
-ranked attribute.** A design that is correct but unteachable does not satisfy the
-project's purpose: the charter commits the project to serve as an engineering
-reference, and `adoptable-reference-implementation` owns that outcome. It is
-therefore not traded against the four below — it gates them. Legibility is not a
-fifth ranked attribute, and treating it as one would let it lose a trade it must
-never lose.
-
-The four attributes below *are* ranked, by business-importance ×
-architectural-risk. The ordering is load-bearing — it is the stated reason two
-alternatives are rejected.
-
-1. **Inspectability / auditability** — it *is* the product; not retrofittable.
-2. **Security of the untrusted-content and agent-authority boundaries** — no
-   managed control covers it and detection will not either.
-3. **Run durability** — tens of minutes, multi-agent, no-notice host replacement,
-   at-least-once tool semantics.
-4. **Portability through explicit contracts** — ratified; cheap at a seam.
+- **An engineer evaluating how to build a governed multi-agent system** — can I
+  read this and see *why* each control is where it is, and check it against a
+  running system?
+- **The operator running a diligence run** — can I see what the system did, and
+  intervene when it needs me?
+- **A reader of a published report** — can every claim be traced to evidence?
+- **Whoever is paged at 3am** — will a stuck run surface, and will recovery
+  happen without me?
 
 ### Goals
 
-- **Reconstructable runs.** A reconstruction script rebuilds the published report
-  from the event log alone, with no model calls, byte-matching on the claim set
-  and evidence-locator set. *"Event log" means the `events` table plus the
-  immutable payload objects its `payload_ref`s address.* Verified in Phase 1.
-- **Claim provenance.** 100% of published claims resolve to an evidence item with
-  a content-addressed locator, or to a deterministic calculation with recorded
-  inputs. Zero unresolved claims is the release gate.
-- **Host-loss survival.** A run whose worker is killed reacquires its lease within
-  **2 × lease TTL + poll interval (≤ 150 s)** with no operator action. Verified by
-  the Phase 1 kill test.
-- **Stream continuity.** Across 100 forced disconnects — including tab reload and
-  simulated sleep, **with concurrent writers active** — zero missed and zero
+Each is testable from outside the system.
+
+- **Reconstructable runs.** A reconstruction script rebuilds the published
+  report from the event log alone, with no model calls, byte-matching on the
+  claim set and the evidence-locator set. "Event log" means the `events` table
+  plus the immutable payload objects its references address.
+- **Claim provenance.** 100% of published claims resolve to an evidence item
+  with a content-addressed locator, or to a deterministic calculation with
+  recorded inputs. Zero unresolved claims is the release gate.
+- **Host-loss survival.** A run whose worker is killed reacquires its lease
+  within 2 × lease TTL + poll interval, so **≤ 150 s**, with no operator action.
+- **Stream continuity.** Across 100 forced disconnects — including tab reload
+  and simulated sleep, with concurrent writers active — zero missed and zero
   re-applied events, by sequence-completeness assertion at the sink.
 - **Replayable context.** The context package each step received is re-readable
-  verbatim from the event log without re-running any model. *Replay, not
-  re-execution.*
-- **Provider portability.** Swapping the model provider changes one adapter behind
-  `BaseLlm` and zero files under the domain package.
-- **Cloud portability.** No AWS SDK import exists outside `adapters/`, proven by a
-  dependency-direction test. Each managed dependency — ECS/Fargate, Postgres, the
-  object store, ALB + OIDC, the egress proxy, the model provider — carries a
-  written substitution note naming its GCP and Azure equivalent. Verified in
-  Phase 1.
+  from the event log without re-running any model, modulo excluded reasoning
+  parts.
+- **Provider portability.** Swapping the model provider changes one adapter
+  behind the `Model` seam and zero files under the domain package.
+- **Cloud portability.** No AWS SDK import exists outside `adapters/`, proven by
+  a dependency-direction test. Each managed dependency carries a written
+  substitution note naming its GCP and Azure equivalent.
 - **Bounded agent authority.** No tool invocation succeeds whose arguments fall
-  outside the acting agent role's ceiling, **or** outside the initiating user's
-  entitlements, **or** whose role ceiling is not a subset of its parent's.
-  Verified by an authorization suite including well-typed unauthorised calls.
-- **Attributable action.** 100% of tool invocations record run, step, acting agent
-  role, and initiating user principal, with a policy decision event. Absence of a
+  outside the acting role's ceiling, **or** outside the initiating user's
+  entitlements, **or** whose role ceiling is not contained by its parent's, **or**
+  whose role was authored beyond its author's own entitlement.
+- **Attributable action.** 100% of tool invocations record run, step, acting
+  role and initiating principal, with a policy decision event. Absence of a
   decision event fails the run.
 
 ### Non-goals
 
-- **A general-purpose agent platform — superseded 2026-09-18.** This non-goal
-  read *"One execution plane; ingestion is a named future plane with a defined
-  seam."* It is superseded by the
-  owner's charter amendment ([`CHARTER.md`](../../CHARTER.md) § Amendments):
-  the project *is* an executable substrate, with diligence as its proving use
-  case. What survives of this non-goal is narrower and still binding — **one
-  execution plane** (ingestion remains a named future plane with a defined
-  seam), and the substrate is **single-author in operation** until tenancy
-  isolation, authoring-time containment, and the trust class of non-operator
-  prompts are settled. See
-  [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
-  § Responsibility decomposition.
-- **Exactly-once tool execution.** ADK resumability is at-least-once; idempotency
-  keys instead.
+- **A general-purpose agent platform in the sense the charter once excluded.**
+  The project *is* an executable substrate, with diligence as its proving use
+  case ([`CHARTER.md`](../../CHARTER.md) § Amendments, 2026-09-18). What survives
+  and still binds: **one execution plane**, and the substrate is
+  **single-author in operation** until the three governance gaps in § 9 are
+  built.
+- **Exactly-once tool execution.** Resumption is at-least-once; idempotency
+  keys dedup instead, and § 4 names the storage that makes that true.
+- **Multi-tenant isolation.** Single-principal, single-operator. A workspace is
+  a **UI view** and never a security boundary. This is load-bearing: it is also
+  why authorization is coarse and self-approval is the default.
 - **Agent-authored UI.** Typed domain artifacts only.
-- **Multi-tenant isolation in MVP.** Single-principal, single-operator; a
-  workspace is a **UI view** and never a security boundary. Load-bearing: it is
-  also why authorization is coarse and self-approval is the default. The
-  target shape once a second principal exists is structural isolation in one
-  database — Postgres RLS with `FORCE ROW LEVEL SECURITY`, an owner-scope
-  column, and scope-qualified object keys — **not** API-level read filtering,
-  which would be an application-layer control guarding a data boundary. The
-  two irreversible pieces (key derivation and the owner-scope columns) are
-  taken now; the rest is deferred. See
-  [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
-  § Principal scope.
-- **Detection-based injection defence.** Excluded on evidence. Cheap local checks
-  are a layer, never the boundary.
-- **Prompt and context caching.** Deliberately unused because it makes stating
-  what context a step received harder. Costs concurrency headroom, not only money
-  — caching reduces the input term deducted from the token bucket at request
-  start.
+- **Detection-based injection defence.** Excluded on evidence, not on taste.
+  Cheap local checks are a layer, never the boundary.
+- **Prompt and context caching.** Deliberately unused, because it makes stating
+  what context a step received harder. It costs concurrency headroom as well as
+  money, since caching reduces the input term deducted from the token bucket at
+  request start.
+- **Simultaneous multi-cloud.** Portability means deployable elsewhere with
+  bounded, known work. No cross-cloud replication and no split-brain.
 
-## Proposal
+```mermaid
+flowchart LR
+%% Question: who and what does this system interact with, and across which trust boundaries?
+%% Zoom: context
+    OP(["Operator — OIDC principal"]) -->|HTTPS| SYS
+    subgraph SYS["Company Intelligence Desk"]
+        CORE["Governed multi-agent diligence runtime"]
+    end
+    SYS -->|workload identity, no static key| BR["Amazon Bedrock"]
+    SYS -->|allowlisted egress, 10 req/s aggregate| SEC["SEC EDGAR"]
+    SYS -.->|derived diagnostics| OTEL["OTel collector"]
+    SEC -.->|untrusted filing text| SYS
+```
 
-### Ownership split
+### Why the boundary sits here
 
-The application owns the run: state machine, durable event log, checkpoints, and
-authorization decisions. ADK is invoked *inside a step* and is never the system of
-record for anything a user inspects.
+**The application owns the run; the agent framework is invoked inside a step
+and is never the system of record for anything a user inspects.** That split is
+the whole design. Inspectability ranks first among the quality attributes, and a
+framework's session store is the wrong place to keep something the product
+exists to show.
 
-### Two execution planes
+Four ranked quality attributes decide every trade below, ordered by
+business-importance × architectural-risk. **Legibility as a reference
+implementation gates them rather than competing with them** — a design that is
+correct but unteachable does not satisfy the project's purpose, so it is never
+traded away.
 
-MVP builds the **reasoning plane**; ingestion is deterministic fetch code invoked
-by the worker. The plane boundary — a worker consuming typed work items and
-writing evidence through the same store contracts — is where an ingestion agent
-attaches later.
+1. **Inspectability and auditability** — it *is* the product, and not
+   retrofittable.
+2. **Security of the untrusted-content and agent-authority boundaries** — no
+   managed control covers this workload class, and detection will not either.
+3. **Run durability** — tens of minutes, multi-agent, no-notice host
+   replacement, at-least-once tool semantics.
+4. **Portability through explicit contracts** — ratified, and cheap at a seam.
 
-### Structure
+### Four grounded facts the design rests on
+
+**Detection-based injection defence does not survive adaptive attack.** Eight
+defences on AgentDojo were bypassed above 50% attack success (arXiv:2503.00061),
+in-band detection collapsed from near-zero to above 90% success
+(arXiv:2606.26479), and six production guardrails including two major vendors'
+were evaded at up to 100% (arXiv:2504.11168). Rated `[high]` across four
+independent author groups.
+
+**Structural defences held, at `[moderate]`.** Progent fell to 2.6% attack
+success under adaptive attack, ScopeGate allowed 0 of 29 unauthorized calls
+under a 40-iteration budget, and CaMeL practically solves AgentDojo security at
+a 7-point capability cost. **Every one is evaluated by its own authors, and no
+disinterested party has re-run any of them.** The downgrade factor is
+self-evaluation, and this design claims no more than that.
+
+**The managed guardrail does not cover this workload class.** AWS states
+verbatim that guardrails do not evaluate tool-use fields — tool results, tool
+specifications and the model's generated tool input — for every filter type, and
+publishes no accuracy figures for prompt-attack detection.
+
+**The chosen framework reaches the provider directly.**
+[ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) records why:
+the incumbent had no native Bedrock path, forcing a third-party package into the
+model hot path, and its session seam was a four-method ABC never presented as a
+public extension point.
+
+---
+
+## 2. Structural Model
+
+What are the people, systems and containers, and at what zoom are we looking?
+
+**Zoom: container.** This stops at the container boundary. What happens inside
+the worker is [`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
+§ 2.
+
+| Element | Type | Responsibility |
+| --- | --- | --- |
+| Operator | Person | Starts runs, answers clarifications, approves flagged output |
+| Amazon Bedrock | System | Model inference, reached by workload identity |
+| SEC EDGAR | System | The evidence source, and the untrusted-content origin |
+| React workspace UI | Container | Renders runs and artifacts. Holds no credentials |
+| API service | Container | `POST /runs`, `GET /runs/{id}/snapshot`, `GET /runs/{id}/events`. **Holds no model authority** |
+| Reasoning worker pool | Container | Leases steps and executes them. The only container with model authority |
+| Egress proxy | Container | Hostname allowlist and the central 10 req/s token bucket |
+| Ingestion job | Container | Scheduled evidence acquisition, off the request path |
+| Migration | Container | Deploy-time expand-then-contract DDL |
+| Postgres | Container (store) | Runs, steps, events, agent roles, entitlements, the integration registry |
+| Object store | Container (store) | Evidence, artifacts, instruction text, step message histories |
+
+| From | To | Nature | Protocol |
+| --- | --- | --- | --- |
+| Operator | Ingress | uses | HTTPS + OIDC |
+| UI | API | calls | REST + SSE, cursor-served |
+| API | Postgres | enqueues a step and appends `run.requested` in one transaction | SQL, `api` identity |
+| Worker | Postgres | claims, fences, appends | SQL, `worker` identity |
+| Worker | Postgres | appends the authorization decision | SQL, `policy-writer` identity |
+| Worker | Object store | reads evidence, writes artifacts and message histories | S3-API subset |
+| Worker | Bedrock | model calls | HTTPS, ambient workload identity |
+| Ingestion job | Egress proxy → SEC | scheduled fetch | HTTPS |
+| Worker, API | OTel collector | emits derived diagnostics | OTLP |
 
 ```mermaid
 flowchart TB
-    subgraph browser["Browser"]
-        UI["React workspace UI"]
-    end
+%% Question: which containers hold which identity, and where does model authority live?
+%% Zoom: container
+    OP(["Operator — OIDC principal"]) -->|HTTPS| LB
 
     subgraph edge["Ingress"]
-        LB["Load balancer + OIDC authn"]
-        PROXY["Egress proxy<br/>hostname allowlist"]
+        LB["Load balancer + OIDC authn<br/><i>identity: ingress</i>"]
     end
 
-    subgraph api["API service (identity: api)"]
-        REST["POST /runs → run_id"]
-        SNAP["GET /runs/:id/snapshot"]
-        SSE["GET /runs/:id/events?after=cursor"]
+    subgraph front["Front tier — internet-facing, NO model authority"]
+        UI["React workspace UI<br/><i>identity: ui</i>"]
+        API["API service<br/><i>identity: api</i>"]
     end
 
-    subgraph worker["Reasoning worker pool (identity: worker)"]
-        LEASE["Claim step<br/>SKIP LOCKED + lease_epoch"]
-        CTX["Context assembler"]
-        QA["Quarantined agent<br/>reads untrusted text<br/>NO tools · NO planning"]
-        PARSE["Deterministic parser<br/>fail-closed"]
-        DEREF["Deterministic dereference"]
-        PA["Planning agents<br/>ADK Runner per step"]
-        PDP["Authorization decision point<br/>argument-VALUE checks"]
-        FETCH["SEC fetch (deterministic)"]
+    subgraph back["Reasoning tier — no inbound path from the internet"]
+        W["Reasoning worker pool<br/><i>identity: worker + policy-writer</i>"]
+        ING["Ingestion job<br/>scheduled, off the request path"]
+        PROXY["Egress proxy<br/><i>identity: egress-proxy</i><br/>allowlist · central 10 req/s bucket"]
+        MIG["Migration<br/>deploy-time only"]
     end
 
-    subgraph stores["Shared stores"]
-        PG[("Postgres")]
-        OBJ[("Object store<br/>S3-API subset")]
+    subgraph stores["Shared stores — the system of record"]
+        PG[("Postgres<br/>runs · steps · events<br/>agent_role · entitlements · integrations")]
+        OBJ[("Object store — S3-API subset<br/>evidence · artifacts<br/>instructions · step messages")]
     end
 
     subgraph ext["External"]
-        BR["Model provider"]
+        BR["Amazon Bedrock"]
         SEC["SEC EDGAR"]
+        OTEL["OTel collector"]
     end
 
-    UI -->|HTTPS| LB
-    LB --> REST
-    LB --> SSE
-    LB --> SNAP
-    REST -->|enqueue + run.requested, one txn| PG
-    SSE --> PG
-    SNAP --> PG
-    LEASE --> PG
-    LEASE --> CTX
-    PG -->|untrusted evidence pkg| CTX
-    CTX -->|raw text| QA
-    CTX -->|refs + prior structured output| PA
-    QA --> BR
-    QA -->|candidate refs| PARSE
-    PARSE -->|validated refs only| PA
-    PA --> BR
-    PA -->|proposed tool call| PDP
-    PDP -->|decision event first| PG
-    PG -->|committed ⇒ authorized| FETCH
-    PG -->|committed ⇒ authorized| DEREF
-    DEREF -->|typed scalars only| PA
-    PA -->|append event| PG
-    FETCH --> PROXY --> SEC
-    FETCH -->|raw text| OBJ
-    OBJ -->|evidence read| CTX
+    LB --> UI
+    LB --> API
+    UI -.->|SSE reconnect, Last-Event-ID| LB
+    API -->|enqueue + run.requested, one txn| PG
+    API -->|cursor-served projection| PG
+    W -->|claim · fence · heartbeat · append| PG
+    W -->|policy.decision only| PG
+    W --> OBJ
+    W --> BR
+    ING --> PROXY --> SEC
+    ING --> OBJ
+    MIG --> PG
+    W -.-> OTEL
+    API -.-> OTEL
 ```
 
-Six things carry the design.
+### Why this grain
 
-**The stream reads the log, not the worker.** `SSE` is a cursor-served projection
-over committed events, so run duration and stream-session duration are
-independent and no ingress limit constrains run length. This converts the
-undocumented ALB client-keepalive behaviour from a design risk into a reconnect.
+**Three placements carry the design and each is visible in the diagram.** The
+API holds no model authority, so compromising the internet-facing container
+yields no model access. The worker authenticates as two database roles, which is
+what lets an authorization decision be recorded through a path the worker's
+general write grant cannot reach. And ingestion sits off the request path, so no
+run's latency or availability depends on a third party that rate-limits.
 
-**The quarantined agent emits references only.** `QA` reads raw filing text and
-holds **no tools and no planning authority**. It returns *symbolic references* and
-*closed-vocabulary classifications* — never free prose.
+**The stores are drawn as containers because authority over data is the thing
+this zoom must show.** Postgres is the system of record for run state and the
+event log; the object store holds everything content-addressed. Neither is a
+detail of a service.
 
-**What a planning agent may receive — the boundary's actual guarantee.** Three
-things and nothing else: symbolic references, closed-vocabulary labels, and
-**typed scalars** (decimals, dates, enumerated units, content-addressed
-locators). `DEREF` is deterministic code outside any model and its output domain
-is type-restricted; a free-text value cannot cross even as a "resolved value" or
-a "prior structured output", which is the indirect path that would otherwise
-reopen the boundary through Postgres.
+**This diagram does not descend into the worker.** The quarantined agent, the
+deterministic parser, the toolset stack and the decision point are real and they
+are one zoom level down. Drawing them here would put the same elements in two
+documents, and the copy in the parent would drift the first time either changed.
 
-The scalar channel is load-bearing, not a concession: without it the brief's
-deterministic financial calculation and its competing interpretations have no
-data path at all. The precise guarantee is therefore *"a planning agent receives
-no attacker-authored **free text**"* — **not** *"no attacker-influenced signal"*.
-See *Named residual risks* for what that distinction leaves open.
+---
 
-**The handoff is validated by a parser, not by an instruction.** `PARSE` is
-deterministic and fail-closed: non-conforming `QA` output fails the step. It is
-*not* enforced by `output_schema`, which ADK's own documentation says "may not
-work reliably" on non-Gemini models — a security control must not rest on a
-mechanism its vendor calls unreliable.
+## 3. Runtime Model
 
-**The context assembler is constrained.** It may place untrusted evidence text
-only in `QA`'s package. `PA` packages carry references, closed-vocabulary labels,
-and typed scalars — the same three admitted across the boundary, so re-assembly
-from stored state cannot widen what a planning agent sees.
+How does an end-to-end journey move through the system, normally and when
+something goes wrong?
 
-**Authorization checks argument values, not schemas.** `PDP` policy lives outside
-any model's context window. Checking tool names and argument *types* is the
-documented anti-pattern — LangChain, LlamaIndex, and the Stripe Agent Toolkit all
-do it, and a well-typed but unauthorised call is executed.
+| Journey | Trigger | Path |
+| --- | --- | --- |
+| Analyse one company as of a date | Operator posts a run | normal |
+| Mid-run clarification | An agent needs an ambiguity resolved | normal, suspending |
+| Flagged output held for approval | A pre-release check fails | normal, suspending |
+| Client rejoins after being away | Page load or reconnect | normal |
+| Worker host replaced mid-run | Fargate replaces the task | failure / recovery |
+| Run cancelled while a step is running | Operator cancels | failure / recovery |
 
-**The decision event commits before the action.** `PDP` is not a fork. The
-`policy.decision` event must commit *before* the authorized invocation is issued;
-a failed decision append is a **denial, not a retry**. Otherwise an action can
-take effect while its decision record is lost, which would make the
-attributable-action goal measure below 100% for reasons that are correct
-behaviour.
+```mermaid
+sequenceDiagram
+%% Question: where does durable state change on a successful run, and who holds the lease?
+%% Zoom: container
+    autonumber
+    actor OP as Operator
+    participant UI as React UI
+    participant API as API
+    participant PG as Postgres
+    participant W as Worker
+    participant BR as Bedrock
 
-**The worker leases steps; it does not own runs.** Fargate replaces hosts with no
-notice, caps graceful shutdown at 120 s, and never replaces standalone tasks.
+    OP->>UI: analyse ACME as of 2026-06-30
+    UI->>API: POST /runs
+    API->>PG: entitlement check · run.requested + coordinator step, one txn
+    API-->>UI: run_id
+    UI->>API: GET /runs/:id/events, cursor-served
 
-### Injection defence
-
-Two threat classes with **different controls**.
-
-**Retrieved filing content (indirect).** Filings are written by the entity under
-analysis. Control: the quarantine boundary. Untrusted text never reaches an agent
-that can act, and never crosses as prose.
-
-*How filing-language change analysis survives this.* The brief requires detecting
-material wording changes. Under references-only, the diff between two filing
-sections is computed **deterministically**, stored as its own evidence item with a
-content-addressed locator, and `QA` returns a reference to that diff plus a
-classification drawn from a **closed vocabulary** (e.g. `risk-factor-added`,
-`litigation-language-strengthened`). A fixed enumeration is not attacker-
-controlled text; free prose would be. The capability is preserved; the boundary
-holds.
-
-**User prompt (direct).** The user's text legitimately *is* the instruction, so
-"treat as data" is unavailable. Control: authorization bounds — what an agent can
-be persuaded to attempt is bounded by what it is permitted to do, with policy
-outside the model context, deterministic and fail-closed.
-
-**Cheap local checks are a layer, not the boundary.** Tool-result protocol
-validation, structural anomaly detection on retrieved chunks (entropy, repeated
-n-grams, character runs, size caps), and YARA code-injection patterns are
-implemented directly. Free, model-free, catch unsophisticated attempts. Not
-described as closing anything.
-
-**Named residual risks.** Compositional authorization across turns is unsolved in
-the literature. A quarantined model may be induced to forge references. No
-structural defence has been tested under an unlimited adaptive budget. No
-benchmark exists for long-document financial filings — this system's exact
-workload class. All carried in *Risks*, none mitigated into invisibility.
-
-### Event log and stream mechanism
-
-**Per-run monotonic sequence allocated inside the append transaction.** A
-`bigserial` is allocated before commit, so with concurrent writers a reader can
-observe event 105 while 104 is uncommitted and skip 104 forever. Each event's
-`seq` instead comes from a per-run counter updated in the same transaction.
-
-There are **two append paths**, and `next_seq` is never bumped outside them.
-
-*Worker path* — fenced, for step-scoped events:
-
-```
-BEGIN;
-  SELECT 1 FROM steps WHERE step_id = $1 AND lease_epoch = $2 FOR UPDATE;
-  -- zero rows ⇒ fenced ⇒ ROLLBACK, abort with no ADDITIONAL side effects
-  UPDATE runs SET next_seq = next_seq + 1 WHERE run_id = $3 RETURNING next_seq;
-  INSERT INTO events (...) VALUES (...);
-COMMIT;
+    W->>PG: claim step, SKIP LOCKED + lease_epoch
+    W->>BR: plan
+    W->>PG: child steps + containment proofs, one txn
+    W->>PG: claim quarantine step
+    W->>BR: classify candidates, no tools
+    W->>PG: admitted types only
+    W->>PG: claim analysis step
+    W->>BR: reason
+    W->>PG: policy.decision, then tool.invoked
+    W->>PG: suspension · payload object, then fenced append
+    PG-->>API: event
+    API-->>UI: SSE
+    UI->>OP: prompt
+    OP->>UI: answer
+    UI->>API: POST /runs/:id/input
+    API->>PG: input.supplied · step runnable
+    W->>PG: a DIFFERENT worker claims the resumed step
+    W->>BR: continue from serialized history
+    W->>PG: artifact · pre-release checks · run.completed
+    PG-->>API: terminal event
+    API-->>UI: stream closes
 ```
 
-*Run-lifecycle path* — unfenced, `step_id` null, used by `api` for
-`run.requested` and `run.cancelled`, which are appended before any step exists:
-
-```
-BEGIN;
-  UPDATE runs SET next_seq = next_seq + 1
-   WHERE run_id = $1 AND state NOT IN ('completed','failed','cancelled')
-   RETURNING next_seq;
-  -- zero rows ⇒ already terminal ⇒ ROLLBACK; a late cancel is a no-op
-  INSERT INTO events (step_id = NULL, ...) VALUES (...);
-COMMIT;
-```
-
-The terminal-state guard matters because the stream closes on a terminal event: a
-`run.cancelled` committing after `run.completed` would be invisible to every live
-client while present in the log, which is a reconstruction divergence rather than
-a cosmetic one.
-
-**Lock ordering: `steps` before `runs`.** Both this and fence-before-allocate
-follow from one property — **the `runs` row lock serializes appends per run, so it
-must be taken last and held briefly.** Taking it before the fence would hold it
-across a wait on `steps` and invert the order against the worker path, risking
-deadlock; taking it inside the same transaction as the `INSERT` is what makes a
-rolled-back append leave no hole. (Note the hole is impossible *here* precisely
-because `next_seq` is a row `UPDATE` that rollback undoes — unlike the `bigserial`
-rejected above, whose allocation survives rollback.) Deadlock (40P01) is retried
-with backoff.
-
-**Phase 0 sharpened this claim.** A *uniformly* inverted order does not deadlock
-— every writer takes the same `runs` row first and serialises there, so no cycle
-forms. The hazard is strictly one path inverting **against** another, which is
-what the ordering rule prevents. Demonstrated: zero deadlocks under the designed
-order across 8 concurrent writers, and 12 under mixed orders on the same rows.
-Sequence density was demonstrated in the same run — 200 events, `seq` dense from
-1, no duplicates, which is the property `bigserial` cannot provide because its
-allocation survives rollback.
-
-**The client owns the cursor; the server prefers `Last-Event-ID`.** EventSource's
-automatic reconnect re-requests the original URL with a now-stale `after=` while
-also sending `Last-Event-ID`, so the server uses `Last-Event-ID` when present and
-falls back to `after=`. The client persists its own cursor and reopens explicitly.
-
-**The sink is idempotent** on `(run_id, seq)`.
-
-Phase 0 verified the `Last-Event-ID` preference by reconnecting with a
-deliberately stale `after=0` on every resume: zero duplicates across 9 forced
-disconnects. Had the server trusted the query parameter, each resume would have
-replayed from the beginning.
-
-**Event envelope.**
-`{schema_version, run_id, seq, occurred_at, type, step_id?, agent_role?, principal, payload_ref}`.
-`step_id` and `agent_role` are null for run-lifecycle events. Payloads are
-references to immutable objects; what may be inlined and under what redaction
-belongs to the observability companion.
-
-**Liveness and termination.** `:keepalive` every 15 s; a terminal
-`run.completed` / `run.failed` / `run.cancelled` event closes the stream.
-
-**Retention.** The event log and its payload objects are retained for the life of
-the published report, with no expiry in MVP — the reconstruction goal and the
-brief's cross-period comparison both depend on it. A client that has been
-disconnected long enough to be uncertain of its cursor calls
-`GET /runs/{id}/snapshot → {state, as_of_seq}`, discards local state, and resumes
-at `as_of_seq`. No cursor is refused on age; nothing is deleted.
-
-### Step execution: claim, commit, work
-
-Row locking and lease expiry are different mechanisms. A row lock held across a
-multi-minute step would pin an idle-in-transaction connection, hold `xmin` back,
-and block vacuum on the event-log tables.
-
-1. `SELECT … FOR UPDATE SKIP LOCKED` selects one runnable step; stamp `owner`,
-   increment `lease_epoch`, set `lease_expires_at`; **commit immediately**.
-2. Execute outside any transaction.
-3. Heartbeat-renew at **TTL/3**. With **TTL = 60 s**, heartbeat every 20 s and
-   poll interval 30 s, worst-case reacquisition is 150 s.
-
-**Renewal is fenced.** Without it a partitioned-but-alive worker could renew a
-lease it no longer owns:
-
-```sql
-UPDATE steps SET lease_expires_at = now() + interval '60 seconds'
- WHERE step_id = $1 AND lease_epoch = $2 AND owner = $3;
--- zero rows ⇒ fenced ⇒ abort
-```
-
-**A fenced worker aborts without *additional* side effects.** It may already have
-invoked a tool; attribution is at the logical-invocation level and idempotency
-keys dedup re-execution.
-
-**Graceful shutdown.** On `SIGTERM` the worker sets `lease_expires_at = now()`
-and exits, so planned replacement recovers in one poll interval.
-
-### Run state machine
-
-The run state is a **projection over concurrent steps**, not a step scheduler; a
-run may have several steps in flight.
+### The run state machine
 
 | From | To | Trigger | Event |
 | --- | --- | --- | --- |
 | — | `requested` | user starts a run | `run.requested` |
 | `requested` | `claimed` | first step leased | `run.claimed` |
 | `claimed` | `running` | first step begins | `step.started` |
-| `running` | `awaiting_approval` | pre-release check fails | `approval.requested` |
+| `running` | `awaiting_input` | an agent asks the operator a question | `input.requested` |
+| `awaiting_input` | `running` | operator answers | `input.supplied` |
+| `running` | `awaiting_approval` | a pre-release check fails | `approval.requested` |
 | `awaiting_approval` | `running` | approver returns for revision | `approval.rejected` |
 | `awaiting_approval` | `completed` | approver publishes | `approval.granted` |
 | `awaiting_approval` | `expired` | `approval_timeout` elapsed | `approval.expired` |
@@ -501,253 +364,307 @@ run may have several steps in flight.
 | any non-terminal | `failed` | unrecoverable error | `run.failed` |
 | any non-terminal | `cancelled` | user cancels | `run.cancelled` |
 
-Terminal: `completed`, `failed`, `cancelled`. `expired` is **non-terminal** and
-has real exits — an approver reopens it, or the "any non-terminal" rows cancel or
-fail it. A timed-out approval is recoverable, never silently discarded.
-`approval_timeout` defaults to **none** in MVP.
+Terminal states are `completed`, `failed` and `cancelled`. **`awaiting_input`,
+`awaiting_approval` and `expired` are all non-terminal and all release their
+leases**, because a suspended step must not hold one while a human takes an
+unbounded amount of time. `approval_timeout` defaults to none, which is exactly
+why a stuck payload reference would be a permanently stuck run rather than a
+delayed one.
 
-### The approval gate
+**The run state is a projection over concurrent steps, not a step scheduler.** A
+run may have several steps in flight, and ordering comes from the per-run
+sequence rather than from the pool.
 
-**A run whose checks all pass publishes automatically.** The human gate applies to
-*flagged* output: a failed pre-release check holds for approval rather than
-publishing a silently weakened analysis or discarding a sound run over one
-unresolved claim.
+### What the normal path establishes
 
-**This narrows a charter claim.** RFC-0001 principle 3 currently reserves
-"approvals, publication, policy exceptions" to humans. As designed, publication is
-automatic on a clean run. The principle should be amended to reserve *approval of
-flagged output* — see *Charter amendments*.
+**Every human interaction has one shape.** A content-addressed payload object is
+written first, the fenced append commits second carrying its hash, the lease
+releases, and a *different* worker resumes from bytes. That uniformity is why
+there is one suspension mechanism rather than two, and it is what survives the
+host being replaced mid-wait.
 
-**Separation of duties is configurable.** `require_distinct_approver` defaults to
-`false` for the single-operator MVP. Both the flag state and the approver
-principal are recorded.
+**The stream reads the log, not the worker.** Server-sent events are a
+cursor-served projection over committed events, so run duration and stream
+session duration are independent and no ingress limit constrains run length. A
+client that has been away calls `GET /runs/{id}/snapshot`, discards local state,
+renders the snapshot and resumes at `as_of_seq` — the ordinary page-load path,
+not only a recovery mechanism.
 
-**Escalation is a calibration target, not a release gate.** Oversight has finite
-capacity: reviewer agreement on what is risky is moderate (κ = 0.52) and safety
-follows an inverted-U against escalation rate, which adversarial flooding can
-exploit. The literature suggests **5–15%**, from an author-run study of 125
-hand-labelled actions — `[moderate]`, and too thin to gate a
-release on. It is recorded as a target, measured over a rolling 30-day window with
-a minimum of 50 runs before the figure means anything.
+**The operator's answer is a direct-injection surface and is treated as one.**
+It is trusted *as instruction* and bounded by what the acting role may do, never
+screened. Two constraints keep that honest: the answer is admitted at the role's
+existing ceiling and cannot widen it, and the request and answer are both
+recorded as events so the analysis can be reconstructed knowing a human steered
+it.
+
+**The approval gate is conditional, and the condition is computed outside the
+model.** The deterministic pre-release checks run before the agent, and their
+result commits as an event; the approval-gated tool exists in the compiled
+toolset only when a check failed. A run passing every check publishes
+automatically, which is what
+[`CHARTER.md`](../../CHARTER.md) principle 3 was amended to permit.
+`require_distinct_approver` defaults to false for the single operator, and both
+the flag state and the approver principal are recorded.
+
+```mermaid
+sequenceDiagram
+%% Question: when a worker's host is replaced mid-step, how does the run recover and what stops a duplicate action?
+%% Zoom: container
+    participant A as Worker A
+    participant PG as Postgres
+    participant B as Worker B
+    Note over A,B: Failure / recovery — host replaced mid-step
+    A->>PG: heartbeat renew, fenced on lease_epoch
+    Note over A: Fargate replaces the task
+    PG-->>PG: lease_expires_at passes, TTL 60 s
+    B->>PG: claim at a new epoch, within 150 s worst case
+    B->>PG: resume from the payload object
+    A--xPG: late fenced append ⇒ zero rows ⇒ ROLLBACK
+    B->>PG: tool.invoked with the derived idempotency key
+    PG-->>B: unique violation if A already committed it
+    Note over B,PG: the action executes AT MOST ONCE — the failure is visible
+```
+
+### Why recovery looks like this
+
+**Row locking and lease expiry are different mechanisms, and conflating them
+breaks the database.** A row lock held across a multi-minute step would pin an
+idle-in-transaction connection, hold the transaction horizon back, and block
+vacuum on the event-log tables. So a claim commits immediately and the step
+executes outside any transaction.
+
+**Cancellation and fence loss collapse into one signal**, which is correct —
+both mean *stop, you no longer own this*. The heartbeat reads the run state in
+the same statement that renews the lease, so worst-case cancellation latency is
+one heartbeat interval and no new polling exists. A worker mid-step would
+otherwise discover a cancellation only at step end, after minutes of model spend.
+
+**A fenced worker aborts without *additional* side effects.** It may already
+have invoked a tool; attribution is at the logical-invocation level, and the
+derived idempotency key in § 4 is what makes re-execution safe rather than
+merely recorded. On `SIGTERM` the worker sets its lease to expire immediately
+and exits, so planned replacement recovers in one poll interval.
+
+---
+
+## 4. Contracts and Invariants
+
+What must always hold across every boundary, and how would a violation be
+caught?
+
+| Contract | Parties | Invariant | Failure semantics | Enforcement | Verification |
+| --- | --- | --- | --- | --- | --- |
+| **Per-run sequence** | any appender ↔ `events` | Each event's `seq` comes from a per-run counter updated in the same transaction, never a `bigserial` | A rolled-back append leaves no hole | Row `UPDATE` on `runs.next_seq` inside the append transaction | **Built.** Lock-ordering spike: 200 events, dense from 1, no duplicates |
+| **Two append paths, and only two** | `api`, `worker`, `policy-writer` ↔ `events` | `next_seq` is never bumped outside them. The worker path is fenced; the run-lifecycle path is unfenced and guarded on non-terminal state | A late cancel after a terminal event is a no-op, not a reconstruction divergence | Three `SECURITY DEFINER` functions with disjoint grants | **Built** |
+| **Lock ordering** | any appender ↔ `steps`, `runs` | `steps` is locked before `runs`, on every path | Deadlock (40P01) is retried with backoff | Convention enforced in the definer functions | **Built.** Zero deadlocks under the designed order across 8 writers; 12 under mixed orders |
+| **No role holds an unqualified events insert** | every identity ↔ `events` | `api` is limited to run-lifecycle types, `worker` to step-scoped types, `policy-writer` to `policy.decision` | Database refusal, not application refusal | Disjoint `EXECUTE` grants; `events.type` carries a CHECK requiring a dotted run of lowercase ASCII alphanumerics | **Built.** Privilege-split spike, 7/7 |
+| **The fence proves possession** | any fenced writer ↔ `steps` | A never-claimed, released, drained or expired step is unappendable at any epoch | Append refused | `fence_step`, owned by a `NOLOGIN` role so the role the split distrusts cannot drop it — [ADR-0004](../../adr/0004-fence-function-owner.md), [ADR-0005](../../adr/0005-the-fence-proves-lease-possession.md) | **Built** |
+| **The decision commits before the action** | decision point ↔ `events` | A `policy.decision` commits, under a live fence, before the authorized invocation is issued | A failed append is a **denial, never a retry** | Second database identity, fenced transaction | Owed: force the append to fail, assert the tool body does not run |
+| **At most once per logical invocation** | recording layer ↔ `events` | A `(run_id, idempotency_key)` pair appends at most once for `tool.invoked` | Unique violation ⇒ duplicate-detected step failure, visible rather than silent | Partial unique expression index over `tool.invoked` events | Fault-injection suite |
+| **Bounded agent authority** | decision point ↔ every tool call | `may_exist`, `may_run` and `may_act` all hold — see below | Domain exception propagating out of the agent run | Argument-**value** checks outside any model's context | Authorization suite, release gate |
+| **Quarantine** | untrusted evidence ↔ planning agents | A planning agent receives **no attacker-authored free text** | Non-conforming output fails the step | A deterministic fail-closed parser, and a minting pipeline that runs before any model | Quarantine suite |
+| **References are minted, not emitted** | pipeline ↔ quarantined agent | The model selects among candidates that already resolve; it cannot emit an identifier the pipeline did not mint | A reference the runtime did not mint fails the step | Deterministic semantic pipeline | Quarantine suite |
+| **Event envelope** | appenders ↔ stream consumers | `{schema_version, run_id, seq, occurred_at, type, step_id?, agent_role?, principal, payload_ref}` | Additive fields only | Schema | Contract test |
+| **Stream cursor** | server ↔ client | The server prefers `Last-Event-ID` over `after=`; the sink is idempotent on `(run_id, seq)` | A stale query parameter cannot cause a replay | Server-side preference | **Built.** Zero duplicates across 9 forced disconnects with a deliberately stale `after=0` |
+| **Object store portability** | system ↔ any S3-API store | Only `PUT`, `GET`, `HEAD`, `DELETE`, `LIST` with prefix, plus encryption at rest | No S3-specific feature may become load-bearing | Adapter boundary | Runs against MinIO locally |
+| **Scope-qualified keys** | any writer ↔ object store | `key = <owner_scope>/<content_hash>`, with `public` as an explicit named scope | — | Key construction | Reconstruction byte-match |
+| **Model seam** | system ↔ provider | Swapping providers changes one `Model` subclass and nothing else | — | No framework import outside `agents/` and `adapters/` | **Built** — `tests/architecture/dependency_direction.py` |
+| **Aggregate egress limit** | system ↔ SEC | 10 requests per second in total, regardless of worker count | A failed fetch is a failed run with a recorded cause, never partial evidence | One central token bucket in the egress path | Proxy metric |
+| **As-of dating** | ingestion ↔ evidence | Evidence is dated by **filing date**, never acceptance or retrieval timestamp | — | Ingestion rule | Ingestion test |
+| **Evidence snapshot immutability** | run ↔ evidence corpus | `snapshot_id = hash(sorted set of evidence content hashes)`, recorded at run start. An amendment creates a *new* snapshot historical runs never see | — | Content addressing | Reconstruction byte-match |
+| **No reasoning is stored** | system ↔ both stores | Chain-of-thought is never written to the event log or the evidence store, so no servable location holds it | Compilation fails if a role enables it | A storage property, not a filter on read | Round-trip test |
+
+### The three containment gates
+
+Authorization is three checks at three times against three authorities. Stating
+them as one biconditional conflates them and hides which one is missing.
+
+```
+may_exist(role)    ⟺ role.ceiling ⊆ author.authoring_entitlement
+                      — at AUTHORING time, recorded on the role version
+may_run(role, run) ⟺ role.ceiling ⊆ parent_role.ceiling
+                    ∧ role.ceiling ⊆ initiating_user.entitlements
+                      — at SPAWN, recorded as an event
+may_act(call)      ⟺ args ∈ role.ceiling
+                    ∧ args ∈ initiating_user.entitlements
+                      — at CALL, recorded as the policy.decision
+```
+
+**Authoring bounds what may exist; execution bounds what may run.** They are
+independent and both must hold. `may_exist` exists because the moment a second
+principal authors a role, authoring becomes a privilege-escalation primitive —
+write a role with a wide ceiling, get it spawned, act beyond your own rights. It
+closes with the no-amplification rule the charter already ratifies: an author
+may only grant what they hold.
+
+**The base case is out of band.** `policy-author` is human-operated with no
+runtime identity holding it, so it is the root of the authoring tree and its
+entitlement is set by database grant, never authored inside the system. The root
+coordinator's ceiling is bounded by the initiating user's entitlements at run
+start.
+
+**Narrowing an author's entitlement does not retroactively invalidate roles.**
+The proof is recorded at authoring time against the entitlement then in force,
+and role versions are immutable. That is safe because the other two gates still
+check the *current* initiating user, so a role that should no longer be
+reachable becomes unreachable at execution — without a cascading revalidation
+pass over a corpus of role versions. A role version in use by an in-flight run
+is immutable, so a recorded containment proof cannot go stale mid-run.
+
+### Decidability, and the one unsafe constructor
+
+Value constraints are restricted to a decidable fragment — closed enumerations,
+prefixes, numeric ranges and set membership — combined as a **conjunction of
+independent per-argument predicates**. No disjunction and no cross-argument
+relation is expressible, and that closure is what makes per-attribute structural
+containment decidable and set-theoretically sound.
+
+**Set-level soundness is not semantic safety, and the gap is the prefix
+constructor.** Containment proves a value lies inside the declared ceiling. It
+does not prove the value *means* what the ceiling's author intended, because a
+prefix over an argument the callee **parses** admits an attacker-chosen suffix:
+`https://www.sec.gov` matches `https://www.sec.gov.attacker.example/`, and a
+path prefix matches a traversal beyond its root. Both pass and both report
+sound.
+
+The fragment therefore does three things, and the third is the one most designs
+omit.
+
+1. **Prefix is expressible only on arguments declared not to be parsed by their
+   consumer.**
+2. **Interpreted arguments carry a domain type** whose predicates range over
+   parsed components.
+3. **The canonical form is what the callee receives**, so validator and callee
+   cannot hold different opinions about the same string.
+
+The mechanism and the canonicalization rules are
+[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md) § 4.
+
+**Compositional authorization across turns remains unsolved.** Each call is
+authorized independently, and a sequence of individually-authorized calls can
+achieve an effect no single call would be permitted. Named, not solved.
 
 ### Identity — two layers
 
-**Layer 1 — workload identity (component → platform).** Roles are the model; the
-AWS column is the current binding.
+**Layer 1 — workload identity.** Roles are the model; the AWS column is the
+current binding.
 
 | Component | Model provider | Postgres | Object store | SEC egress | Secrets |
 | --- | --- | --- | --- | --- | --- |
-| `api` | **none** | read all; write `runs` (incl. `next_seq`), `steps` enqueue, run-lifecycle `events` | read artifacts | none | own DB credential path |
-| `worker` | invoke + invoke-stream on named models | read/write runs, steps, context, evidence; `events` **except** `policy.decision` | read/write evidence + artifacts | via proxy only | own DB credential path |
-| `policy-writer` | none | `runs.next_seq` bump + insert `policy.decision` events **only** | none | none | own DB credential path |
+| `api` | **none** | read all; write `runs` including `next_seq`, `steps` enqueue, run-lifecycle `events`; publish one metric namespace when autoscaling lands | read artifacts | none | own DB credential path |
+| `worker` | invoke and invoke-stream on named models | read/write runs, steps, context, evidence; `events` **except** `policy.decision` | read/write evidence, artifacts, message histories | via proxy only | own DB credential path |
+| `policy-writer` | none | `runs.next_seq` bump and insert `policy.decision` only, via a fence function that grants **no table access** | none | none | own DB credential path |
 | `egress-proxy` | none | none | none | allowlisted hostnames | own TLS material |
 | `ui` | none | none | none | none | none |
 | `ingress` | none | none | none | none | OIDC client secret |
-| `migration` | none | DDL + DML on tables under active migration | none | none | own DB credential path |
-| `policy-author` | none | write agent-role and entitlement tables | none | none | human-operated |
+| `migration` | none | DDL and DML on tables under active migration | none | none | own DB credential path |
+| `policy-author` | none | write agent-role, entitlement and integration-registry tables | write instruction and schema objects | none | human-operated |
+| *per integration* | none | as the integration's `credential_scope` declares | as declared | as declared | resolved per step, not per worker |
 
-**Least privilege on Bedrock has a shape that is not obvious, established by
-Phase 0 experiment.** A `us.`-prefixed inference profile is *cross-region*:
-authorization for the underlying foundation model is evaluated in the region
-Bedrock **routes to**, not the one called. So the `worker` policy may pin the
-inference-profile ARN to the calling region, but the foundation-model ARN must
-stay region-wildcarded, and an `aws:RequestedRegion` equality condition **denies
-the call outright**. Both tightenings look correct and both break invocation.
-Recorded because it is the kind of detail that reads as a permissions bug two
-days into a build.
-
-`api` holds no model authority — compromising the internet-facing component
-yields no model access. `policy-author` is **human-operated; no runtime identity
-holds it.**
-
-**Enforcing the `policy.decision` split — invariant here, mechanism elsewhere.**
-The invariant this design commits to: *the database role that writes a
-`policy.decision` event is not the role that performs the worker's general
-writes, and no runtime identity holds both.* Postgres has no row-value-level
-grant, so this requires a privilege model — grantees, `SECURITY DEFINER`
-ownership and `search_path`, and which process authenticates as which role. That
-model belongs in a schema/privilege spec, not in an architecture document, and it
-is **proven by an executable Phase 0 test** — a `worker`-role session attempting
-`INSERT INTO events (type='policy.decision')` and being refused — not by prose
-review.
-
-**The constraint is symmetric.** No role holds an unqualified `events` insert.
-`api` is restricted to the run-lifecycle types it actually needs
-(`run.requested`, `run.cancelled`), `worker` to its step-scoped types, and
-`policy-writer` to `policy.decision` alone. An internet-facing component able to
-write a policy decision would defeat the split entirely, so `api` is constrained
-by the same mechanism rather than trusted.
+**The `policy.decision` split is a database-role property.** The invariant is
+that the database role writing a `policy.decision` is not the role performing
+the worker's general writes, **and no database role holds both**. The worker
+process authenticates as two roles, because a worker task must obtain both
+credentials at boot and no delivery scheme makes them separable while one
+process needs both. The split's strength is therefore the grant, which the
+privilege-split spike proved directly, not credential separation.
 
 **What the split does and does not buy.** It separates **recording** authority,
-never **decision** authority: the worker still makes the call at `PDP`. It defends
+never **decision** authority: the worker still makes the call. It defends
 against a bug or partial compromise in any single write path forging a decision.
-It does **not** defend against full compromise of the `worker` process, which
-legitimately holds the credential that reaches `PDP`.
+It does **not** defend against full compromise of the worker process, which
+legitimately holds the credential that reaches the decision point.
 
-On AWS, denying a model requires denying **both** `bedrock:InvokeModel` and
-`bedrock:InvokeModelWithResponseStream`; grants must name the **inference-profile
-ARN and the underlying foundation-model ARN in every destination Region**. Bedrock
+**Credentials are ambient at both boundaries, and the seam sits in different
+places.** At the model boundary the provider layer resolves the ambient chain
+itself — every provider checked does, including Application Default Credentials
+on GCP — so a separate indirection the framework never calls would be a seam in
+name only. Swapping clouds swaps a provider class, which is the portability goal.
+
+At the **integration** boundary the seam is real and needed, because the worker
+process holds several distinct authorities at once; that is where per-integration
+credential scopes live. The `ingress` OIDC client secret is outside both seams —
+a static credential with its own rotation owner.
+
+**Least privilege on Bedrock has a non-obvious shape.** A cross-region inference
+profile evaluates authorization for the underlying foundation model in the
+region Bedrock **routes to**, not the one called. So the policy may pin the
+inference-profile ARN to the calling region, but the foundation-model ARN must
+stay region-wildcarded, and a requested-region equality condition **denies the
+call outright**. Both tightenings look correct and both break invocation.
+
+Denying a model requires denying both the invoke and invoke-stream actions, and
 long-term bearer API keys create a static IAM user credential and are denied.
 
-**Workload identity is abstracted behind a `CredentialProvider` seam** — ECS task
-role, GCP Workload Identity, and Azure Managed Identity all provide ambient
-credentials but acquire them differently. The `ingress` OIDC client secret is
-**outside this seam** — it is a static credential with its own rotation owner,
-named in Open Questions.
-
-**Layer 2 — principal identity (user → run → agent role → tool call).** An
-**agent role** is a first-class security object: a named, versioned record
-declaring a tool allowlist with per-argument value constraints, stored outside any
-model's context and assigned by the orchestrator, never by a model.
-
-```
-authorized ⟺ args ∈ agent_role.ceiling
-           ∧ args ∈ initiating_user.entitlements
-           ∧ agent_role.ceiling ⊆ parent_role.ceiling
-```
-
-**Base case:** the root coordinator's ceiling is bounded by the initiating user's
-entitlements at run start.
-
-**Decidability.** Value constraints are restricted to a decidable fragment —
-closed enumerations, string prefixes, numeric ranges, and set membership — and are
-a **conjunction of independent per-argument predicates**. No disjunction and no
-cross-argument relation is expressible; that closure property is what makes
-per-attribute structural containment decidable and set-theoretically sound, since
-disjunction would let a structural check authorize calls outside the parent's
-ceiling.
-
-**Set-level soundness is not semantic safety, and the gap is in the prefix
-constructor.** Containment proves a value lies inside the declared ceiling. It
-does not prove the value means what the ceiling's author intended, because a
-*prefix* predicate over an argument the callee **interprets** admits an
-attacker-chosen suffix: a `https://www.sec.gov` prefix matches
-`https://www.sec.gov.attacker.example/`, and a path prefix matches a traversal
-beyond its root. Both pass containment and both report sound. This bites
-directly — the SEC egress allowlist is hostname-based and tool arguments carry
-URLs and content-addressed locators.
-
-The fragment must therefore either **exclude prefix constraints on any argument
-whose consumer parses it**, or constrain such arguments *after canonicalisation
-against the interpretation the callee performs*. **Resolved 2026-09-18** — it
-does both, and adds a third rule the two above omit: the canonical form is what
-the callee receives, so validator and callee cannot hold different opinions
-about the same string. See
-[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
-§ Authority containment. The test below is still owed: the containment property test must include an
-interpreted-argument case, not only a well-typed unauthorised call. `initiating_user.entitlements` is expressed in the same fragment, which
-the base case requires — it is itself a `⊆` check. A role version in use by an
-in-flight run is immutable; `policy-author` writes create new versions that bind
-only at the next spawn, so a recorded containment proof cannot go stale
-mid-run.
-
-`⊆` is computed at spawn time and recorded as an event. The containment algorithm
-itself belongs in the spec, with a property test over the fragment as its
-evidence.
-
-### Authentication and authorization
-
-OIDC at the ingress; a single authenticated operator principal in MVP; every run
-stamped with its initiator; the event log recording the principal on every policy
-decision and human action. A workspace is a **UI view**, never an isolation
-boundary — **tenancy isolation does not exist and would be new work**.
-
-**Amended 2026-09-18 on one point.** This previously said that adding a second
-user with narrower rights is "a change to *authorization* configuration". That
-is the shape the design now rejects: an application-layer filter guarding a
-data boundary, where a missed filter is a silent disclosure. The target is
-structural — Postgres RLS with `FORCE ROW LEVEL SECURITY` (required, because
-RLS does not apply to a table's owner without it, and the `policy.decision`
-split runs through owner-owned `SECURITY DEFINER` functions), an owner-scope
-column, and the scope-qualified object keys below. Admitting a second
-principal is therefore **new work, not reconfiguration**. See
-[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
-§ Principal scope.
-
-### Object store contract
-
-Portability requires pinning the API subset implemented across S3, GCS, Azure
-Blob, and MinIO: `PUT`, `GET`, `HEAD`, `DELETE`, `LIST` with prefix, plus
-server-side encryption at rest. No S3-specific feature may become load-bearing.
-
-**Keys are scope-qualified, not bare content hashes — amended 2026-09-18.**
-`key = <owner_scope>/<content_hash>`, with `public` as an explicit named scope
-holding SEC material and anything else deliberately shared. A bare
-content-addressed key is an existence oracle the moment a second principal
-exists: hash a candidate document, probe the key, learn that someone else
-holds it. That is harmless for public filings and is not harmless for the
-non-public sources the integration registry now admits. The derivation is
-baked into locators, `snapshot_id` and the reconstruction goal's byte
-matching, so changing it later invalidates recorded snapshot IDs that
-historical runs must never see change — which makes this one of the few
-choices that must be made before the corpus exists rather than when tenancy
-is built. Content addressing is unchanged *within* a scope. See
-[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md)
-§ Principal scope.
+**Layer 2 — principal identity.** An **agent role** is a first-class security
+object: a named, versioned record declaring a tool allowlist with per-argument
+value constraints, stored outside any model's context and assigned by the
+orchestrator, never by a model. Its ceiling is expressed in the same decidable
+fragment as the initiating user's entitlements, which the base case requires
+since it is itself a containment check.
 
 ### Trust boundaries
 
 Seven boundaries are crossed.
 
-**User → application.** OIDC-authenticated. The user prompt is trusted *as
-instruction* and bounded by entitlements, not screened. This is where direct
-injection enters and where the authorization control applies.
+| Boundary | Control |
+| --- | --- |
+| **User → application** | OIDC at the ingress. The prompt is trusted *as instruction* and bounded by entitlements, not screened. This is where direct injection enters |
+| **Untrusted evidence → quarantined agent** | Filing text enters an agent that holds no tools and cannot plan |
+| **Quarantined agent → planning agents** | Only validated references and closed-vocabulary labels cross, via a deterministic fail-closed parser over a minted candidate set |
+| **Agent → tool authority** | Argument-value authorization at the decision point, which is a framework object standing on a security boundary — see § 9 Risks |
+| **Worker → model provider** | Workload identity only, with no third-party package in the hot path |
+| **Worker → SEC EDGAR** | Egress proxy, hostname allowlist, compliant user agent, central rate limit, bounded retry |
+| **Run → published output** | Automatic on a clean run; held for approval when flagged |
 
-**Untrusted evidence → quarantined agent.** Filing text enters `QA`, which holds
-no tools and cannot plan.
+**Two threat classes take different controls, and that is the whole injection
+strategy.** Retrieved filing content is *indirect* injection, written by the
+entity under analysis, and the control is the quarantine boundary — untrusted
+text never reaches an agent that can act and never crosses as prose. The user
+prompt is *direct* injection, where the text legitimately **is** the
+instruction, so "treat as data" is unavailable and the control is authorization
+bounds instead.
 
-**Quarantined agent → planning agents.** Only validated symbolic references and
-closed-vocabulary classifications cross, via a deterministic fail-closed parser.
-Residual risk: a quarantined model induced to forge a reference. Partially
-mitigated by resolving every reference against the evidence store; a reference
-that does not resolve fails the step.
+**The model never produces a reference, and that is the difference between
+detecting forgery and making it unrepresentable.** A deterministic semantic
+pipeline runs *before* the quarantined agent and produces the candidate set:
+XBRL facts, parsed table cells with their coordinates, and section boundaries.
+The agent's job shrinks to selecting and labelling among candidates that already
+resolve.
 
-**The model never produces a reference.** A deterministic semantic pipeline runs
-*before* the quarantined agent and produces the candidate set: XBRL facts from
-`companyfacts`, parsed table cells with their coordinates, and section
-boundaries. The quarantined agent's job shrinks to **selecting and labelling
-among candidates that already resolve** — it cannot emit an identifier the
-pipeline did not mint.
+**This was established by falsification, not assumption.** Phase 0 tested the
+weaker construction, where the agent emitted anchors and a parser rejected
+those that failed to resolve, and 1 in 8 were fabricated **with no adversary
+present**. The same run found that a verbatim-substring anchor cannot resolve a
+fact assembled from table cells, so a prose-quote reference type systematically
+drops precisely the figures this product exists to analyse. Quantitative claims
+therefore cross as XBRL fact references; prose quotes remain right for narrative
+claims.
 
-This is the difference between detecting a forged reference and making forgery
-unrepresentable. Phase 0 tested the weaker construction, in which the agent
-emitted anchors and a parser rejected the ones that failed to resolve; 1 in 8
-were fabricated with no adversary present. Under the pipeline-first
-construction that failure mode does not exist, because there is no free-text
-reference for the model to invent. The same structural-over-detection argument
-the design makes at the outer boundary applies here, and applying it also makes
-the quarantined agent's task small enough for a light model.
+**What a planning agent may receive is three things and nothing else:**
+references, closed-vocabulary labels, and **typed scalars** — decimals, dates,
+enumerated units, content-addressed locators. The scalar channel is load-bearing
+rather than a concession, because without it the deterministic financial
+calculation has no data path. So the precise guarantee is *"a planning agent
+receives no attacker-authored **free text**"*, **not** *"no attacker-influenced
+signal"*.
 
-**Quantitative claims cross as XBRL fact references, not prose quotes.** Phase 0
-ran the boundary against a real 10-Q and found that a verbatim-substring anchor
-**cannot resolve a fact assembled from table cells** — `effective tax rate`,
-`17.9` and `16.4` each appear in the filing, but only as separate cells, so the
-quoted anchor matches nothing. Financial filings put their most material
-quantitative facts in tables, so a prose-quote reference type systematically
-drops precisely the figures this product exists to analyse. XBRL facts are
-already tagged, identified and individually addressable, which makes them
-deterministically resolvable; SEC publishes them through `companyfacts`, already
-reached by the ingestion tiers above. Prose quotes remain the right reference for
-narrative claims.
+**Filing-language change analysis survives this.** The diff between two filing
+sections is computed deterministically, stored as its own evidence item with a
+content-addressed locator, and the quarantined agent returns a reference to that
+diff plus a label from a closed vocabulary. A fixed enumeration is not
+attacker-controlled text; free prose would be.
 
-The same run saw the quarantined agent emit one anchor appearing **nowhere** in
-the document — the forgery risk above, occurring at 1 in 8 with no adversary
-present, and correctly rejected. The parser behaved as specified; the cost is
-that true observations are dropped alongside fabricated ones.
+**Cheap local checks are a layer, not the boundary.** Tool-result protocol
+validation, structural anomaly detection on retrieved chunks, and code-injection
+patterns are implemented directly. They are free and model-free, and they are
+not described as closing anything.
 
-**Agent → tool authority.** Argument-value authorization at `PDP`.
+### Evidence acquisition
 
-**Worker → model provider.** Workload identity only.
-
-**Worker → SEC EDGAR.** Via the egress proxy, hostname allowlist, SEC-compliant
-user agent, rate limiting, bounded retry. Three Phase 0 findings shape this
-boundary; see
-[`sec-edgar-access-policy.md`](../../product/research/sec-edgar-access-policy.md).
-
-**Discovery is batch, not web — and the right batch is small.** SEC publishes
-bulk archives and index files precisely so consumers do not crawl. But "use
-bulk" is not one decision: the published artifacts span four orders of
-magnitude, measured 2026-09-11.
+**Discovery is batch, not crawling, and the right batch is small.** SEC
+publishes bulk archives precisely so consumers do not crawl, but the published
+artifacts span four orders of magnitude.
 
 | Tier | Artifact | Size | Used for |
 | --- | --- | --- | --- |
@@ -758,399 +675,507 @@ magnitude, measured 2026-09-11.
 | — | `submissions.zip` + `companyfacts.zip` | **~3 GB nightly** | **not used** |
 
 **The whole-market archives are out of scope by construction.** This system
-analyses *one company at a time*;
-[`evidence-backed-company-diligence`](../../product/intents/evidence-backed-company-diligence.md)
-§ Excluded bars multi-company and portfolio-level analysis outright. Ingesting
-every filer nightly — ~1.1 TB/year of transfer — to serve single-company
-analysis would be buying whole-market coverage the charter refuses. Tiers 1-4
-total well under 2 MB for a typical run.
+analyses one company at a time, and ingesting every filer nightly — roughly
+1.1 TB/year of transfer — would buy whole-market coverage the charter refuses.
+Tiers 1 to 4 total well under 2 MB for a typical run.
 
-A design that discovers by walking the site meets the rate limit within about a
-minute — Phase 0 did — while one that reads a 0.1 MB daily index never
-approaches it.
+**Freshness comes from per-company polling, not a market-wide feed.** There is
+no push or streaming for a non-PDS consumer, and the paid dissemination service
+is not the answer, because filings reach the website *before* PDS. The
+per-company submissions endpoint is documented as sub-second, carries no window,
+and is not on a robots-disallowed path — unlike the latest-filings feed, which
+is, and which is bounded at 100 entries covering only **1.7 hours** at peak
+filing rates.
 
-**Freshness comes from per-company polling, not from the market-wide feed.**
-There is no push, webhook, or streaming for a non-PDS consumer, and the paid
-Public Dissemination Service is not the answer: SEC states filings are available
-on its website *before* reaching PDS, so the free surface is the faster one.
-Among polling surfaces, `data.sec.gov/submissions/CIK….json` is documented as
-sub-second, carries no window, and is not on a robots-disallowed path — unlike
-the `cgi-bin` latest-filings Atom feed, which is. That feed is also bounded at
-100 entries, which Phase 0 measured as covering only **1.7 hours** at ~58
-filings/hour, with the horizon shrinking exactly when filing activity peaks. It
-is therefore unusable for completeness; the daily index, bounded by the day
-rather than an entry count, supplies that instead.
-
-**As-of dating uses the filing date, never the acceptance timestamp.** Regulation
-S-T Rule 13(a)(2) deems a transmission begun after **17:30 ET** to be filed the
-*next business day* (22:00 ET for Forms 3/4/5 under Rule 13(a)(4)). A document is
-therefore publicly readable hours before the date it legally bears, and an
-as-of-dated analysis that timestamps evidence by acceptance or retrieval would
-attribute it to the wrong day.
-
-**Ingestion is scheduled; a run reads the store. Live fetch is not on the
-request path.** Four reasons, and the first is the one that actually decides it:
+**Ingestion is scheduled and a run reads the store.** Four reasons, and the
+first decides it.
 
 1. **An as-of analysis cannot be built from a live pull.** The evidence snapshot
-   pins the *universe of retrievable evidence* at a moment.
+   pins the universe of retrievable evidence at a moment, and re-resolving it at
+   query time is exactly the falsification condition
    [`scoped-context-and-evidence`](../../product/intents/scoped-context-and-evidence.md)
-   is falsified by "a declared scope that resolves to a different set of
-   retrievable evidence on re-resolution while its evidence snapshot is held
-   fixed" — which is precisely what fetching at query time produces.
-2. **The data is daily.** Filings are discrete events disseminated on a business
-   calendar, not a stream. There is nothing for an intra-request fetch to gain.
+   names.
+2. **The data is daily.** Filings are discrete events on a business calendar, so
+   there is nothing for an intra-request fetch to gain.
 3. **It would couple user-facing latency and availability to a third party**
-   that rate-limits and blocks. A failed fetch is a failed run with a recorded
-   cause — correct, and not something to put in front of a user on every run.
-4. **The rate limit is aggregate.** Concurrent runs fetching live contend for one
-   10 req/s budget; scheduled ingestion spends it once, off the request path.
-
-So live fetch is confined to two jobs, both outside a run: building or
-backfilling the corpus, and acquiring a specific document not yet ingested.
-**This reframes recorded-fixture replay** — it is not merely a convenience for
-contributors without cloud access, it is the same mechanism the production
-ingest path uses, exercised with a different corpus.
-
-**The rate limit is enforced centrally, in the application.** SEC's cap is
-*"10 requests per second regardless of the number of machines used to submit
-requests"* — an aggregate obligation on the user, not on the host. A per-worker
-limiter cannot satisfy it and no network topology enforces it, so the shared
-token bucket sits in the egress path ahead of every worker.
+   that rate-limits and blocks.
+4. **The rate limit is aggregate.** Concurrent runs would contend for one budget
+   that scheduled ingestion spends once, off the request path.
 
 **A compliant user agent is necessary and not sufficient.** Phase 0 saw EDGAR
-return 403 to correctly-formed user agents while the address was rate-blocked —
-including on static pages, since the block is address-scoped. It cleared on its
-own, consistent with SEC's documented ten-minute cooldown. The declared contact
-is what lets a publisher attribute traffic and contact the operator rather than
-blanket-block; it is supplied at runtime and is never a maintainer's personal
-identity. A run whose fetch fails is a failed run
-with a recorded cause, never one proceeding on partial evidence.
+return 403 to correctly-formed user agents while the address was rate-blocked,
+including on static pages, clearing on its own after the documented cooldown.
+The declared contact is supplied at runtime and is never a maintainer's personal
+identity.
 
-**Run → published output.** Automatic on a clean run; held for approval when
-flagged.
+---
 
-### The model-provider seam
+## 5. Data and State
 
-`BaseLlm` is the portability contract — `generate_content_async` is its only
-abstract method. Behind it the MVP hypothesis is **LiteLLM**, chosen for provider
-fan-out: under a portability constraint, model access must reach Bedrock, Vertex,
-and Azure OpenAI behind one seam. Falsifiable and spiked before ratification; the
-fallback is an application-owned Converse adapter behind the same seam.
+What data domains exist, who has authority over each, and what must stay
+consistent?
 
-### Local development — recorded-fixture replay
+| Data domain | Authority | Lifecycle | Consistency requirement |
+| --- | --- | --- | --- |
+| Run state | Application, in Postgres | Created by `run.requested`; projected from steps; terminal on completion, failure or cancellation | Strict. A terminal event closes the stream, so a later append would be a reconstruction divergence |
+| Event log | Application, in Postgres | Append-only, per-run `seq` allocated in the append transaction | Strict. Dense from 1, no duplicates, no holes |
+| Step leases | Pool, in Postgres | Claimed, renewed at TTL/3, released on completion, failure **or suspension** | At most one live owner. Every fenced write checks epoch and live possession |
+| Evidence corpus | Ingestion, in the object store | Written by scheduled ingestion; content-addressed; never mutated | Immutable. An amendment is a new object |
+| Evidence snapshots | Application, recorded on the run | `snapshot_id` fixed at run start | Immutable. A historical run must never see its snapshot change |
+| Payload objects — messages, artifacts | Worker, in the object store | Written before the event referencing them; retained for the life of the report | Strict ordering across two stores |
+| Instruction and schema text | `policy-author`, in the object store | Content-addressed, never rewritten | Immutable by construction |
+| Agent roles and the integration registry | `policy-author`, in Postgres | New versions bind at the next spawn | A version in use by an in-flight run is immutable |
+| Entitlements | `policy-author`, in Postgres | Set out of band by database grant at the root | Current at execution, not at authoring |
+| Telemetry | OTel collector | Derived, expiring | None — spans are diagnostics, never the record |
 
-The charter promises a containerized local-development path, and the MVP requires
-a real model call. A contributor without cloud access runs the system in
-**fixture mode**: a `BaseLlm` adapter replaying recorded model responses, and a
-fetch adapter replaying recorded filings, both keyed by content hash.
+### Why authority sits where it does
 
-Everything else runs for real — orchestration, the work table and leases, the
-event log, the stream, the quarantine boundary, authorization, the UI. Only the
-two external boundaries are replaced, and both already sit behind adapters, so
-this is wiring an existing seam rather than new machinery.
+**The event log plus its payload objects is the system of record, and telemetry
+is derived.** Reconstruction reads the log and never a trace. That is what makes
+the reconstruction goal checkable rather than aspirational, and it is why the
+telemetry boundary can be deferred to a companion without weakening anything
+here.
 
-Two properties make this more than a convenience. The event log already makes
-runs replayable, so a recorded fixture is the same artifact the reconstruction
-goal depends on. And the fixture corpus is the substrate the **evaluation
-companion** needs for regression fixtures — building it here means not building it
-twice.
-
-A fixture run is stamped as such in the run header's producer tuple, so a fixture
-result can never be mistaken for a live one.
-
-### Context, evidence, and reproducibility
-
-The context service is an application capability, not ADK's `SessionService`.
-
-**An evidence snapshot is an immutable, content-addressed manifest.**
-`snapshot_id = hash(sorted set of evidence content hashes)`, recorded on the run at
-start. An amendment creates a *new* snapshot historical runs never see. Locators
-address content hashes, not document positions.
-
-**The run header records the producer.** `{model_id, model_version,
-inference_profile, temperature, top_p, max_tokens, prompt_template_version,
-tool_manifest_hash, agent_role_version, context_assembler_version,
-app_image_digest, fetch_adapter, model_adapter}`. The two adapter fields record
-whether each external boundary is live or replaying, which is what distinguishes
-a fixture-mode run from an evaluation run — see
-[`observability-and-evaluation.md`](observability-and-evaluation.md)
-§ Fixture sets and comparability. A re-run whose tuple differs is labelled **divergent**.
-
-**Private model reasoning is not stored.** Chain-of-thought and deliberation
-traces are never written to the event log or the evidence store, so there is no
-servable location holding them. Charter principle 4 bounds inspection to exclude
-them, and the boundary is a storage property rather than a filter applied on
-read.
+**Retention has no expiry.** The reconstruction goal and cross-period comparison
+both depend on the log, so no cursor is refused on age and nothing is deleted.
 
 **Reproducibility means replay, not re-execution.** Step *N*'s context is
-assembled from step *N−1*'s output; sampling is non-deterministic and specialists
-interleave, so the snapshot pins the *universe* of retrievable evidence, not the
-*selection*.
+assembled from step *N−1*'s output, sampling is non-deterministic, and
+specialists interleave — so the snapshot pins the *universe* of retrievable
+evidence, not the *selection*. The run header records the producer tuple —
+`{model_id, model_version, inference_profile, temperature, top_p, max_tokens,
+prompt_template_version, tool_manifest_hash, agent_role_version,
+context_assembler_version, app_image_digest, fetch_adapter, model_adapter,
+framework_version}` — and a re-run whose tuple differs is labelled **divergent**.
+The two adapter fields record whether each external boundary is live or
+replaying, so a fixture run can never be mistaken for a live one.
 
-### Charter amendments — applied
+### Two columns taken now because they cannot be taken later
 
-This design required two charter amendments. **Both are ratified**, so the
-charter and this design now agree:
+A nullable `pool_class` on `steps`, and a nullable `owner_scope` on `runs`,
+`steps`, `agent_role` and the integration registry. Both default to the single
+MVP value and `owner_scope` is read by nothing.
 
-- **Principle 7** — the heading now reads *"Auditable replay and evaluation by
-  construction"*. The body was already accurate.
-- **Principle 3** — *publication* narrowed to *approval of flagged output*;
-  a run passing every check publishes automatically.
+**Adding a column to empty or small tables is trivial; backfilling onto a corpus
+of executed runs is guesswork**, because there is no record of who owned a run
+that never recorded an owner. The same asymmetry governs the object-key
+derivation, which is baked into locators, `snapshot_id` and the reconstruction
+goal's byte-matching — re-keying later invalidates recorded snapshot IDs that
+historical runs must never see change.
 
-A third amendment records that legibility is a satisfaction condition gating the
-ranked attributes above, not a fifth tradeable one.
+`pool_class` buys the ability to run high-sensitivity integrations on a separate
+worker service with a different task role, which is the only form of credential
+isolation that actually holds, since a separate process cannot reach another
+process's ambient chain.
 
-### Capacity
+---
 
-| Component | vCPU each | Count | Total |
+## 6. Deployment and Operations
+
+How is the system deployed, operated, and observed?
+
+| Deployment unit | Runs as | Scaling | Observability |
 | --- | --- | --- | --- |
-| Reasoning worker | 2 | 2 | 4 |
-| API | 0.5 | 2 | 1 |
-| UI | 0.25 | 2 | 0.5 |
-| Egress proxy | 0.25 | 2 | 0.5 |
-| **Steady-state subtotal** | | | **6.0** |
-| Migration (transient, deploy-time only) | 0.5 | 1 | +0.5 |
-| **Rolling-deploy peak** (200% of steady state) | | | **13.0** |
+| React UI | ECS service, 2 tasks × 0.25 vCPU | Fixed | Ingress metrics |
+| API service | ECS service, 2 tasks × 0.5 vCPU | Fixed | Request rate, SSE connection count |
+| Reasoning worker | ECS service, 2 tasks × 2 vCPU, one image for every pool class | Fixed count. The signal when autoscaling lands is **runnable steps not yet claimed**, published as a custom metric by a job on the `api` identity | Queue depth, claim latency, lease losses, step duration p99 |
+| Egress proxy | ECS service, 2 tasks × 0.25 vCPU | Fixed | Token-bucket depth, upstream 403 rate |
+| Ingestion job | Scheduled task | Per schedule | Fetch success, corpus growth |
+| Migration | Deploy-time task, 0.5 vCPU transient | n/a | Migration success |
+| Postgres, object store | Managed | Managed | Connection count, storage |
 
-**The AWS On-Demand Fargate default is 6 vCPU per Region, so on a default
-account steady state sits *exactly* at the quota with zero headroom — and a
-rolling deploy needs 13.** Where that default applies, a quota increase to
-**16 vCPU** (peak plus margin) is required before Phase 1.
+Steady state is **6.0 vCPU** and a rolling deploy peaks at **13.0**.
 
-**This table is a Phase 1 ceiling, not a starting shape.** Phase 0 provisions
-the minimum that runs the spike in question — a single task, fractions of a
-vCPU — and capacity grows to the table above only when a real workload needs it.
-Sizing to the ceiling early buys nothing and spends continuously.
+### What the deployment shape buys
 
-**Verified 2026-09-10:** in the target account the Fargate On-Demand vCPU quota
-is already **4000**, so no increase is needed there. That is a property of that
-account, not of the design: moving to a fresh account reinstates the 6 vCPU
-default and the increase becomes a Phase 1 precondition again.
+**A long-running service with a desired count, never a task per run.**
+Standalone tasks are never replaced, so a run losing its host would stop with no
+recovery and no signal. A service maintains the count, and work finds workers by
+being in the queue.
 
-**Egress topology: task-assigned public IP, not a NAT gateway.** A NAT gateway
-costs ~$36/month fixed at this duty cycle against ~$0.15/month for a public IP on
-the task — about 240× — and buys a stable address no publisher has asked for.
-Because SEC's limit is aggregate rather than per-host, address determinism does
-not satisfy it; the central token bucket above does. NAT-plus-Elastic-IP is the
-escalation if a correctly-behaved client is ever blocked, and it must then be a
-*zonal* gateway: the regional gateway's automatic mode lets AWS manage addresses
-and would silently break any allowlist. Grounded in
-[`aws-egress-addressing.md`](../../product/research/aws-egress-addressing.md).
+**The scaling signal is queue depth, not CPU.** A reasoning worker spends most of
+a step blocked on a model call, so CPU stays near-flat whether the queue is empty
+or fifty deep. Autoscaling is deliberately deferred because the aggregate egress
+and provider-token budgets bind before worker count does — adding workers past
+the point where the central bucket saturates buys queueing, not throughput.
 
-**Concurrency ceiling: 2 sequential-only runs; 1 when a run fans out to two
-specialists.** One step in flight per worker is a pool-sizing choice, not an
-ordering requirement — ordering comes from `runs.next_seq`.
+**Readiness is not liveness, and the liveness probe definition is
+load-bearing.** Readiness gates claiming, and a worker must verify both database
+connections and the object store before it claims anything, because a worker
+that claims a step it cannot finish manufactures a 150-second recovery for a
+problem a readiness check catches in milliseconds. **Liveness must fail when no
+heartbeat has been *attempted* within 2 × TTL**, not merely when the process
+exists — a probe that only checks process existence cannot catch a starved event
+loop, which is the exact failure mode where in-process timers stop too.
 
-`max_tokens = 4096`: `input + max_tokens` is deducted from the token bucket at
-request start and output burns at 5–15×, so an oversized value silently collapses
-concurrency. Whether compute or the token bucket binds first cannot be asserted
-without the account- and Region-specific TPM quota, which AWS does not publish
-generically; it is read from Service Quotas and recorded in Phase 1.
+**The vCPU quota is a provisioning precondition.** The On-Demand Fargate default
+is 6 per Region, so on a default account steady state sits exactly at the quota
+with zero headroom and a rolling deploy cannot complete. The target account is
+already at 4000, verified 2026-09-10, which is a property of that account rather
+than of the design; a fresh account reinstates the default and a 16 vCPU
+increase becomes a precondition again.
 
-## Alternatives Considered
+**Egress uses a task-assigned public IP, not a NAT gateway.** A NAT gateway
+costs roughly 240× more at this duty cycle and buys a stable address no
+publisher has asked for. Because the rate limit is aggregate rather than
+per-host, address determinism does not satisfy it — the central token bucket
+does. NAT plus a static address is the escalation if a correctly-behaved client
+is ever blocked, and it must then be a *zonal* gateway, since the regional
+gateway's automatic mode lets the platform manage addresses and would silently
+break any allowlist.
 
-### ADK-owned orchestration
+**`max_tokens = 4096` is a concurrency decision, not a length preference.**
+Input plus `max_tokens` is deducted from the token bucket at request start and
+output burns at 5–15×, so an oversized value silently collapses concurrency.
 
-Uses the framework as intended and builds substantially less. **Rejected because**
-it binds the inspection surface — quality attribute 1 — to `BaseSessionService`,
-which ADK does not present as a public extension point and which ADK 2.0 has
-already broken.
+### Observability
 
-### Step Functions as orchestrator
+The framework ships OpenTelemetry instrumentation following the GenAI semantic
+conventions, enabled with content and binary content excluded, so prompts,
+completions, tool arguments and tool results do not enter telemetry. **That is
+the fail-closed starting position, not a commitment**
+[`observability-and-evaluation.md`](observability-and-evaluation.md) has to
+honour — but the event log remains the system of record either way.
 
-AWS-native durable execution with documented persistence and exactly-once
-semantics. **Rejected because** state payloads cap at 256 KiB and history at
-25,000 events, both unraisable, and agent transcripts cross both — and redrive
-requires history below 24,999, so an execution that failed *because of* the cap
-cannot be redriven. Also AWS-only, which portability independently forecloses.
+**Local development is recorded-fixture replay.** A `Model` adapter replays
+recorded model responses and a fetch adapter replays recorded filings, both
+keyed by content hash. Everything else runs for real: orchestration, leases, the
+event log, the stream, the quarantine boundary, authorization, the UI. Only the
+two external boundaries are replaced and both already sit behind adapters, so
+this is wiring an existing seam.
 
-### AgentCore Runtime
+Two properties make fixture mode more than a convenience. **It is the same
+mechanism the production ingest path uses**, exercised with a different corpus,
+because live fetch is already confined to jobs outside a run. And the fixture
+corpus is the substrate the evaluation companion needs, so building it here means
+not building it twice.
 
-The shortest path from ADK to production on AWS. **Rejected because** it has no
-documented checkpoint or replay, so durability would rest on an undocumented
-property; and a managed agent platform makes core behaviour inseparable from AWS.
+---
 
-### Per-run Fargate task
+## 7. Quality Scenarios and Verification
 
-**Rejected because** standalone tasks are never replaced by ECS and hosts are
-replaced without notice, so a run losing its host stops with no recovery and no
-signal.
+For each quality attribute at this zoom, what scenario proves it, and how is it
+verified?
 
-### SQS between API and worker
+| Source | Stimulus | Environment | Response | Measurable target | Business consequence | Mechanism | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Auditor | Rebuild a published report from the log | Normal | Report reconstructed | Byte-match on the claim set and evidence-locator set, zero model calls | The product's central claim is unverifiable | Event log plus content-addressed payloads as the record | Reconstruction script, Phase 1 |
+| Reader | Trace every published claim | Normal | Each resolves to evidence or a recorded calculation | 100%; zero unresolved claims | A report that cannot be trusted at the claim level | Content-addressed locators, minted references | Pre-release check, release gate |
+| Infrastructure | Host replaced mid-run | Degraded | Another worker reacquires | ≤ 150 s, no operator action | A run stalls silently | Lease with epoch fencing, TTL 60 s / heartbeat 20 s / poll 30 s | Fault-injection suite, two workers, real timings |
+| Client | 100 forced disconnects with concurrent writers | Degraded | Stream resumes exactly | Zero missed, zero re-applied | Inspection is unreliable precisely when a run is long | `Last-Event-ID` preference, idempotent sink on `(run_id, seq)` | **Built** — verified across 9 disconnects |
+| Attacker via filing text | Attempt to reach a planning agent as prose | Normal | Blocked at the parser | No attacker-authored free text crosses | The system's central security claim fails | Minting pipeline plus fail-closed parser | Quarantine suite |
+| Attacker via a tool argument | A well-typed unauthorized call | Normal | Tool body does not execute; step terminates | 100% refusal, with a denial that is never retryable advice | An unauthorized action attributed to a governed run | Argument-value checks outside the model context | Authorization suite, release gate, every build |
+| Attacker via a parsed argument | A value passing a prefix but parsing outside the allowlist | Normal | Refused; the adapter receives the canonical value | Every unsafe-prefix case refused | SSRF or traversal through a control that reports sound | Domain-typed arguments, one parser | Containment property test with interpreted arguments |
+| Concurrency | Two workers in the same step during the fence-detection window | Degraded | Duplicate decision rolls back; duplicate invocation refused | The action executes **at most once**, visibly | A report published twice | Fenced policy append plus derived idempotency key | Fault-injection suite |
+| Provider | Model stream stalls | Degraded | Step fails, lease released | No step *reported* running past `step_deadline`; p99 < deadline < page threshold | A 3am page for a worker that is alive but stuck | In-loop deadline, hard task timeout, out-of-process liveness probe | Phase 1 measurement |
+| Operator | A clean run | Normal | Publishes with no human in the path | Zero human interactions | A ratified charter amendment silently reversed | The gated tool is compiled in only when a check failed | Phase 1 |
+| Reviewer | Flagged output accumulates | Normal | Escalation stays in a workable band | 5–15%, over a rolling 30-day window, minimum 50 runs | Approval fatigue defeats the gate | Conditional gate on deterministic checks | Measurement, **not** a release gate |
 
-**Rejected because** the work item and its first event must commit atomically.
-Postgres gives that in one transaction; SQS cannot without an outbox. Accepted
-costs: poll interval is a latency floor, and there is no DLQ primitive — the
-lease-expiry counter plays that role.
+### Why these targets
 
-### WebSocket instead of SSE
+**Escalation rate is a calibration target and deliberately not a release gate.**
+Oversight has finite capacity, reviewer agreement on what is risky is moderate
+(κ = 0.52), and safety follows an inverted-U against escalation rate that
+adversarial flooding can exploit. The 5–15% band comes from an author-run study
+of 125 hand-labelled actions — `[moderate]`, and too thin to gate a release on.
 
-**Rejected because** the transport is one-directional here, so WebSocket adds a
-stateful connection without adding a capability; and API Gateway WebSocket's hard
-29-second integration timeout would force backend pushes through `@connections`.
+**Recovery is specified at 150 s because that is what the mechanism yields**, not
+because 150 s is a requirement anyone stated: TTL 60 s plus heartbeat 20 s plus
+poll 30 s gives 2 × TTL + poll as the worst case. Publishing the derivation
+rather than the number is what lets an operator change one timing and recompute
+the rest.
 
-### Detection-based injection defence
+**The two security scenarios are separate because the controls are separate.**
+One is bounded by what crosses the quarantine boundary and the other by what a
+role may do. A single "the system is secure" scenario would let either control's
+failure hide behind the other's success.
 
-A guardrail component at the tool-result boundary — what most comparable systems
-do, and the intuitive answer. **Rejected because** every
-detection approach *evaluated* in the literature has lost under adaptive attack;
-most of the open-source ecosystem is archived; two of the best-known models
-contain no injection detection at all; vendor accuracy does not replicate; and the
-AWS baseline publishes no figures while its only two evaluations were run by
+---
+
+## 8. Implementation Mapping
+
+Where does each element live, and who owns it?
+
+| Element | Repository | Source | Deployable | Platform | State |
+| --- | --- | --- | --- | --- | --- |
+| Event log and its append paths | this | `src/ced/domain/events.py`, `src/ced/adapters/postgres/event_log.py`, `migrations/versions/0002_*` | both | Postgres | **Built** |
+| The privilege split and the fence | this | `migrations/versions/0002_*` | both | Postgres | **Built** |
+| HTTP surface | this | `src/ced/api/`, `contracts/openapi/runs.yaml` | `ced-api` | ECS | **Built** |
+| Worker pool | this | `src/ced/worker/pool.py` | `ced-worker` | ECS | **Built** |
+| Dependency-direction gate | this | `tests/architecture/dependency_direction.py` | n/a | CI-less; a repository check | **Built** |
+| Local substrate | this | `deploy/` | n/a | docker-compose | **Built** |
+| Agent layer, authorization, quarantine | this | `src/ced/agents/` | `ced-worker` | ECS | Designed — the package is empty |
+| Run state machine transitions | this | `src/ced/domain/` | both | ECS | Partly built |
+| Integration registry | this | `migrations/`, `src/ced/domain/` | both | Postgres | Designed |
+| Ingestion | this | `src/ced/adapters/` | ingestion job | ECS scheduled | Designed |
+| UI | this | separate container per the ratified constraint | `ced-ui` | ECS | Designed |
+
+**One repository, one package, two entry points** — `ced-api` and `ced-worker`
+— per [ADR-0003](../../adr/0003-repository-layout.md) D3. One team, which is one
+person, so ownership columns would carry no information and are omitted rather
+than filled with a placeholder.
+
+**The mapping is not one-to-one in one place, deliberately.** The domain layer
+builds into both deployables, because the run state machine and step planning
+execute on the `api` identity's path as well as the worker's. That is the layout
+the ADR chose, not drift.
+
+This zoom stops here. How the worker keeps its core independent of its edges is
+[`worker-runtime.md`](../pydantic-ai-worker-runtime/worker-runtime.md) § 8.
+
+---
+
+## 9. Decisions, Alternatives, and Risks
+
+### Decisions
+
+- **The application owns run state, the event log, checkpoints and
+  authorization; the framework is invoked inside a step.** Every other decision
+  follows from this one.
+- **Injection defence is structural, not detection-based.** No impossibility
+  result exists, so this is an empirical bet with a shelf life rather than a
+  proof — and it is the bet the evidence supports.
+- **References are minted by a deterministic pipeline before any model runs.**
+  Forgery is unrepresentable rather than detected.
+- **Postgres carries the work queue, not a message broker**, because the work
+  item and its first event must commit atomically.
+- **Authorization checks argument values, not schemas.** Checking tool names and
+  argument *types* is the documented anti-pattern that several well-known
+  toolkits implement, and a well-typed unauthorized call passes it.
+- **Three containment gates, not one formula** — authoring, spawn, and call.
+- **Pydantic AI as the step-level reasoning library**
+  ([ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)), pinned
+  ([ADR-0002](../../adr/0002-pydantic-ai-version-pin.md)). This retires a
+  third-party package from the model hot path rather than mitigating it.
+- **The charter permits an executable substrate.** Amended by the owner
+  2026-09-18 under a shaping-phase exception. Charter principle 3 was narrowed
+  to *approval of flagged output*, and principle 7 renamed; a run passing every
+  check publishes automatically.
+
+### Alternatives considered
+
+**Framework-owned orchestration.** Uses the framework as intended and builds
+substantially less.
+
+**Rejected because** it binds the inspection surface — the first-ranked quality
+attribute — to a session-service interface the vendor does not present as a
+public extension point and has already broken across a major version.
+
+**Step Functions as orchestrator.** Cloud-native durable execution with
+documented persistence and exactly-once semantics.
+
+**Rejected because** state payloads cap at 256 KiB and history at 25,000 events,
+both unraisable, and agent transcripts cross both. Redrive requires history below
+24,999, so an execution that failed *because of* the cap cannot be redriven. It
+is also single-cloud, which portability independently forecloses.
+
+**A managed agent runtime.** The shortest path to production on the target cloud.
+
+**Rejected because** it has no documented checkpoint or replay, so durability
+would rest on an undocumented property, and a managed agent platform makes core
+behaviour inseparable from one cloud.
+
+**Per-run tasks instead of a service.** One task per run, exiting when the run
+ends.
+
+**Rejected because** standalone tasks are never replaced and hosts are replaced
+without notice, so a run losing its host stops with no recovery and no signal.
+
+**A message broker between API and worker.** The conventional shape.
+
+**Rejected because** the work item and its first event must commit atomically,
+which Postgres gives in one transaction and a broker cannot without an outbox.
+Accepted costs: the poll interval is a latency floor, and there is no
+dead-letter primitive, so the lease-expiry counter plays that role.
+
+**WebSocket instead of server-sent events.** A bidirectional transport.
+
+**Rejected because** the transport is one-directional here, so it adds a
+stateful connection without adding a capability, and the managed gateway's hard
+29-second integration timeout would force backend pushes through a separate
+callback API.
+
+**Detection-based injection defence.** A guardrail component at the tool-result
+boundary — what most comparable systems do, and the intuitive answer.
+
+**Rejected because** every detection approach *evaluated* in the literature has
+lost under adaptive attack, most of the open-source ecosystem is archived, two
+of the best-known models contain no injection detection at all, and the managed
+baseline publishes no figures while its only two evaluations were run by
 competitors. Cheap local checks are retained as a layer.
 
-## Risks
+### Accepted limits — open, and not a task list
 
-- **The LiteLLM workload-identity hypothesis is falsified.** *Mitigated* by the
-  `BaseLlm` seam and a Phase 0 spike.
-- **LiteLLM is a supply-chain surface in the model hot path.** 1.82.7–8 shipped
-  unauthorized code. *Mitigated* by exact pinning; *accepted* for fan-out.
-- **ADK breaking-change velocity.** 2.0 *silently ignores* 1.x custom-agent
-  overrides. *Mitigated* by pins and contract tests at both seams.
-- **At-least-once tool execution on resume.** *Mitigated* by idempotency keys.
-- **A quarantined agent induced to forge references.** *Partially mitigated* by
-  resolving references against the evidence store. *Named, not solved.*
-- **The reference-selection channel.** A closed vocabulary bounds the *alphabet*,
-  not the *channel*. Which references `QA` returns, in what order, and which of
-  the enumerated labels it attaches are all attacker-influenceable — several bits
-  per step into a planning agent's context. Reference resolution detects forged
-  references, not steered-but-valid ones. *Unmitigated and unmeasured.*
-- **CaMeL's capability cost may not transfer.** The 7-point figure is measured on
-  97 AgentDojo tasks under that paper's own policy complexity, not on
-  long-document financial analysis. It is the prior the Phase 0 quarantine spike
-  tests against, and it may be optimistic. *Unmitigated.*
-- **No structural defence has been tested under an unlimited adaptive budget.**
-  ScopeGate was capped at 40 iterations; CaMeL largely static. *Unmitigated.*
-- **No benchmark exists for long-document financial filings.** Every published
-  evaluation uses email, web, workspace, or travel scenarios. This is our exact
-  workload class and its behaviour is unmeasured. *Unmitigated;* a Phase 0 spike
-  partially addresses it.
-- **Compositional authorization across turns.** Unsolved in the literature.
-  *Accepted and named.*
-- **Information-hazard aggregation.** Authorization bounds are necessary but not
-  sufficient. *Unmitigated;* latent under single-tenant.
-- **Policy misconfiguration.** *Mitigated* by an authorization test suite
-  including well-typed unauthorised calls as a release gate.
-- **Operational — 3am.** A worker alive but stuck on a hung model stream never
-  expires a lease. **Primary page: time since last event append per active run >
-  p99 step duration × 3**, with lease-expiry-count secondary. Threshold
-  calibrated in Phase 1.
-- **Token burndown collapsing concurrency.** *Mitigated* by the recorded
-  `max_tokens` rationale.
-- **Approval fatigue.** *Mitigated* by measuring escalation rate against the
-  5–15% target.
-
-## Known at ship
-
-This design is proposed for ratification **with these five gaps open and
-recorded**, not resolved. Each is a known limit of the design as it stands, not
-a task list; none is hidden elsewhere.
+These five were accepted open at ratification. Signing off did not close them.
 
 1. **The quarantine guarantee is narrower than it first reads.** It is *"no
-   attacker-authored free text reaches a planning agent"* — **not** *"no
-   attacker-influenced signal"*. The reference-selection channel is unmitigated,
-   and Phase 0 observed it costing a material finding: a legal exposure and an
-   explicit management warning about intensifying component shortages both
-   appeared in the baseline analysis and neither crossed the boundary, although
-   `litigation_exposure` and `supply_concentration` are both in the admitted
-   vocabulary. Selection, not vocabulary, was the limit.
-
-   **Causality does not cross at all, and no vocabulary fixes that.** The
-   baseline attributed margin expansion to tariff refunds and judged it a
-   non-recurring tailwind; the boundary can carry `margin_expansion` and a
-   number, but the judgement is an argument rather than a category. This is a
-   recorded cost of the design, not a defect in it.
-
-   **A deterministic pipeline narrows this and does not close it.** Moving
-   reference production out of the model removes forgery and fixes tabular
-   facts, but four things still do not cross: causal attribution, as above;
-   **untagged narrative** — risk factors, legal proceedings and much of MD&A
-   carry no XBRL tagging, so exactly the qualitative material falls back to the
-   weaker prose-anchor path; **selection influence**, since whatever ranks or
-   filters candidates carries attacker-influenceable signal whether it is a
-   model or a heuristic; and **cross-fact inference**, where the finding is a
-   relation between facts rather than any fact. The pipeline moves the boundary;
-   it does not remove it.
-2. **The `policy.decision` split separates recording, not decision.** No role
-   holds an unqualified `events` insert, so it defends against a bug or partial
-   compromise in any single write path — but the `worker` process legitimately
-   reaches `PDP`, so full compromise of that process defeats it.
+   attacker-authored free text reaches a planning agent"*, **not** *"no
+   attacker-influenced signal"*. Four things still do not cross even with the
+   minting pipeline: **causal attribution**, because a judgement is an argument
+   rather than a category; **untagged narrative**, since risk factors, legal
+   proceedings and much of the discussion section carry no XBRL tagging, so
+   exactly the qualitative material falls back to the weaker prose-anchor path;
+   **selection influence**, because whatever ranks or filters candidates carries
+   attacker-influenceable signal whether it is a model or a heuristic; and
+   **cross-fact inference**, where the finding is a relation between facts rather
+   than any fact. Phase 0 observed the cost directly: a legal exposure and an
+   explicit management warning both appeared in the baseline analysis and
+   neither crossed, although both categories are in the admitted vocabulary.
+   Selection, not vocabulary, was the limit.
+2. **The `policy.decision` split separates recording, not decision.** It defends
+   against a bug or partial compromise in any single write path. It does not
+   defend against full compromise of the worker process.
 3. **The event-append privilege model is proven; the containment algorithm is
-   not.** Phase 0 demonstrated the `policy.decision` split against real database
-   roles: `worker` is refused the table, refused the reserved type by its own
-   append path, and refused the policy function, while each role retains its own
-   job. Lock ordering and sequence density were demonstrated in the same pass.
+   not.** The privilege split was demonstrated against real database roles. The
+   fragment's soundness is argued, and the containment property test with
+   interpreted arguments is owed.
+4. **The security posture rests on `[moderate]`, self-evaluated evidence** with
+   no disinterested replication, no unlimited-budget adaptive test, and no
+   benchmark for long-document financial filings — this system's exact workload
+   class.
+5. **Three governance gaps keep the substrate single-author in operation.**
+   Principal-scope isolation is designed and unbuilt; authoring-time containment
+   is designed and unbuilt; and the trust class of instruction text authored by
+   someone who is not the operator is still unsettled. Designing a gap closed is
+   not closing it.
 
-   Still unproven: the containment algorithm. The fragment's **prefix constructor
-   is set-sound but not semantically safe** on arguments the callee interprets —
-   see *Decidability* — so the authorization ceiling remains narrower than it
-   appears for URL, path, and locator arguments.
-4. **The security posture rests on `[moderate]`, self-evaluated evidence** with no
-   disinterested replication, no unlimited-budget adaptive test, and no benchmark
-   for long-document financial filings — this system's exact workload class.
-5. **Phase 1 is gated on an external AWS quota grant** of 16 vCPU. Owned by
-   `eugenelim`, to be submitted before Phase 0 concludes — but it is a
-   request-and-wait dependency on a third party, so the date is a target, not a
-   commitment.
+### Risks
 
-## Rollout
+- **The reference-selection channel.** A closed vocabulary bounds the
+  *alphabet*, not the *channel*. Which references the quarantined agent returns,
+  in what order, and which labels it attaches are all attacker-influenceable —
+  several bits per step into a planning agent's context, and resolution detects
+  forged references rather than steered-but-valid ones. *Unmitigated and
+  unmeasured.*
+- **A quarantined agent induced to forge references.** *Largely retired* by the
+  minting pipeline, which leaves no free-text reference to invent. *Named* because
+  the pipeline is designed and not yet built.
+- **The decision point is a framework object on a security boundary.** A change
+  to the wrapper's contract changes the authorization boundary and could land in
+  a minor release without being classed as breaking. *Mitigated* by the
+  authorization suite as a release gate, asserting refusal and exception type.
+- **A major framework version is permissible at any time**, the vendor's floor
+  after the current major having passed. *Mitigated* by exact pinning and
+  contract tests at both seams.
+- **Message-history schema drift.** The version policy permits adding optional
+  fields in minors, and payloads are retained for the life of a report, so a
+  *removal* breaks replay where an addition would not. *Partially mitigated* —
+  the envelope carries a schema version and the producer tuple records the exact
+  framework version. **The vendor makes no schema-versioning promise.**
+- **Capability cost may not transfer.** The 7-point figure for structural
+  defence is measured on 97 short-task scenarios under that paper's own policy
+  complexity, not on long-document financial analysis. *Unmitigated.*
+- **No structural defence has been tested under an unlimited adaptive budget**,
+  and no benchmark exists for this workload class. *Unmitigated.*
+- **At-least-once tool execution on resume.** *Mitigated* by derived idempotency
+  keys with a unique index behind them.
+- **Information-hazard aggregation.** Authorization bounds are necessary and not
+  sufficient. *Unmitigated; latent under a single principal.*
+- **Policy misconfiguration.** *Mitigated* by the authorization suite as a
+  release gate.
+- **Operational — 3am.** A worker alive but stuck on a hung model stream never
+  expires a lease. **Primary page: time since last event append per active run >
+  p99 step duration × 3**, with lease-expiry count secondary. The in-loop
+  deadline and the liveness probe narrow this; the page stays as backstop, and
+  the threshold is calibrated in Phase 1.
+- **Token burndown collapsing concurrency.** *Mitigated* by the recorded
+  `max_tokens` rationale.
+- **Approval fatigue.** *Mitigated* by measuring escalation against the 5–15%
+  band.
+- **Credential scoping is blast radius, not isolation.** In one process with an
+  ambient chain, one integration's adapter can reach another's credential.
+  *Deferred* to a commissioned credential-broker design, with pool classes as
+  the structural fallback.
 
-**Phase 0 — complete, 2026-09-11.** All six items ran; results and their limits
-are in [`spikes/README.md`](../../../spikes/README.md). Five held and one was
-falsified, which changed the design rather than the plan.
+---
 
-| Item | Result |
-| --- | --- |
-| LiteLLM over Bedrock via ambient workload identity | held — 7/7, under a least-privilege role |
-| ADK step invocation under an application-owned orchestrator | held — 4/4, tool denied on argument value before executing |
-| Stream resumption across forced disconnects with concurrent writers | held — 4/4, 160 events over 9 disconnects, no gaps or duplicates |
-| Quarantine preserves analytical quality on a real filing | **falsified as run** — see § Injection defence and § Known at ship |
-| `worker` refused `INSERT INTO events (type='policy.decision')` | held — 7/7 |
-| Concurrent append/claim deadlock ordering | held — 3/3 |
+## 10. Rollout, Migration, and Reversal
 
-Phase 0 cost about $0.05 in model spend and produced four design changes: XBRL
-fact references for quantitative claims, a deterministic pipeline ahead of the
-quarantined agent, the ingestion tiering above, and as-of dating by filing date.
+**Phased, and nothing user-facing exists until Phase 2** — which is what makes
+structural change cheap now and expensive later.
+
+**Phase 0 — complete.** Six spikes ran; five held and one was falsified, which
+changed the design rather than the plan. Results and their limits are in
+[`spikes/README.md`](../../../spikes/README.md). The falsified one produced four
+design changes: XBRL fact references for quantitative claims, the deterministic
+pipeline ahead of the quarantined agent, the ingestion tiering, and as-of dating
+by filing date.
+
+A later addendum re-established the provider and authorization claims against
+the replacement framework. Total model spend was under $0.10.
 
 **Phase 1 — walking skeleton.** *Entry precondition: satisfied in the target
-account, where the Fargate vCPU quota is already 4000; on an account carrying the
-6 vCPU default the increase is required first.* Start a run; execute one ADK step against a real provider
-via workload identity; append events; stream to a browser; kill the worker mid-run
-and observe reacquisition within 150 s; attempt a well-typed unauthorised tool
-call and observe refusal. Exit criteria: calibrate the p99 page threshold, record
-the account TPM quota, and prove the dependency-direction test.
+account, where the vCPU quota is already 4000; on an account carrying the
+6 vCPU default the increase comes first.* Start a run; execute one step against a
+real provider via workload identity; append events; stream to a browser; kill
+the worker mid-run and observe reacquisition within 150 s; attempt a well-typed
+unauthorized tool call and observe refusal.
 
-**Phase 2 — the MVP slice**, cut through `author-delivery-brief continue`.
+Exit criteria beyond those: calibrate the p99 page threshold and `step_deadline`;
+record the account token-per-minute quota; prove the dependency-direction test;
+measure cancellation latency on an in-flight stream; confirm a clean run
+publishes with zero human interaction; assert commit-before-action under a
+forced append failure; prove a byte-identical round trip over a realistic
+message history; re-baseline analytical quality under the current stack; and run
+the containment property test with interpreted arguments.
 
-**Rollback.** Until Phase 2 nothing user-facing is deployed. From Phase 2 the
-rollback unit is the container image plus the schema migration; migrations are
-expand-then-contract. The event log is append-only, so rollback never loses
-inspection history.
+**Phase 2 — the MVP slice.**
 
-## Open Questions
+### Schema changes, all expand-only
 
-- **Does an SEC-declared client remain unblocked under sustained, rate-respecting
-  load?** Phase 0 only observed a block triggered by bursty probing, which cleared
-  on its own. *Falsified if* a compliant client at a steady rate is blocked.
-- **Does an ALB truncate an in-flight SSE response at client-keepalive expiry?**
-  Answered by test; changes operational tuning, not architecture.
+| Change | Shape | Status |
+| --- | --- | --- |
+| Two append paths and three definer functions | The privilege split | **Built** |
+| `fence_step` owned by a `NOLOGIN` role | Possession-proving fence | **Built** |
+| Partial unique index on `(run_id, idempotency_key)` over `tool.invoked` | Additive index over an existing payload field | Owed |
+| Nullable `steps.pool_class`, plus one claim predicate | Narrows the candidate set, does not reorder locks | Owed |
+| Nullable `owner_scope` on four tables | Inert, read by nothing | Owed |
+| `awaiting_input` state with its two events | No stored state to migrate; states derive from events | Owed |
 
-### Settled
+**No downgrade path is offered, by policy.** Migrations are expand-then-contract,
+and the event log is append-only, so a rollback never loses inspection history.
 
-- **ADK→LiteLLM→Bedrock resolves credentials from ambient workload identity.**
-  Verified under a least-privilege role: no static key, streaming preserved,
-  tool-call loop preserved, and an out-of-policy model refused. Raw model IDs are
-  not invocable on demand — an inference profile is required.
-- **References-only quarantine does *not* preserve analytical quality, as
-  originally specified.** Falsified on a real 10-Q; the design changed in
-  response — see § Injection defence for XBRL fact references and the
-  pipeline-first construction, and § Known at ship for what still does not
-  cross.
-- **The Fargate vCPU quota** needs no increase in the target account, where it
-  is already 4000 — verified 2026-09-10. On any account carrying the 6 vCPU
-  default, the request is 16 vCPU and must precede Phase 1; owner `eugenelim`.
-- **Rotation of the ingress OIDC client secret** is owned by `eugenelim`. The
-  procedure is defined at Phase 2, when a real deployment first holds the
-  secret.
-- **The offline contributor path** is recorded-fixture replay mode; see
-  *Local development*.
+**Rollback.** Until Phase 2 nothing user-facing is deployed, so the unit is a
+revert. From Phase 2 it is the container image plus the migration.
+
+**One asymmetry is worth naming.** Step message histories are written in the
+current framework's format, so a rollback to a different framework after runs
+have executed strands their replay. That argues for structural change before
+Phase 2, not that rollback is free.
+
+**On the hook:** `eugenelim`, who is both owner and sole operator.
+
+---
+
+## 11. Open Questions
+
+- **Does an SEC-declared client remain unblocked under sustained,
+  rate-respecting load?** Phase 0 only observed a block triggered by bursty
+  probing, which cleared on its own. *Falsified if* a compliant client at a
+  steady rate is blocked. Owner: `eugenelim`.
+- **Does a load balancer truncate an in-flight SSE response at client-keepalive
+  expiry?** Answerable by test. Changes operational tuning, not architecture.
+- **What is p99 step duration?** Unmeasurable until Phase 1 runs real steps, and
+  both `step_deadline` and the page threshold depend on it. Owner: `eugenelim`,
+  at Phase 1 exit.
+- **Does the cancellation token abort an in-flight provider stream promptly?**
+  Answerable by measurement at Phase 1. If it only lands at the next await
+  point, the hard task timeout is what bounds the step.
+- **What triggers admitting a second principal, and what lands when it does?**
+  The target is structural isolation in one database — row-level security with
+  `FORCE ROW LEVEL SECURITY`, an owner-scope column, scope-qualified keys, and
+  per-principal quotas inside the shared buckets. **`FORCE` is named for a
+  reason:** row-level security does not apply to a table's owner without it, and
+  the decision split runs through owner-owned definer functions, so adopting it
+  without `FORCE` would produce a policy that silently does nothing on exactly
+  the append paths that matter most. The rate limit is an aggregate obligation
+  that does not divide, so what tenancy can buy is per-principal quotas *inside*
+  a shared bucket. It also carries a product tension: inspectability is the
+  product, so whatever lands must keep a deliberate **public scope** or the
+  reference implementation stops referencing anything. Owner: `eugenelim`.
+- **What is the trust class of instruction text authored by a non-operator?**
+  Bounding what an agent may *do* rather than screening what it is told is still
+  the right control, but it was reasoned about for a single operator. **This is
+  the remaining blocker for a multi-author surface.**
+- **Rotation of the ingress OIDC client secret.** Owner: `eugenelim`; the
+  procedure is defined at Phase 2, when a real deployment first holds it.

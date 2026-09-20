@@ -121,7 +121,7 @@ def upgrade() -> None:
             -- exhaustive by construction rather than by enumeration, and what
             -- keeps every admitted `tool.invoked` spelling inside
             -- `events_tool_invoked_idempotency_idx` — the dedup guarantee
-            -- `worker-runtime.md` § The fence-detection window calls
+            -- `worker-runtime.md` § 3 Runtime Model calls
             -- non-optional. It also refuses the empty string, which a
             -- pure-padding argument used to canonicalise down to and store.
             type         text NOT NULL

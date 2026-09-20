@@ -42,7 +42,7 @@ AC-0005 exists rather than being inherited.
 
 ## Changes asked of r7
 
-The spec makes changing any item in `worker-runtime.md` § Changes this design
+The spec makes changing any item in `runtime-architecture.md` r8 § 10 Rollout
 asks of r7 an Ask-first boundary, enforceable only if each carries a stated
 disposition. This spec owns the schema-shaped ones.
 
@@ -79,7 +79,7 @@ Shape is `mixed`; the sub-sections below are the pruned set.
 
 ### Design decisions
 
-- **One Python package, two entry points.** API and worker share the domain and adapter layers and differ only in what they start. Two deployables from one image is what `worker-runtime.md` § How workers are provisioned specifies, and it keeps the dependency-direction test meaningful across both. Traces to: AC-0007.
+- **One Python package, two entry points.** API and worker share the domain and adapter layers and differ only in what they start. Two deployables from one image is what `worker-runtime.md` § 6 Deployment and Operations specifies, and it keeps the dependency-direction test meaningful across both. Traces to: AC-0007.
 - **Raw SQL through psycopg3, not an ORM.** The claim query, the fenced append and the lock ordering are the load-bearing mechanisms and were proven by spike P2 as specific statements. An ORM would put a query planner between the plan and what was proven. Traces to: AC-0003, AC-0004.
 - **Rejected: deferring the privilege split to a later spec.** It is cheaper to build with the schema than to retrofit onto a corpus, and the sibling spec's policy decision point depends on the second connection already existing.
 
