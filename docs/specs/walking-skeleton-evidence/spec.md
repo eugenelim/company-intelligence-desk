@@ -3,9 +3,9 @@
 - **Status:** Approved <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
-- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
+- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
 - **Brief:** none
-- **Descends from:** `runtime-architecture.md` § Rollout Phase 1
+- **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
 - **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — extended here with the stream's reconnect semantics; created by the foundation spec
 - **Shape:** mixed
@@ -20,7 +20,7 @@
 
 ## Objective
 
-The last of three specs delivering the Phase 1 walking skeleton, and the one
+The last of five specs delivering the Phase 1 walking skeleton, and the one
 that turns a working system into recorded evidence.
 
 A run moves through its state machine and publishes without a human touching
@@ -40,9 +40,10 @@ Success is that Phase 1's exit criteria are met and that the record says
 plainly what was established, what was substituted, and what was not
 established at all.
 
-**Its siblings.** `walking-skeleton-foundation` and
-`walking-skeleton-agent-runtime` are both hard dependencies: this spec measures
-a system they build.
+**Its siblings.** `walking-skeleton-foundation`,
+`walking-skeleton-role-compilation`, `walking-skeleton-authority-containment`
+and `walking-skeleton-step-lifecycle` are all hard dependencies: this spec
+measures a system they build.
 
 ## Durable Outputs
 
@@ -50,7 +51,7 @@ a system they build.
 | --- | --- | --- | --- | --- | --- |
 | Operations | Applicable — `step_deadline`, the page threshold and the token budget are operator-owned and derive from measurements taken here | `docs/architecture/pydantic-ai-worker-runtime/operations.md` | work-loop | Each recorded value with the sample size behind it and the platform it was measured on | Values satisfy the ordering invariant and cite their sample size |
 | Reusable learning | Applicable — Phase 1's whole purpose is the evidence Phase 2 plans against | `spikes/README.md` | work-loop | A Phase 1 section stating what was established, what was substituted, and what was not | Hypothesis checks reported separately from setup and teardown |
-| Current architecture | Applicable — r7 carries an outstanding r8 consistency pass and a `STATUS: PLANNED` marker | `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md`, `docs/architecture/README.md` | work-loop | Markers moved off `PLANNED` for what now exists | Status headers match the repository |
+| Current architecture | Applicable — r8's STATUS header reads `PARTIALLY BUILT` and names the agent layer, the authorization boundary and the provider call as unbuilt; this spec is the last of the five and is where the remaining clauses clear | `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md`, `docs/architecture/README.md` | work-loop | The header's unbuilt list reduced to what is still unbuilt after this spec, with the residue named rather than dropped | Status header matches the repository, and names what the document still specifies that nobody has built |
 | Interface compatibility | Applicable — the stream's reconnect semantics extend the contract the foundation spec created | `contracts/openapi/runs.yaml` | work-loop | The `Last-Event-ID` behaviour documented in the contract and asserted by test | Contract and implementation agree under test |
 | User-facing promise | Not applicable — the browser client here is a test harness, not a product surface; the real experience belongs to the experience companion | — | — | — | — |
 
@@ -58,7 +59,7 @@ a system they build.
 
 ### Always do
 
-- Treat r7 and r4 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
+- Treat r8 and r5 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
 - Record what a check does **not** establish alongside what it does. This spec is the one where that rule does the most work, because it is the one making claims from measurements taken on a substituted platform.
 - Record a measurement's sample size and the platform it was taken on, beside the value.
 
@@ -89,7 +90,7 @@ Every criterion sits in exactly one group.
 
 ## Acceptance Criteria
 
-Obligations come from `runtime-architecture.md` § Rollout Phase 1 criterion 4
+Obligations come from `runtime-architecture.md` § 10 Rollout, Phase 1 criterion 4
 and its three named exit criteria, and from `worker-runtime.md` § 10 Rollout, Migration, and Reversal
 criteria 1, 2, 4 and 7. Obligations **beyond** those sources are tabled below,
 and the approval gate rules on each.
@@ -137,16 +138,15 @@ and the approval gate rules on each.
 ## Follow-ons
 
 - eugenelim: `workspace.toml` `[backlog].open` — AWS deployment to ECS Fargate with ALB and OIDC, including its IaC and mandatory infra security review. Out of scope by the owner's decision of 2026-09-18. AC-0314 is the record of what that deployment would establish and this delivery does not.
-- eugenelim: `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md` — the r8 consistency pass folding in the framework change and the superseded platform non-goal. Named as outstanding in r7's own header.
-- eugenelim: the approve/reject cycle cap, currently three and arbitrary by r4's own admission (DR5). r4 says Phase 1 should replace it with an observed number; this skeleton runs too few approval cycles to observe one, so the cap ships unchanged and unmeasured.
+- eugenelim: the approve/reject cycle cap, currently three and arbitrary by r5's own admission (DR5). r5 says Phase 1 should replace it with an observed number; this skeleton runs too few approval cycles to observe one, so the cap ships unchanged and unmeasured.
 
 ## Assumptions
 
 - Technical: p99 step duration is unknowable before real steps run, so `step_deadline` cannot be set before the measurement exists. The criterion is the measurement (source: `worker-runtime.md` § 11 Open Questions).
-- Technical: whether cancellation aborts an in-flight Bedrock stream promptly is unverified, and measuring it is AC-0309 itself. `botocore` is synchronous, so asyncio cancellation may unwind the coroutine while the socket lives; the agent-runtime spec supplies the hard timeout that bounds the step regardless, under its own criterion for bounding a hung step (source: `worker-runtime.md` § 9 Decisions, Alternatives, and Risks; `walking-skeleton-agent-runtime` § Bounding a hung step).
+- Technical: whether cancellation aborts an in-flight Bedrock stream promptly is unverified, and measuring it is AC-0309 itself. `botocore` is synchronous, so asyncio cancellation may unwind the coroutine while the socket lives; `walking-skeleton-step-lifecycle` supplies the hard timeout that bounds the step regardless, under its own criterion for bounding a hung step (source: `worker-runtime.md` § 9 Decisions, Alternatives, and Risks; `walking-skeleton-step-lifecycle` § Bounding a hung step).
 - Technical: measurements are taken on local containers, not on Fargate. The step is model-bound so p99 should mostly carry, but "mostly" is not measured, which is what AC-0314 records (source: user decision 2026-09-18).
 - Technical: a recorded Apple 10-Q fixture exists under `spikes/phase-0/fixtures/`, so AC-0312 needs no live SEC fetch — which matters because EDGAR returns 403 to this network (source: `spikes/README.md` § Spike 4).
 - Technical: spike 4 cost $0.022 and was **falsified as run**. A second falsification is an acceptable outcome of AC-0312 (source: `spikes/README.md` § Spike 4).
 - Technical: the browser client is Vite and React, deliberately minimal — an event list and a state badge. The real experience surface belongs to the experience companion (source: user decision 2026-09-18).
 - Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents — a shaping review over two rounds and an adversarial spec-mode review — and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
-- Governance: r7 and r4 are ratified as of 2026-09-18, r7 with its Known-at-ship gaps accepted open, and the DR decisions settled (source: both documents' Sign-off and Status headers).
+- Governance: r8 and r5 are ratified, r8 with its five accepted limits in § 9 open, and the DR decisions settled (source: both documents' Sign-off and Status headers).

@@ -2,7 +2,7 @@
 
 - **Spec:** [`spec.md`](spec.md)
 - **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
-- **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7 §§ Run state machine, The approval gate, Event log and stream mechanism, Risks (the primary page threshold); [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4 §§ The approval gate, The pool. **No analogous production implementation exists.** The substitute is `spikes/phase-0/stream_resumption_spike.py` for the cursor projection and `Last-Event-ID` preference, and `quarantine_quality_spike.py` for the A/B comparison AC-0312 re-runs. **Named deviation:** the resumption spike drove an HTTP client, not a browser, so it is precedent for the server's behaviour and not for the client's.
+- **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8 § 3 Runtime Model (the run state machine, the approval gate), § 4 Contracts and Invariants (the event log and stream mechanism) and § 9 Decisions, Alternatives, and Risks (the primary page threshold); [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 3 Runtime Model (the approval gate) and § 2 Structural Model (the pool). **No analogous production implementation exists.** The substitute is `spikes/phase-0/stream_resumption_spike.py` for the cursor projection and `Last-Event-ID` preference, and `quarantine_quality_spike.py` for the A/B comparison AC-0312 re-runs. **Named deviation:** the resumption spike drove an HTTP client, not a browser, so it is precedent for the server's behaviour and not for the client's.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
 > only while Status is `Drafting`. After approval, spec and plan are pinned in
@@ -25,7 +25,7 @@ chain rather than inside it — it depends on the state machine producing
 terminal events and on nothing else — so it is the one place this plan forks.
 
 The measurement tasks come last and are deliberately thin in code. The
-measurement command reads the event log, because r7's primary page depends on
+measurement command reads the event log, because r8's primary page depends on
 the same figure and an operator needs it recomputable rather than recorded once
 by a script nobody kept.
 
@@ -38,9 +38,9 @@ a sentence written afterwards.
 
 ## Constraints
 
-- `runtime-architecture.md` r7 — ratified with its Known-at-ship gaps accepted **open**. The `5–15%` escalation figure is a calibration target, explicitly not a release gate, and this spec does not turn it into one.
-- `worker-runtime.md` r4 — see § DR dispositions below.
-- **Hard dependencies:** `walking-skeleton-foundation` (schema, append paths, pool, API) and `walking-skeleton-agent-runtime` (the compiled agent, the decision point, the provider call, persistence). This spec adds no schema and no agent.
+- `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**. The `5–15%` escalation figure is a calibration target, explicitly not a release gate, and this spec does not turn it into one.
+- `worker-runtime.md` r5 — see § DR dispositions below.
+- **Hard dependencies:** `walking-skeleton-foundation` (schema, append paths, pool, API), `walking-skeleton-role-compilation` (the compiled agent and the quarantine boundary), `walking-skeleton-authority-containment` (the decision point) and `walking-skeleton-step-lifecycle` (the provider call, the step deadline, persistence). This spec adds no schema and no agent.
 - **Out of scope:** the AWS deployment, by the owner's decision of 2026-09-18; the assistant surface and `legible-refusal-and-readiness`, both Draft and unauthorised.
 
 ## DR dispositions
@@ -49,13 +49,13 @@ a sentence written afterwards.
 | --- | --- | --- |
 | DR1 | Publication is an executor transition, not a tool | **Lands**, T1 — the transition is the application's; the agent's only lever is the contentless tool the agent-runtime spec built |
 | DR4 | The liveness probe is the out-of-loop watchdog | **Lands**, T1 — the probe fails when no heartbeat has been *attempted* within twice the lease TTL, which is what makes it catch a starved event loop rather than merely a dead process |
-| DR5 | Rejection resumes the conversation, capped at three cycles | **Lands**, T1, unmeasured. r4 calls the cap arbitrary and asks Phase 1 to replace it with an observed number; this skeleton runs too few cycles to observe one, and the spec's Follow-ons records that plainly rather than implying the cap is now evidence-based |
+| DR5 | Rejection resumes the conversation, capped at three cycles | **Lands**, T1, unmeasured. r5 calls the cap arbitrary and asks Phase 1 to replace it with an observed number; this skeleton runs too few cycles to observe one, and the spec's Follow-ons records that plainly rather than implying the cap is now evidence-based |
 | DR6 | Three spend ceilings | **Partly here** — the per-run ceiling checked by the executor before dispatching each step lands in T1. It **pages rather than aborts**, because for a single operator killing a legitimate long analysis is the worse error. The per-step ceilings are the agent-runtime spec's; the per-account budget alarm is outside the application |
 | DR7 | Analytical quality is re-baselined at Phase 1 | **Lands**, T5 |
 | DR13 | `trust_class` is a construction | **Agent-runtime's**, and AC-0313 measures what its narrowing costs |
 | DR2, DR3, DR8, DR9, DR10, DR11, DR12 | — | **Not this spec's** — owned by the sibling specs, triggered at Phase 2, or already applied |
 
-## Changes asked of r7
+## Amendments asked of the parent architecture
 
 | # | Change | Disposition |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ a sentence written afterwards.
 | --- | --- | --- | --- |
 | Operations — `docs/architecture/pydantic-ai-worker-runtime/operations.md` | T4 | Each recorded value with its sample size and platform | Values satisfy the ordering invariant and cite their sample size |
 | Reusable learning — `spikes/README.md` | T6 | A Phase 1 section separating established, substituted and not-established | Hypothesis checks reported separately from setup |
-| Current architecture — r7 header, `docs/architecture/README.md` | T6 | Markers moved off `PLANNED` for what exists | Headers match the repository |
+| Current architecture — r8 header, `docs/architecture/README.md` | T6 | Markers moved off `PLANNED` for what exists | Headers match the repository |
 | Interface compatibility — `contracts/openapi/runs.yaml` | T3 | The reconnect semantics documented and asserted | Contract and implementation agree under test |
 
 ## Design (LLD)
@@ -87,13 +87,13 @@ Shape is `mixed`; the sub-sections below are the pruned set.
 
 ### Design decisions
 
-- **The measurement command is product code, not a script.** p99 and cancellation latency are read from the event log by a command that ships, because r7's primary page depends on the same figure and an operator needs it recomputable. Traces to: AC-0307, AC-0309.
+- **The measurement command is product code, not a script.** p99 and cancellation latency are read from the event log by a command that ships, because r8's primary page depends on the same figure and an operator needs it recomputable. Traces to: AC-0307, AC-0309.
 - **The cancellation outcome is a value the command emits, never a sentence an author writes.** `terminated` and `abandoned` are distinguishable only by observing the connection, and a criterion satisfied by any prose is not a criterion. Traces to: AC-0310.
 - **Rejected: setting `step_deadline` provisionally and correcting after measurement.** A placeholder would make AC-0306 pass against a number that means nothing. Instead T2 runs steps under a deliberately generous deadline whose only job is to not fire, T4 measures, and T4 sets the real value — so no criterion is ever demonstrated against a deadline that later changes.
 
 ### State & control flow
 
-The run state machine is r7's, plus `awaiting_input` and its two events. Both
+The run state machine is r8's, plus `awaiting_input` and its two events. Both
 `expired` and `awaiting_input` are non-terminal: a timed-out approval is
 recoverable and never silently discarded, and `approval_timeout` defaults to
 none in MVP.
@@ -242,6 +242,14 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 - Move the `STATUS: PLANNED` markers only for what now exists. The r8 consistency pass stays a named follow-on.
 
 **Done when:** AC-0314 holds, the status lint is green across all three specs, and Phase 1's exit criteria are recorded as met.
+
+**`awaiting_input` is authored without its safety constraints.** r8 § 3 makes
+operator-supplied text trusted *as instruction* and honest only because the
+answer is admitted at the acting role's existing ceiling and cannot widen it,
+and because the request and the answer are both recorded as events. This plan
+authors the state and its two events deliberately and unexercised; neither
+constraint is built, and no criterion reads them. The first spec to wire the
+input tool owes both, and inherits a transition table that looks finished.
 
 ## Rollout
 

@@ -71,7 +71,7 @@ dies.
 **What this module does not do**, because no criterion in
 `walking-skeleton-foundation` needs it and the sibling specs own it:
 
-  * It runs an **injected step body**. `walking-skeleton-agent-runtime`
+  * It runs an **injected step body**. `walking-skeleton-role-compilation`
     supplies the real one; here the default sleeps, which is what keeps this
     spec's suite offline and free of spend.
   * There is no cancellation token and no `step_deadline`. Those are

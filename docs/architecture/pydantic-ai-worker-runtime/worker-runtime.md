@@ -6,7 +6,9 @@ not. [`../README.md`](../README.md) § What is built is the current map.
 
 **Decision sought:** accept this as the specification of the inside of a leased
 step and the pool that leases them, binding on
-[`walking-skeleton-agent-runtime`](../../specs/walking-skeleton-agent-runtime/spec.md).
+[`walking-skeleton-role-compilation`](../../specs/walking-skeleton-role-compilation/spec.md),
+[`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md)
+and [`walking-skeleton-step-lifecycle`](../../specs/walking-skeleton-step-lifecycle/spec.md).
 
 **Author:** eugenelim
 **Status:** Accepted — 2026-09-18, alongside the runtime architecture
@@ -18,6 +20,12 @@ pass came from a forked-context reviewer agent, not a second person.
 at commit `1003fb0ba90e7dbc36c33afd79baef3c9189ba40`, recoverable through git
 history. This revision reorganizes that content and changes no accepted
 decision; the amendments r4 asked of its parent now live in the parent.
+
+**Errata:** 2026-09-20 — § 1's inherited-constraints line named `pydantic-ai`
+2.44.0 while [ADR-0002](../../adr/0002-pydantic-ai-version-pin.md), which it
+cites as the owner of the pin, pins 2.45.0. Corrected in the projection, not the
+ADR. No accepted decision changed, and the revision stays r5; recorded because
+specs citing r5 carry amendment triggers keyed to its content.
 
 **Governing decisions:**
 [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) (framework),
@@ -192,7 +200,7 @@ already pinned for portability.
 
 ### Constraints inherited
 
-The pinned framework version is `pydantic-ai` 2.44.0
+The pinned framework version is `pydantic-ai` 2.45.0
 ([ADR-0002](../../adr/0002-pydantic-ai-version-pin.md)), and the version
 argument below holds only while that pin is what ships. The seam set named by
 the [portable identity

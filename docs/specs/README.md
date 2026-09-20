@@ -51,6 +51,20 @@ plan, are a mistake a status lint can catch.
 A shipped spec freezes. Correct it by superseding it, not by editing the body,
 and record the erratum where the original cites it.
 
+## Cutting one outcome into several specs
+
+When an outcome is too large for one contract, the cut places each criterion by
+**subject**: the spec whose objective describes it owns it. Where a criterion's
+subject owner cannot execute its observation — the test needs a component a
+later spec builds, or its natural owner is Shipped and frozen — it goes to the
+spec that *can* execute it, and its obligation row cites the subject owner. A
+placement made that way is a decision, not a precedent, and the row is what
+tells a later reader why the criterion sits outside its subject's spec.
+
+Each lobe of a multi-subject spec is sized as its own pull request. **The day a
+lobe stops being its own PR is the day the cut needs revisiting**, because PR
+sizing is what carries the reviewability the cut would otherwise provide.
+
 `workspace.toml` is a lifecycle index over these directories, not a second
 requirements store. What a spec obliges lives in the spec; the index carries a
 pointer, its status, and its hard dependencies.

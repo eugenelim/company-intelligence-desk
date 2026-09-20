@@ -59,7 +59,7 @@ a decision record behind it is exactly the drift this directory exists to stop.
   cardinality (one exact pin) stands and only its value changes. ADR-0001's
   D1–D4 are untouched.
 - **D2:** The five probed behaviours in § Context are pinned by contract tests
-  owned by `walking-skeleton-agent-runtime`, which is the spec that imports the
+  owned by `walking-skeleton-role-compilation`, which is the spec that imports the
   framework. The `DeferredToolRequests` import is pinned **at the package
   root**, because a re-export moving out from under us is additive-minor drift
   the vendor does not class as breaking, and a test that imports the private
@@ -94,7 +94,7 @@ established under 2.44.0 rather than 2.45.0. Nothing here re-establishes them.
 - **Spike 7's green run was under 2.44.0.** Carrying it forward rests on the
   vendor's additive-minor policy rather than on a re-run. Cheap to retire —
   re-running spike 7 costs about $0.006 — and deliberately not done here,
-  because `walking-skeleton-agent-runtime` exercises those same four seams
+  because `walking-skeleton-step-lifecycle` exercises those same four seams
   under 2.45.0 against the real provider and is the stronger evidence.
 
 **Revisit if:** the vendor ships a major version, or any of the five probed
@@ -105,7 +105,7 @@ a reason other than our own code.
 
 - **Mode:** contract test
 - **Signal:** the pin resolves to 2.45.0 in the manifest, and the D2 contract
-  tests pass in `walking-skeleton-agent-runtime`. A resolved version other than
+  tests pass in `walking-skeleton-role-compilation`. A resolved version other than
   2.45.0, or a failing import pin, is the failure signal.
 - **Owner:** eugenelim
 
