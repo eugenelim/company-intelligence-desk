@@ -194,7 +194,7 @@ already pinned for portability.
 
 ### Constraints inherited
 
-The pinned framework version is `pydantic-ai` 2.44.0
+The pinned framework version is `pydantic-ai` 2.45.0
 ([ADR-0002](../../adr/0002-pydantic-ai-version-pin.md)), and the version
 argument below holds only while that pin is what ships. The seam set named by
 the [portable identity

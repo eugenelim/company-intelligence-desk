@@ -3,9 +3,9 @@
 - **Status:** Approved <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
-- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
+- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
 - **Brief:** none
-- **Descends from:** `runtime-architecture.md` § Rollout Phase 1
+- **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
 - **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — extended here with the stream's reconnect semantics; created by the foundation spec
 - **Shape:** mixed
@@ -59,7 +59,7 @@ measures a system they build.
 
 ### Always do
 
-- Treat r7 and r4 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
+- Treat r8 and r5 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
 - Record what a check does **not** establish alongside what it does. This spec is the one where that rule does the most work, because it is the one making claims from measurements taken on a substituted platform.
 - Record a measurement's sample size and the platform it was taken on, beside the value.
 
@@ -90,7 +90,7 @@ Every criterion sits in exactly one group.
 
 ## Acceptance Criteria
 
-Obligations come from `runtime-architecture.md` § Rollout Phase 1 criterion 4
+Obligations come from `runtime-architecture.md` § 10 Rollout, Phase 1 criterion 4
 and its three named exit criteria, and from `worker-runtime.md` § 10 Rollout, Migration, and Reversal
 criteria 1, 2, 4 and 7. Obligations **beyond** those sources are tabled below,
 and the approval gate rules on each.
@@ -138,7 +138,7 @@ and the approval gate rules on each.
 ## Follow-ons
 
 - eugenelim: `workspace.toml` `[backlog].open` — AWS deployment to ECS Fargate with ALB and OIDC, including its IaC and mandatory infra security review. Out of scope by the owner's decision of 2026-09-18. AC-0314 is the record of what that deployment would establish and this delivery does not.
-- eugenelim: the approve/reject cycle cap, currently three and arbitrary by r4's own admission (DR5). r4 says Phase 1 should replace it with an observed number; this skeleton runs too few approval cycles to observe one, so the cap ships unchanged and unmeasured.
+- eugenelim: the approve/reject cycle cap, currently three and arbitrary by r5's own admission (DR5). r5 says Phase 1 should replace it with an observed number; this skeleton runs too few approval cycles to observe one, so the cap ships unchanged and unmeasured.
 
 ## Assumptions
 
@@ -149,4 +149,4 @@ and the approval gate rules on each.
 - Technical: spike 4 cost $0.022 and was **falsified as run**. A second falsification is an acceptable outcome of AC-0312 (source: `spikes/README.md` § Spike 4).
 - Technical: the browser client is Vite and React, deliberately minimal — an event list and a state badge. The real experience surface belongs to the experience companion (source: user decision 2026-09-18).
 - Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents — a shaping review over two rounds and an adversarial spec-mode review — and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
-- Governance: r7 and r4 are ratified as of 2026-09-18, r7 with its Known-at-ship gaps accepted open, and the DR decisions settled (source: both documents' Sign-off and Status headers).
+- Governance: r8 and r5 are ratified, r8 with its five accepted limits in § 9 open, and the DR decisions settled (source: both documents' Sign-off and Status headers).

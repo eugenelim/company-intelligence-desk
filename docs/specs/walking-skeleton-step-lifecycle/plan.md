@@ -2,7 +2,7 @@
 
 - **Spec:** [`spec.md`](spec.md)
 - **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
-- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 §§ The model seam, The approval gate, and The pool. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the scoped-role Bedrock call, the history round trip and the approval gate across a process boundary. **Named deviation:** that spike persisted to memory rather than to an object store, so it is precedent for the *round trip*, not for the crash-ordering AC-0230 asserts.
+- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 3 Runtime Model ("The approval gate", "Deadline, cancellation, and the honest limit"), § 5 Data and State ("Object keys are scope-qualified from the first object written") and § 6 Deployment and Operations ("The model seam and fixture mode"). **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the scoped-role Bedrock call, the history round trip and the approval gate across a process boundary. **Named deviation:** that spike persisted to memory rather than to an object store, so it is precedent for the *round trip*, not for the crash-ordering AC-0230 asserts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
 > only while Status is `Drafting`. After approval, spec and plan are pinned in
@@ -207,8 +207,8 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 - AC-0226 uses a history carrying a tool call, a tool return, a retry part **and** a pending approval. The probe showed each half works; the combination is what spike 7 never asserted.
 - AC-0227 builds the resuming agent in a separate process, sharing nothing but the bytes. Same-process reuse would pass on in-memory state the design forbids relying on. The approved tool needs a ceiling entry the containment predicate admits, which is why `walking-skeleton-authority-containment` is a hard dependency and not a peer.
 - AC-0228 persists a history that carried a reasoning part and asserts the bytes contain none — a storage property, asserted on storage.
+- AC-0245 revokes an entitlement while a step waits for approval, then resumes it, and asserts the call is refused. The revocation must bite through the entitlements conjunct, because AC-0241 pins the ceiling half to the suspended version and it cannot carry revocation.
 - AC-0241 resumes a step whose role version was narrowed after suspension and asserts the tool call is judged against the suspended version's ceiling. The ceiling's source is the assertion; a test that only checks the call is refused passes on the wrong ceiling.
-- AC-0244 drives the configured number of reject-and-resume cycles plus one and reads the failure cause off the event log, not off the raised exception.
 - AC-0229 replays a history carrying stale instruction text and asserts the model receives the current compilation. This is a security property, not an ergonomic one: the role compilation is where the ceiling's sibling text lives.
 - AC-0230 injects a crash between the payload write and the fenced append.
 - AC-0231 asserts the key's scope prefix.
@@ -216,7 +216,7 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 **Approach:**
 - The reasoning strip happens in the executor before serialising, per § Design decisions.
 
-**Done when:** AC-0226 through AC-0231, AC-0241 and AC-0244 are green.
+**Done when:** AC-0226 through AC-0231, AC-0241 and AC-0245 are green.
 
 ### T4: The record says what this spec established and what it did not
 

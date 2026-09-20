@@ -2,7 +2,7 @@
 
 - **Spec:** [`spec.md`](spec.md)
 - **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
-- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 §§ An agent role compiles to an Agent, The toolset stack, The quarantined agent, and the integration registry under § Responsibility decomposition. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection — so it is precedent for the *seam*, not for any persistence mechanism.
+- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 2 Structural Model ("An agent role compiles to an agent", "The toolset stack, innermost to outermost", the three responsibility catalogues) and § 4 Contracts and Invariants ("The integration registry", "Inputs, outputs, and tool reach"). **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection — so it is precedent for the *seam*, not for any persistence mechanism.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
 > only while Status is `Drafting`. After approval, spec and plan are pinned in
@@ -100,7 +100,7 @@ specs cite it here rather than repeating rows.
 | Tool and output retries budget separately, both zeroable | DR9 | the retry type carries exactly those two budgets |
 | `ModelSettings.thinking` exists; a reasoning part is the thing to strip | DR8 | both present |
 | `WrapperToolset.call_tool` is an overridable seam | ADR-0001 D3 | `(self, name, tool_args, ctx, tool)` |
-| `DeferredToolRequests` carries `calls` as well as `approvals` | r5 GAP 2 | both present |
+| `DeferredToolRequests` carries `calls` as well as `approvals` | r5 § 3 Runtime Model, the approval gate | both present |
 | `BedrockConverseModel` takes a model id and nothing else | ADR-0001 D2 | only the model name is required |
 | A realistic history round-trips byte-identically | r5 § 10 Rollout criterion 6 | identical on second dump, over tool call, tool return and retry parts |
 | A reasoning-stripped history round-trips and leaks nothing | DR8 | identical, no reasoning in the bytes |
@@ -222,6 +222,7 @@ fixture. No task here reaches a provider.
 - AC-0201 has two cases, each a compile error rather than a call-time denial.
 - AC-0202 walks the constructed chain and asserts the type order; the checker is separately unit-tested against hand-built wrong chains, which is what lets the ordering be asserted without the compiler accepting a layer list.
 - AC-0203, AC-0204, AC-0205 and AC-0219 are each a role record the compiler must reject or constrain. AC-0205 asserts the compiled budgets are zero rather than that the role record requested zero — the record is the input, the compiled agent is the fact.
+- AC-0246 asserts the compiled agent counts tokens before issuing the request. The probe already confirmed the flag exists on the limits object; what this observes is that the compiled agent sets it, which AC-0206 cannot see.
 - AC-0206 needs both directions: a role wider than the pool default compiles to the default, a narrower one to itself. Only the widening case protects the operator's reviewable deploy.
 - AC-0233 enumerates the skeleton's roles and registered tools, drives a call through each with a spy the tool body increments, and asserts no spy moved. The spy is what makes "did not execute" observable rather than inferred, and the enumeration is what stops the criterion passing on a miss path alone. The suite runs in the no-predicate configuration the criterion names, so it retires with that configuration rather than being carried forward by the successor.
 - AC-0234 asserts the raised type is not the framework's retry type nor a subclass. A bare "raises" assertion passes on the wrong one, and the wrong one degrades the boundary into a negotiation with no visible failure.
@@ -232,7 +233,7 @@ fixture. No task here reaches a provider.
 - The usage-limit narrowing is applied where the pool default is known, so the compiled agent carries the resolved value and the role record keeps the requested one. Resolving it at call time would make AC-0206's widening case unobservable on the compiled agent.
 - The decision point is installed as the outermost layer with no predicate bound to it. It holds a reference to a resolver that has no entries, which is what makes the interval refuse by construction rather than by a branch someone can delete.
 
-**Done when:** AC-0201 through AC-0206, AC-0219, AC-0233 and AC-0234 are green.
+**Done when:** AC-0201 through AC-0206, AC-0219, AC-0233, AC-0234 and AC-0246 are green.
 
 ### T3: Free text does not cross the boundary
 
@@ -243,11 +244,12 @@ fixture. No task here reaches a provider.
 **Tests:**
 - AC-0220 feeds the parser output that is neither a closed-vocabulary label nor a typed scalar and asserts the step fails. The parser is the runtime's, outside the agent — a test that drives the agent's structured output instead is testing the layer, not the boundary.
 - AC-0221 is the criterion to write first and trust least: a well-formed reference that resolves in *another* step's set must still fail. Shape validity is not provenance, and a parser that checks only shape admits an attacker-chosen value inside a well-formed reference.
-- AC-0238 asserts an ordering, not a value: the recorded mint precedes the agent's first model turn, and a mutation attempted against the set after the run raises. Asserting only that the set is correct would pass on an implementation that builds it from the agent's output.
-- AC-0242 drives a refused integration result whose text is distinctive, then greps the run's events for it. The parser's rejection is the thing under test; the diagnostic carrying the rejected prose into the log is the thing this catches.
+- AC-0238 asserts an ordering and an equality, not a value: the recorded mint precedes the agent's first model turn, the before and after snapshots match, and a mutation attempted mid-run raises. A post-run probe alone cannot see a resolver that consults a second source while the agent runs, which is the "agent emits, resolver accommodates" shape this criterion exists to catch.
+- AC-0242 drives a refused integration result whose text is distinctive, then searches the run's events **and every payload object they reference** for it. Stopping at the events table leaves the prose one dereference away, still streamed and still readable by a later context assembler. The parser's rejection is the thing under test; the diagnostic carrying the rejected prose into the log is the thing this catches.
 - AC-0222 runs a quarantined step over the recorded filing, then a planning step, and asserts the planning step's assembled context contains no free text — including after a round trip through the database, which is the indirect path that would otherwise reopen the boundary.
 
 **Approach:**
+- The integration result the parser judges arrives through the runtime's own retrieval path, not as a tool-body return value, so AC-0220, AC-0242 and AC-0233's blanket refusal are consistent. This is the same construction AC-0219 forces: a quarantined role resolves no integrations, so it has no tool to call.
 - The quarantine spine reaches no registered tool. The quarantined role resolves no integrations (AC-0219) and the planning step in AC-0222 is asserted on its assembled context, not on a tool call, so the spine and AC-0233's blanket refusal are satisfiable together.
 - The deterministic pipeline mints the candidate reference set *before* the quarantined agent runs. The agent selects and labels among candidates that already resolve and cannot mint an identifier. Building the weaker construction — agent emits, parser rejects — is the failure mode here, and it is the one spike 4 measured and the design explicitly moved away from.
 
