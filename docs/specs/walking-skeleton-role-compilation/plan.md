@@ -55,7 +55,7 @@ write first and trust least.
 - `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**. The first of those limits in particular narrows the quarantine guarantee's *scope*; it does not license leaving the guarantee unverified, which is why this spec adds criteria for it.
 - `worker-runtime.md` r5 — see § DR dispositions below. The amendments it once asked of its parent are folded into r8; see § Amendments the worker runtime asked of its parent.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
-- **Placement rule.** A criterion goes to the spec that can execute its observation, with its subject owner cited in the obligation row. The original cut placed by subject; AC-0247 and AC-0249 are placed by executability — the first needs a tool body to run, the second's subject owner is Shipped and frozen. The rule is written down so the next placement is a decision rather than a precedent, and so a reader who finds a criterion outside its subject's spec knows why.
+- **Placement and re-cut rules:** [`docs/specs/README.md`](../README.md) § Cutting one outcome into several specs.
 - **Out of scope:** the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`, which follows this spec; the provider call, suspension and persistence, owned by `walking-skeleton-step-lifecycle`, which follows that one; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
 ## DR dispositions

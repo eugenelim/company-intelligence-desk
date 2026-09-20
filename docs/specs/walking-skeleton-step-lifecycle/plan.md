@@ -46,7 +46,7 @@ stronger than what the scan can see. The record has to say so.
 - **Hard dependency:** `walking-skeleton-role-compilation` ships the compiler and pins the framework including the `[bedrock]` extra.
 - **Hard dependency:** `walking-skeleton-authority-containment` ships the containment predicate. AC-0227 requires an approved tool body to run, and the decision point admits nothing until that predicate exists.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
-- **Placement rule.** A criterion goes to the spec that can execute its observation, with its subject owner cited in the obligation row. The original cut placed by subject; AC-0247 and AC-0249 are placed by executability — the first needs a tool body to run, the second's subject owner is Shipped and frozen. The rule is written down so the next placement is a decision rather than a precedent, and so a reader who finds a criterion outside its subject's spec knows why.
+- **Placement and re-cut rules:** [`docs/specs/README.md`](../README.md) § Cutting one outcome into several specs.
 - **Out of scope:** the compiler and the quarantine boundary, owned by `walking-skeleton-role-compilation`; the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`. Both precede this spec; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
 ## DR dispositions
@@ -133,7 +133,7 @@ exercised directly by its own suite. Traces to: AC-0223, AC-0226, AC-0231.
 
 ### Data & schema
 
-No schema change. This spec reads the tables the foundation spec created and
+No schema change, and `runs` carries no producer column — the foundation spec created it with `run_id`, `state`, `next_seq` and `created_at`. The producer tuple is therefore written as the payload of the run's opening event, under AC-0231's scope-qualified key rule when it exceeds an inline scalar. "The run header" in AC-0225 names that payload, not a column. This spec reads the tables the foundation spec created and
 writes `events` and payload objects through the append paths that spec owns.
 Object keys become scope-qualified here because this spec writes the Phase 1
 runtime's first payload object. Traces to: AC-0231.
@@ -175,7 +175,7 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 **Tests:**
 - AC-0223 reads the event log for a `step.completed` whose producer tuple names the live adapter, so the evidence is what the system recorded rather than what the harness arranged.
 - AC-0224 scans the running container for a long-lived credential, not the compose file — the compose file is the intent, the container is the fact. It asserts the absence of a static key, not the absence of session credentials, which ambient workload identity necessarily delivers to the process.
-- AC-0225 reads the producer tuple back off the run header.
+- AC-0225 reads the producer tuple back off the run header, and AC-0254 asserts the three security-bearing members are present in it. Asserting the tuple exists without naming those members leaves AC-0223's live-versus-replay check resting on a field nothing requires.
 - The scoped role is created and assumed by the test setup, as spikes 1 and 7 did.
 
 **Approach:**

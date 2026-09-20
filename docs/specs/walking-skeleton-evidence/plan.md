@@ -243,6 +243,14 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 
 **Done when:** AC-0314 holds, the status lint is green across all three specs, and Phase 1's exit criteria are recorded as met.
 
+**`awaiting_input` is authored without its safety constraints.** r8 § 3 makes
+operator-supplied text trusted *as instruction* and honest only because the
+answer is admitted at the acting role's existing ceiling and cannot widen it,
+and because the request and the answer are both recorded as events. This plan
+authors the state and its two events deliberately and unexercised; neither
+constraint is built, and no criterion reads them. The first spec to wire the
+input tool owes both, and inherits a transition table that looks finished.
+
 ## Rollout
 
 - **Delivery:** four stacked PRs — T1, T2+T3, T4+T5, T6. T3 forks from T1 rather than following T2, so the browser work does not wait on a spend-bearing task.
