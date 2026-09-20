@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — role compilation and the quarantine boundary
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 2 Structural Model ("An agent role compiles to an agent", "The toolset stack, innermost to outermost", the three responsibility catalogues) and § 4 Contracts and Invariants ("The integration registry", "Inputs, outputs, and tool reach"). **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection — so it is precedent for the *seam*, not for any persistence mechanism.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
@@ -286,3 +286,5 @@ fixture. No task here reaches a provider.
 ## Changelog
 
 - 2026-09-20: initial plan. Cut from `walking-skeleton-agent-runtime`, whose single contract carried AC-0201 through AC-0232 across nine tasks and six stacked PRs — roughly two and a half times either Phase 1 sibling. This spec takes the compiler, the toolset stack and the quarantine boundary; the containment fragment and decision point go to `walking-skeleton-authority-containment`, and the step lifecycle to `walking-skeleton-step-lifecycle` after it. AC-0233 and AC-0234 are the criteria the split creates: the parent spec never needed either, because the decision point's position and its predicate landed in the same contract. The three form a chain: an earlier draft claimed the last two were parallel, which an adversarial spec review falsified, because `walking-skeleton-step-lifecycle`'s AC-0227 requires an approved tool body to run and nothing can admit a call until the predicate exists.
+- 2026-09-20: spec approved by eugenelim
+- 2026-09-20: plan approved by eugenelim

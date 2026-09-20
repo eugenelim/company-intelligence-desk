@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — authority containment and the decision point
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 2 Structural Model ("The toolset stack, innermost to outermost") and § 4 Contracts and Invariants ("The three gates, and why one formula was not enough", "Why a prefix predicate is not safe on an interpreted argument"). **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection, no failed-append path — so it is precedent for the *seam*, not for the mechanism AC-0211 asserts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
@@ -239,3 +239,5 @@ External: none. No task here reaches a provider.
 ## Changelog
 
 - 2026-09-20: initial plan. Cut from `walking-skeleton-agent-runtime`, whose single contract carried AC-0201 through AC-0232 across nine tasks and six stacked PRs. This spec takes the containment fragment and the decision point — the parent plan's T3 and T4, which it had already sized as separate PRs because both attract a mandatory security review. It follows `walking-skeleton-role-compilation` and precedes `walking-skeleton-step-lifecycle`: an earlier draft claimed the last two were parallel, which an adversarial spec review falsified, because that spec's AC-0227 requires an approved tool body to run and nothing can admit a call until this spec's predicate exists.
+- 2026-09-20: spec approved by eugenelim
+- 2026-09-20: plan approved by eugenelim
