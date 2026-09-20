@@ -89,15 +89,14 @@ three to produce the Phase 1 measurements and the browser stream.
 
 Every criterion sits in exactly one group.
 
-- **TDD (AC-0201, AC-0202, AC-0203, AC-0204, AC-0205, AC-0206, AC-0219, AC-0220, AC-0221, AC-0222, AC-0233, AC-0234, AC-0238, AC-0242, AC-0246)** — all of it, because all of it is a compressible invariant with a cheap oracle and no provider in the loop. The framework ships `TestModel` and `FunctionModel`, so the compiler, the toolset stack and the quarantine boundary are all exercised without a model call. AC-0222 is exercised by an **integration** test: a quarantined step and a planning step together, across the database, because the indirect path is the one a unit test cannot see.
+- **TDD (AC-0201, AC-0202, AC-0203, AC-0204, AC-0205, AC-0206, AC-0219, AC-0220, AC-0221, AC-0222, AC-0233, AC-0234, AC-0238, AC-0242, AC-0246, AC-0250)** — all of it, because all of it is a compressible invariant with a cheap oracle and no provider in the loop. The framework ships `TestModel` and `FunctionModel`, so the compiler, the toolset stack and the quarantine boundary are all exercised without a model call. AC-0222 is exercised by an **integration** test: a quarantined step and a planning step together, across the database, because the indirect path is the one a unit test cannot see.
 
 No criterion here calls a provider, so this spec needs no cloud credential and
 carries no spend. **This contract deliberately ships a runtime in which no tool
 body ever executes**, because AC-0233 refuses every call until the successor
 spec's predicate arrives. AC-0202's stack is therefore asserted by construction
-and never demonstrated end-to-end here; the first criterion anywhere that
-requires a tool body to run is `walking-skeleton-authority-containment`'s
-AC-0218.
+and never demonstrated end-to-end here; the first tool body to run anywhere does so under
+`walking-skeleton-authority-containment`.
 
 **A note on what the suite cannot see.** The quarantine criteria assert that
 free text does not cross a boundary this system builds. Three limits stay open,
@@ -108,9 +107,8 @@ guarantee is "no attacker-authored free *text*", **not** "no attacker-influenced
 signal" — r8's first accepted limit names selection influence explicitly. And
 the reference-selection channel stays *unmitigated and unmeasured*: a closed
 vocabulary bounds the alphabet, not the channel, so a quarantined agent can pass
-several bits per step into a planning agent's context by which references it
-chooses, and resolution detects forged references rather than steered-but-valid
-ones. AC-0238 pins minting order and set immutability, which makes forgery
+signal into a planning agent's context by which references it chooses, and
+resolution detects forged references rather than steered-but-valid ones. AC-0238 pins minting order and set immutability, which makes forgery
 unrepresentable; it says nothing about steering, and adding it raises rather
 than lowers the odds a reader takes reference integrity as solved.
 
@@ -129,13 +127,13 @@ approval gate rules on each rather than inheriting it.
 | --- | --- | --- | --- |
 | Keep every tool inside the wrapped stack | AC-0201 | r5 § 2 Structural Model, an agent role compiles to an agent makes the single-toolset shape the precondition for every later guarantee. A tool reachable beside the stack has no ceiling entry to violate, so no behavioural test anywhere can catch it | The authorization boundary is complete on paper and bypassable in one line |
 | Assert the stack's composition | AC-0202 | ADR-0001 D3 and r5 § 2 Structural Model, the toolset stack make the policy decision point's position a security property, and reachability (AC-0201) is a different defect from ordering | A correctly-enclosed stack can still put the decision point too deep to see an unauthorised call |
-| Enforce the compile-time role guards | AC-0203, AC-0204, AC-0205, AC-0206 | DR13, DR8, DR9 and R5 each specify a compile-time refusal. r5 calls the DR9 one the control that stops a framework-conducted retry loop over attacker-authored filing text | Four settled decisions ship as prose with nothing asserting them |
+| Enforce the compile-time role guards | AC-0203, AC-0204, AC-0205, AC-0206 | Each discharges a named upstream rule: AC-0203 r5 § 2's R2 (refuse a `free-text` integration on a non-quarantined role), AC-0204 R5's `thinking` disabled and DR8, AC-0205 DR9 — which r5 calls the control that stops a framework-conducted retry loop over attacker-authored filing text — and AC-0206 R5's `effective limits = min(pool default, role value)`. R5 is a list of six invariants, not one, so each is cited by the member it discharges | Four settled decisions ship as prose with nothing asserting them |
 | Bound cost before the call, not after | AC-0246 | r5 § 7's quality-scenario table names the cost mechanism as a limit with **pre-request token counting**, with denial of wallet as the consequence if missed, and § 7 adds that only the innermost ceiling is genuinely pre-call. AC-0206 asserts a limit may only narrow and is green whether or not counting happens before the request | A role carries a cost ceiling that bounds nothing until the tokens are already spent |
 | Fail closed for the interval | AC-0233 | This spec ships the decision point's position and `walking-skeleton-authority-containment` ships its predicate. AC-0233 covers the configuration in between, and is scoped to it: with the predicate installed the fall-through guard is that spec's AC-0235 and the error-path guard its AC-0236, both of which can be decided against a real lookup and this one cannot. **Retirement trigger:** that spec's T2 removes this criterion's suite in the same task that installs the predicate | An unguarded runtime looks finished and the gap is invisible in a passing build |
 | Keep a denial terminal from the start | AC-0234 | The exception type is asserted from the first refusal this repository raises, rather than from the first *real* refusal. `walking-skeleton-authority-containment`'s AC-0208 names the concrete domain type; this one is the permanent negative and holds throughout | The interval's refusal ships as a retryable hint, and the boundary is a negotiation before anything asserts otherwise |
 | Constrain the quarantined role at compile time | AC-0219 | DR13 makes `trust_class` a construction rather than a declaration, and the compiled agent is the fact while the role record is only the input. No § Rollout criterion asks for it. It is tabled apart from the three below because it is a compile-time property verified with them in the compiler task, not a runtime one | A role declared quarantined can still resolve an integration, and the construction is a declaration after all |
 | Verify the quarantine boundary holds | AC-0220, AC-0221, AC-0222 | This spec builds the quarantined role and the parser. r8 ranks this boundary second of four quality attributes and r8 § 4 Contracts and Invariants owns its guarantee — r5 § 1's scope table puts that guarantee out of this subsystem's scope explicitly, leaving the subsystem the enforcement. No § 10 Rollout criterion in either document asks for it, which is an omission in those lists rather than a decision | The delivery builds a security boundary and measures only what it costs, never that it holds |
-| Pin the pipeline-first construction | AC-0238 | `runtime-architecture.md` r8 § 4 Contracts and Invariants owns this guarantee and states it as "The model never produces a reference, and that is the difference between detecting forgery and making it unrepresentable"; r5 § 1's scope table routes it upstream rather than claiming it. Beyond source even so, because r8 § 10's Phase 1 asks for no criterion over it. AC-0221 asserts only that a non-minted reference fails, which is the detection backstop: an implementation that mints the set *from* the agent's output, or lets it grow mid-run, passes AC-0221 unchanged. The structural claim otherwise lives only in plan prose, which is working material | The guarantee the architecture ranks second of four is contract-free, and the weaker construction the plan names as the failure mode ships with a green suite |
+| Pin the pipeline-first construction | AC-0238, AC-0250 | `runtime-architecture.md` r8 § 4 Contracts and Invariants owns this guarantee and states it as "The model never produces a reference, and that is the difference between detecting forgery and making it unrepresentable"; r5 § 1's scope table routes it upstream rather than claiming it. Beyond source even so, because r8 § 10's Phase 1 asks for no criterion over it. AC-0221 asserts only that a non-minted reference fails, which is the detection backstop: an implementation that mints the set *from* the agent's output, or lets it grow mid-run, passes AC-0221 unchanged. The structural claim otherwise lives only in plan prose, which is working material | The guarantee the architecture ranks second of four is contract-free, and the weaker construction the plan names as the failure mode ships with a green suite |
 | Keep rejected text out of the durable record | AC-0242 | The context package is not free text's only sink. A rejected result whose diagnostic carries the offending prose puts attacker-authored text into the event log, which the evidence spec streams to a browser and any later context assembler reads back | AC-0222 holds on the path it walks while the same text reaches a reader by another one |
 
 **Compiling a role**
@@ -148,7 +146,7 @@ approval gate rules on each rather than inheriting it.
 - [ ] **AC-0206.** A role declaring a usage limit wider than the pool default compiles to the pool default, and one declaring a narrower limit compiles to its own: a role may narrow and never widen.
 - [ ] **AC-0219.** A compiled quarantined role resolves no integrations, asserted on the compiled agent rather than on the role record.
 
-- [ ] **AC-0246.** A compiled agent's cost ceiling is enforced before the request is issued, asserted on the compiled agent's usage limits rather than on the role record.
+- [ ] **AC-0246.** A compiled agent whose cost ceiling is below the counted tokens raises before the model's request is issued, demonstrated with a stub model that records whether it was called.
 
 **Refusing before the predicate arrives**
 
@@ -160,7 +158,8 @@ approval gate rules on each rather than inheriting it.
 - [ ] **AC-0220.** Output from an integration declared `admitted-types` that is not a closed-vocabulary label or a typed scalar fails the step, refused by the runtime's deterministic parser rather than by the agent's structured output.
 - [ ] **AC-0221.** A reference the runtime did not mint for this step fails the step, including one that is well-formed and resolvable in another step's reference set.
 - [ ] **AC-0222.** No free text produced by a quarantined step reaches a planning step's context package, including by way of stored state read back from the database.
-- [ ] **AC-0238.** The candidate reference set is complete before the quarantined agent's first model turn, and the set observed before that turn is identical to the set observed after the last one, with a mutation attempted while the run is in flight refused.
+- [ ] **AC-0238.** The candidate reference set is complete before the quarantined agent's first model turn, and the set observed before that turn is identical to the set observed after the last one.
+- [ ] **AC-0250.** A mutation of the candidate reference set attempted while the run is in flight is refused.
 - [ ] **AC-0242.** A refused integration result records its rejection without the rejected text reaching the event log or any payload object an event of that run references.
 
 ## Follow-ons
@@ -171,6 +170,10 @@ review found in text this spec carries unchanged from the deleted
 2026-09-20, so the carry-across stays auditable against the parent; each needs an
 amendment rather than an in-place correction.
 
+- eugenelim: `workspace.toml` `[backlog].open` — **R5's model-id invariant has no criterion.** r5 § 2's R5 requires a compiled role's model id to fall within the pool's allowed set, and a violation to be a build failure. None of the three specs asserts it, and it is not deferred anywhere else.
+- eugenelim: `workspace.toml` `[backlog].open` — **AC-0206 clamps where r5 § 4 says compile failure.** The criterion resolves a role declaring a limit wider than the pool default *to* the default; r5 § 4 gives that contract the failure semantics "Compile failure". AC-0206 is carried text and was not reworded, so the reading it silently picks needs an owner's ruling and, if r5 is right, an amendment.
+- eugenelim: `workspace.toml` `[backlog].open` — **AC-0203 is narrower than the rule it discharges.** It refuses a `free-text` integration bound to a *planning* role; r5 § 2's R2 refuses one bound to any *non-quarantined* role.
+- eugenelim: `workspace.toml` `[backlog].open` — **the compile-time egress check has no criterion.** r5 § 4 requires a `connection_ref` naming a host the egress proxy does not allow to fail at compile time, so the registry can select within egress and never widen it. That is a runtime obligation, not the proxy's, and it sits in this spec's own category of compile-time refusals. Deferred because Phase 1 ships no proxy and therefore no allowlist to check against; it becomes buildable with the AWS deployment.
 - eugenelim: `workspace.toml` `[backlog].open` — **AC-0202 is two predicates under one checkbox.** The chain-order property and the structural checker's rejection of a hand-built wrong chain have separate failure modes and separate remedies, and the second names an internal helper the plan exists to decide.
 - eugenelim: `workspace.toml` `[backlog].open` — **AC-0222 is universally quantified and proven on one path.** One quarantined step, one planning step, one fixture. The Testing Strategy caveats adaptive adversaries but not path coverage, so a reader takes a single-path result as universal.
 - eugenelim: `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md` § Defence in depth — **the cheap local checks have no owner after the split.** Tool-result protocol validation, structural anomaly detection on retrieved chunks and YARA patterns are specified as implemented directly; no Phase 1 spec claims them. Low urgency, since the Phase 1 corpus is a fixed fixture and no attacker controls chunk size.

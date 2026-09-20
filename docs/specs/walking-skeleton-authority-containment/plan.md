@@ -34,7 +34,7 @@ denial rather than a retry.
 
 **The riskiest part is that a denial degrades quietly into advice.** The
 difference between a terminal denial and a retryable hint is which exception a
-future contributor raises, and a green suite looks the same either way. AC-0208
+future contributor raises, and a green suite looks the same either way. AC-0234
 asserts the type and that it is not the retry type nor a subclass of it.
 
 ## Constraints
@@ -102,7 +102,7 @@ both seams — and a throwaway script is not that.
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
 | Decision rationale — the r5 unsafe-prefix table | T1 | The userinfo row added upstream | The table AC-0213 references is complete |
-| Current architecture — the `worker-runtime.md` marker | T4 | This spec's clause moved from unbuilt to built | The header's built and unbuilt lists match the repository |
+| Current architecture — the `worker-runtime.md` marker | T3 | This spec's clause moved from unbuilt to built | The header's built and unbuilt lists match the repository |
 | Current architecture — `docs/architecture/README.md` § What is built | T3 | The containment fragment and the decision point moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
 | Reusable learning — `spikes/README.md` | T3 | A section stating what was and was not established | Hypothesis checks separated from setup |
 
@@ -169,6 +169,7 @@ External: none. No task here reaches a provider.
 - AC-0213 uses the r5 table rows verbatim, because they are the documented bypasses and a paraphrase tests a different string, plus the userinfo row the probe found.
 - AC-0214 asserts at the *adapter* that the value received is canonical. Asserting at the validator would pass while the adapter re-parses the original, which is the differential the rule exists to close.
 - AC-0216 patches one canonicaliser rule at a time in the test process and asserts that rule's case reds while the others stay green. Both halves matter: a patch that reds everything shows the rule set is entangled, not that the rule is load-bearing.
+- AC-0240 refuses a `url`-typed argument carrying no host-constraining predicate, alongside AC-0215 and AC-0217, because all three are authoring-time refusals over the same declaration surface.
 - AC-0215 refuses a public-suffix argument at authoring time, resolved against the bundled dataset rather than a hand-kept list, so a newly delegated suffix does not silently become authorable.
 - AC-0217 asserts both directions, because the refusing half alone is satisfied by a fragment that refuses every prefix.
 - AC-0218 is the positive path, against the same ceiling AC-0213 uses, so a canonicaliser that refuses all input cannot pass this suite.
@@ -178,7 +179,7 @@ External: none. No task here reaches a provider.
 - Domain types are `opaque-string`, `url`, `fs-path`, `content-locator`, `enum`, `number`, `date`. The canonicaliser decodes before dot-segment removal, which the probe confirmed is load-bearing and order-dependent.
 - File the userinfo row back to the r5 table as an amendment, so the table AC-0213 references stops being incomplete.
 
-**Done when:** AC-0213 through AC-0218 are green and the property test passes over its generated space.
+**Done when:** AC-0213 through AC-0218 and AC-0240 are green and the property test passes over its generated space.
 
 ### T2: The decision point is the only way a tool is reached
 
@@ -187,23 +188,24 @@ External: none. No task here reaches a provider.
 **Touches:** src/**/agents/toolsets/policy_decision.py, src/**/agents/toolsets/step_events.py, tests/authorization/**
 
 **Tests:**
-- AC-0207 and AC-0208 are the authorization suite. AC-0208 asserts the exception *type* and that it is not the retry type nor a subclass; a bare "raises" assertion passes on the wrong one, and the wrong one degrades the boundary into a negotiation with no visible failure.
+- AC-0207 and AC-0208 are the authorization suite. AC-0208 asserts the denial handler is narrow enough not to catch a genuine tool-body bug; a bare "raises" assertion passes on a handler that swallows defects, and the boundary then reports a clean refusal where the system is broken.
 - AC-0209 asserts the denial is *recorded*, which is the attributability claim. A refusal that leaves no trace satisfies AC-0207 and still fails the ratified goal.
 - AC-0210 uses a call inside the role ceiling and outside the initiating user's entitlements, which is the conjunct no ceiling-only test reaches.
 - AC-0211 forces the decision append to fail on its own connection and asserts the tool body did not run, using a spy the body increments. The spy is what makes "did not run" observable rather than inferred.
 - AC-0212 drives two invocations deriving the same key and asserts the body ran once and the step terminated duplicate-detected.
-- AC-0239 runs a decision point whose lease was taken by another worker and asserts all three outcomes: refusal, no committed decision, unmoved spy. The fence is the foundation's and correct; what this observes is that the caller passes the epoch it holds rather than re-reading the current one.
+- AC-0239 runs a decision point whose lease was taken by another worker and asserts all four outcomes: refusal, no committed decision, unmoved spy, and the step still claimable by its new owner rather than carrying a terminal event. The fourth is the one AC-0211 disagrees with, so a test that skips it leaves the discriminator unobserved. The fence is the foundation's and correct; what this observes is that the caller passes the epoch it holds rather than re-reading the current one.
 - AC-0243 is AC-0211's admit-path twin and must be written as its own case: same forced append failure, but on a call the predicate admits, so the spy would move but for the ordering.
-- AC-0240 is an authoring-time refusal in T1's surface, verified with AC-0215 and AC-0217, and listed here because the criterion it guards against is a runtime one.
+- AC-0247 drives a tool body whose return is free text and asserts the step-event toolset's attribution record never held it. Asserting only that the step fails would pass on a layer that parses too late.
+- AC-0249 opens a connection as `app_worker` and attempts a write to each of the three tables, asserting the database refuses. The application cannot be the thing that refuses, or the criterion tests the caller rather than the grant.
 - AC-0236 injects a fault inside the predicate itself, so the error path is exercised rather than a malformed argument that the predicate handles normally. It asserts all three outcomes together — refusal, the committed denial, the unmoved spy — because an error path that denies without recording is the failure this criterion exists to catch.
 - AC-0235 drives a call to a tool the acting role has no ceiling entry for, with the real predicate installed and the same spy AC-0211 uses. It is the only check here that a lookup finding nothing denies: AC-0207 needs an entry to fall outside of, and `walking-skeleton-role-compilation`'s AC-0233 was scoped to a configuration this task removes.
-- `walking-skeleton-role-compilation` AC-0234 runs unchanged in this task's suite. It asserts a refusal is not the retry type, in every configuration; AC-0208 asserts which domain type it is. The two texts no longer overlap, so neither restates the other.
+- `walking-skeleton-role-compilation` AC-0234 runs unchanged in this task's suite. It asserts a refusal is not the retry type, in every configuration; AC-0208 asserts the handler that catches a denial does not also catch a programming error. The two texts no longer overlap, so neither restates the other.
 - AC-0212's mechanism is in the step-event toolset, which `walking-skeleton-role-compilation` composes as a layer but leaves inert. This task gives it the append behaviour, which is why its file is in Touches.
 
 **Approach:**
 - The decision point appends through the `policy-writer` identity on a second connection, taking the `steps` fence first so the ordering the foundation spec proved is preserved rather than extended.
 
-**Done when:** AC-0207 through AC-0212, AC-0235, AC-0236, AC-0239, AC-0240 and AC-0243 are green; `walking-skeleton-role-compilation` AC-0234 is still green; and that spec's AC-0233 suite is removed in this task, because the no-predicate configuration it enumerates no longer ships.
+**Done when:** AC-0207 through AC-0212, AC-0235, AC-0236, AC-0239, AC-0243, AC-0247 and AC-0249 are green; `walking-skeleton-role-compilation` AC-0234 is still green; and that spec's AC-0233 suite is removed in this task, because the no-predicate configuration it enumerates no longer ships.
 
 ### T3: The record says what this spec established and what it did not
 
@@ -227,7 +229,7 @@ External: none. No task here reaches a provider.
 
 ## Risks
 
-- **Denial-as-retry is a one-line footgun.** The difference between a terminal denial and a retryable hint is which exception a future contributor raises. AC-0208 asserts the type; the risk is named because it is the regression reviews miss.
+- **Denial-as-retry is a one-line footgun.** The difference between a terminal denial and a retryable hint is which exception a future contributor raises. `walking-skeleton-role-compilation`'s AC-0234 asserts the negative; the risk is named because it is the regression reviews miss.
 - **The fail-closed default can be quietly widened here.** This is the spec that replaces "nothing admits" with a real lookup, and the cheapest way to make AC-0218's positive path pass is to let a lookup miss fall through. AC-0235 exists for that reason, and `walking-skeleton-role-compilation` AC-0234 runs in T2's suite alongside it.
 - **The decision point stands on a framework object.** A change to the wrapper's `call_tool` contract is a change to the authorization boundary and could land in a minor release without being classed as breaking. Mitigated by the contract suite `walking-skeleton-role-compilation` T1 ships and by the authorization suite running on every build.
 - **A schema need discovered here is an amendment to a shipped sibling spec.** Mitigated by the foundation spec creating the three agent tables up front, but not eliminated.
