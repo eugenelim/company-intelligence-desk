@@ -1,6 +1,7 @@
 """The pool: claim under a lease, execute outside any transaction, renew fenced.
 
-r7 § Step execution, and `worker-runtime.md` § The pool. The protocol is theirs;
+r8 § 3 Runtime Model, and `worker-runtime.md` § 6 Deployment and Operations.
+The protocol is theirs;
 what is here is the implementation and the timings they specify.
 
 **Row locking and lease expiry are different mechanisms.** A row lock held
@@ -52,7 +53,7 @@ figure above came from a scratchpad probe rather than a committed check; both
 limits are recorded in the verification ledger.
 
 That overlap is **accepted, ratified behaviour, not a defect to close here**.
-`worker-runtime.md` § The fence-detection window states that two workers can be
+`worker-runtime.md` § 3 Runtime Model states that two workers can be
 inside the same step's toolset stack at once and names the derived idempotency
 key and the fenced `policy.decision` append as "exactly what make that overlap
 benign — neither is optional". Shortening the join or renewing through it would
@@ -74,7 +75,8 @@ dies.
     supplies the real one; here the default sleeps, which is what keeps this
     spec's suite offline and free of spend.
   * There is no cancellation token and no `step_deadline`. Those are
-    `worker-runtime.md` § The pool's, and the evidence spec measures them.
+    `worker-runtime.md` § 6 Deployment and Operations', and the evidence spec
+    measures them.
   * The boot sequence verifies both database connections and **not** the object
     store: nothing in this spec reads or writes an object, and an S3 client
     here would put the AWS SDK outside `adapters/`, which the
@@ -113,7 +115,7 @@ DERIVED_REACQUISITION_BOUND_SECONDS = LEASE_TTL_SECONDS + POLL_SECONDS
 #: AC-0010's bound, and r7's own figure for the same timings.
 #:
 #: **These two numbers do not agree, and the difference is recorded rather than
-#: reconciled here.** r7 § Step execution and `worker-runtime.md` § The pool
+#: reconciled here.** r8 § 3 Runtime Model and `worker-runtime.md` § 6
 #: both state 150 s for TTL 60 / heartbeat 20 / poll 30; the terms above sum to
 #: 90, and no arrangement of those three values reaches 150. The criterion is
 #: the looser of the two, so nothing is at risk: this implementation is inside
@@ -171,7 +173,7 @@ def verify_boot(config: PoolConfig) -> None:
     worker without it cannot authorize a tool call, so it must fail readiness
     rather than start and deny everything.
 
-    Two roles, one OS process — `worker-runtime.md` § Changes this design asks
+    Two roles, one OS process — `runtime-architecture.md` r8 § 4, Identity
     of r7 item 11. The strength of the split rests on the database grant rather
     than on credential separation, because the task role can obtain both.
     """

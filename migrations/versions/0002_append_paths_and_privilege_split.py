@@ -21,7 +21,7 @@ Four functions, and each one's owner is load-bearing:
   fence_step              ced_fence   the row lock, at its own privilege
 
 **`fence_step` is owned by `ced_fence`, a `NOLOGIN` role granted to no
-application identity.** `worker-runtime.md` § Changes this design asks of r7
+application identity.** `runtime-architecture.md` r8 § 4 Contracts and Invariants
 item 1 offers two ways to fence the policy append and prefers the second, a
 definer fence *owned by `worker`*. Review round 1 established that option is
 unsafe: a function's owner can always `DROP` or `ALTER` it regardless of schema
@@ -134,7 +134,7 @@ _TYPE_SPACE_CLASS = (
 #: spelling that survives canonicalisation is plain ASCII, so it is either
 #: equal to a refused name or visibly different from one, and every admitted
 #: `tool.invoked` spelling lands inside `events_tool_invoked_idempotency_idx`,
-#: which is the dedup guarantee `worker-runtime.md` § The fence-detection
+#: which is the dedup guarantee `worker-runtime.md` § 3 Runtime Model
 #: window declares non-optional.
 #:
 #: Also enforced as a CHECK on `events.type` in revision 0001, so it holds on

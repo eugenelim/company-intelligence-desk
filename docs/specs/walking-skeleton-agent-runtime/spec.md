@@ -49,7 +49,7 @@ measurements and the browser stream.
 | Semantic role | Applicability | Destination | Owner | Expected evidence | Closeout condition |
 | --- | --- | --- | --- | --- | --- |
 | Current architecture | Applicable — the `STATUS: PLANNED` marker on `worker-runtime.md` describes what this spec builds | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` header | work-loop | Marker moved off `PLANNED` for what now exists | Status header matches the repository |
-| Decision rationale | Applicable — the r4 containment table omits a bypass this spec's criteria carry | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` § Authority containment | work-loop | The userinfo row added to the unsafe-prefix table | The criterion's referenced table is complete |
+| Decision rationale | Applicable — the r4 containment table omits a bypass this spec's criteria carry | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` § 4 Contracts and Invariants | work-loop | The userinfo row added to the unsafe-prefix table | The criterion's referenced table is complete |
 | Reusable learning | Applicable — this spec produces the evidence Phase 2 plans against | `spikes/README.md` | work-loop | A section stating what was established **and what was not** | Hypothesis checks reported separately from setup |
 | Interface compatibility | Not applicable — no interface surface; the API belongs to the foundation spec | — | — | — | — |
 | User-facing promise | Not applicable — nothing user-facing is deployed until Phase 2 | — | — | — | — |
@@ -59,7 +59,7 @@ measurements and the browser stream.
 ### Always do
 
 - Treat r7 and r4 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
-- Honour `worker-runtime.md` § The approval gate step 2 as binding: the content-addressed payload object is written before the fenced append that carries its hash, on every persist path.
+- Honour `worker-runtime.md` § 3 Runtime Model, the approval gate's step 2, as binding: the content-addressed payload object is written before the fenced append that carries its hash, on every persist path.
 - Construct the agent per step, never cached across steps, because a cached agent is a cached role version.
 - Record what a check does **not** establish alongside what it does.
 
@@ -102,7 +102,7 @@ accepted open gap rather than something these criteria close.
 ## Acceptance Criteria
 
 Obligations come from `runtime-architecture.md` § Rollout Phase 1 criteria 2
-and 6, and from `worker-runtime.md` § Rollout criteria 5, 6 and 8. Obligations
+and 6, and from `worker-runtime.md` § 10 Rollout, Migration, and Reversal criteria 5, 6 and 8. Obligations
 **beyond** those sources are tabled below, and the approval gate rules on each
 rather than inheriting it.
 
@@ -137,10 +137,10 @@ rather than inheriting it.
 
 **Containing an interpreted argument**
 
-- [ ] **AC-0213.** Every row of `worker-runtime.md` § Authority containment's unsafe-prefix table is refused, plus the userinfo case `https://www.sec.gov@attacker.example/`, which a prefix check admits while the parsed host is `attacker.example`. A row added to that table upstream is an amendment trigger for this criterion.
+- [ ] **AC-0213.** Every row of `worker-runtime.md` § 4 Contracts and Invariants' unsafe-prefix table is refused, plus the userinfo case `https://www.sec.gov@attacker.example/`, which a prefix check admits while the parsed host is `attacker.example`. A row added to that table upstream is an amendment trigger for this criterion.
 - [ ] **AC-0214.** The adapter observes the canonical value rather than the original string, asserted at the adapter rather than at the validator.
 - [ ] **AC-0215.** Declaring a domain-containment predicate whose argument is a public suffix is refused at authoring time, resolved against a public-suffix dataset rather than a hand-kept list.
-- [ ] **AC-0216.** For every canonicalisation rule `worker-runtime.md` § Authority containment names under "what the canonicaliser must do", the suite holds an input that the canonicaliser refuses and that is admitted when that one rule is disabled by patching the canonicaliser **in the test process**. Disabling one rule reds that rule's case and leaves the others passing. A rule added to that list upstream is an amendment trigger for this criterion.
+- [ ] **AC-0216.** For every canonicalisation rule `worker-runtime.md` § 4 Contracts and Invariants names under "what the canonicalizer must do", the suite holds an input that the canonicaliser refuses and that is admitted when that one rule is disabled by patching the canonicaliser **in the test process**. Disabling one rule reds that rule's case and leaves the others passing. A rule added to that list upstream is an amendment trigger for this criterion.
 - [ ] **AC-0217.** Declaring a prefix predicate on an argument whose domain type is `url`, `fs-path`, or `content-locator` is refused, and the same predicate on `opaque-string` is accepted.
 - [ ] **AC-0218.** A canonical in-ceiling `url` and an in-root `fs-path` are admitted against the same ceiling AC-0213 uses, and the tool body executes.
 
@@ -171,7 +171,7 @@ rather than inheriting it.
 
 ## Follow-ons
 
-- eugenelim: `workspace.toml` `[backlog].open` — **`may_exist`, the authoring-time containment gate** (`worker-runtime.md` change 8). Designed, not built. The charter holds the substrate single-author in operation until the governance gaps are *built*, and this is one of them; a single operator authors every role here, which is the condition that makes deferring it safe.
+- eugenelim: `workspace.toml` `[backlog].open` — **`may_exist`, the authoring-time containment gate** (`runtime-architecture.md` r8 § 4, the `may_exist` gate; `worker-runtime.md` r4 change 8). Designed, not built. The charter holds the substrate single-author in operation until the governance gaps are *built*, and this is one of them; a single operator authors every role here, which is the condition that makes deferring it safe.
 - eugenelim: `workspace.toml` `[backlog].open` — **`may_run`, the spawn-time containment gate.** Recording `role.ceiling ⊆ parent_role.ceiling` as an event at spawn needs a coordinator that spawns children, which this skeleton's single analysis step does not exercise. Named rather than absent.
 - eugenelim: `workspace.toml` `[backlog].open` — the credential broker commissioned by DR12, which is where per-integration credential scopes (change 9) are carried. Already tracked.
 - eugenelim: `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md` — the r8 consistency pass, named as outstanding in r7's own header.

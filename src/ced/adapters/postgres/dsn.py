@@ -33,7 +33,7 @@ def _local_url(user: str) -> str:
 ENV_VAR = "CED_DATABASE_URL"
 
 #: Per-role environment variables. A worker authenticates as two roles, per
-#: `worker-runtime.md` § Changes this design asks of r7 item 11, so "the
+#: `runtime-architecture.md` r8 § 4, Identity — two layers, so "the
 #: connection string" is not a single value for every process.
 ROLE_ENV_VARS = {
     "migration": ENV_VAR,

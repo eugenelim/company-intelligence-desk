@@ -90,7 +90,7 @@ Every criterion sits in exactly one group.
 ## Acceptance Criteria
 
 Obligations come from `runtime-architecture.md` § Rollout Phase 1 criterion 4
-and its three named exit criteria, and from `worker-runtime.md` § Rollout
+and its three named exit criteria, and from `worker-runtime.md` § 10 Rollout, Migration, and Reversal
 criteria 1, 2, 4 and 7. Obligations **beyond** those sources are tabled below,
 and the approval gate rules on each.
 
@@ -142,8 +142,8 @@ and the approval gate rules on each.
 
 ## Assumptions
 
-- Technical: p99 step duration is unknowable before real steps run, so `step_deadline` cannot be set before the measurement exists. The criterion is the measurement (source: `worker-runtime.md` § Open Questions).
-- Technical: whether cancellation aborts an in-flight Bedrock stream promptly is unverified, and measuring it is AC-0309 itself. `botocore` is synchronous, so asyncio cancellation may unwind the coroutine while the socket lives; the agent-runtime spec supplies the hard timeout that bounds the step regardless, under its own criterion for bounding a hung step (source: `worker-runtime.md` § Risks; `walking-skeleton-agent-runtime` § Bounding a hung step).
+- Technical: p99 step duration is unknowable before real steps run, so `step_deadline` cannot be set before the measurement exists. The criterion is the measurement (source: `worker-runtime.md` § 11 Open Questions).
+- Technical: whether cancellation aborts an in-flight Bedrock stream promptly is unverified, and measuring it is AC-0309 itself. `botocore` is synchronous, so asyncio cancellation may unwind the coroutine while the socket lives; the agent-runtime spec supplies the hard timeout that bounds the step regardless, under its own criterion for bounding a hung step (source: `worker-runtime.md` § 9 Decisions, Alternatives, and Risks; `walking-skeleton-agent-runtime` § Bounding a hung step).
 - Technical: measurements are taken on local containers, not on Fargate. The step is model-bound so p99 should mostly carry, but "mostly" is not measured, which is what AC-0314 records (source: user decision 2026-09-18).
 - Technical: a recorded Apple 10-Q fixture exists under `spikes/phase-0/fixtures/`, so AC-0312 needs no live SEC fetch — which matters because EDGAR returns 403 to this network (source: `spikes/README.md` § Spike 4).
 - Technical: spike 4 cost $0.022 and was **falsified as run**. A second falsification is an acceptable outcome of AC-0312 (source: `spikes/README.md` § Spike 4).
