@@ -9,7 +9,7 @@ mechanism (the event envelope), § Step execution (the lease columns) and
 § Run state machine (the state vocabulary).
 
 `agent_role`, `integration_registry` and `entitlements` are created here and
-populated by `walking-skeleton-agent-runtime`. An empty table that waits is
+populated by `walking-skeleton-role-compilation`. An empty table that waits is
 better than a schema split across two specs: a schema change discovered while
 building the agent runtime would be an amendment to a shipped spec.
 
@@ -161,7 +161,7 @@ def upgrade() -> None:
             -- The decidable fragment: closed enumerations, string prefixes,
             -- numeric ranges, set membership, as a conjunction of independent
             -- per-argument predicates. The compiler owns its shape;
-            -- walking-skeleton-agent-runtime owns the compiler.
+            -- walking-skeleton-role-compilation owns the compiler.
             ceiling      jsonb NOT NULL,
             pool_class   text,
             instructions text NOT NULL,
@@ -177,7 +177,7 @@ def upgrade() -> None:
             integration_name text PRIMARY KEY,
             -- Whether the integration's output is admitted directly or must
             -- cross the quarantine boundary. Settled as a construction, not a
-            -- label: walking-skeleton-agent-runtime owns the parser.
+            -- label: walking-skeleton-role-compilation owns the parser.
             trust_class      text NOT NULL,
             config           jsonb NOT NULL DEFAULT '{}'::jsonb,
             created_at       timestamptz NOT NULL DEFAULT now()

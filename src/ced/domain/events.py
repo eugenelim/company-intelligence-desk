@@ -51,7 +51,7 @@ TERMINAL_EVENT_TYPES: Final = frozenset({"run.completed", "run.failed", RUN_CANC
 TOOL_INVOKED: Final = "tool.invoked"
 
 #: The step-scoped **vocabulary** is deliberately not enumerated here or in the
-#: schema. `walking-skeleton-agent-runtime` adds the types its toolset emits,
+#: schema. `walking-skeleton-authority-containment` adds the types its toolset emits,
 #: and an enum frozen now would make each one a migration against a shipped
 #: spec. What the database enforces instead is the negative rule that matters:
 #: the worker path refuses the reserved type, and the run-lifecycle path

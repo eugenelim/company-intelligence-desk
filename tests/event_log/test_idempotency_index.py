@@ -1,7 +1,7 @@
 """AC-0006 — a duplicate derived idempotency key is refused by the index.
 
 The SQL-level half only. The *behavioural* half — a duplicate terminating the
-step — belongs to `walking-skeleton-agent-runtime`, which owns the toolset that
+step — belongs to `walking-skeleton-authority-containment`, which owns the toolset that
 appends. r7 change 2's disposition says so, and this suite stops at the index.
 """
 

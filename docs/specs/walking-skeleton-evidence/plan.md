@@ -40,7 +40,7 @@ a sentence written afterwards.
 
 - `runtime-architecture.md` r7 — ratified with its Known-at-ship gaps accepted **open**. The `5–15%` escalation figure is a calibration target, explicitly not a release gate, and this spec does not turn it into one.
 - `worker-runtime.md` r4 — see § DR dispositions below.
-- **Hard dependencies:** `walking-skeleton-foundation` (schema, append paths, pool, API) and `walking-skeleton-agent-runtime` (the compiled agent, the decision point, the provider call, persistence). This spec adds no schema and no agent.
+- **Hard dependencies:** `walking-skeleton-foundation` (schema, append paths, pool, API), `walking-skeleton-role-compilation` (the compiled agent and the quarantine boundary), `walking-skeleton-authority-containment` (the decision point) and `walking-skeleton-step-lifecycle` (the provider call, the step deadline, persistence). This spec adds no schema and no agent.
 - **Out of scope:** the AWS deployment, by the owner's decision of 2026-09-18; the assistant surface and `legible-refusal-and-readiness`, both Draft and unauthorised.
 
 ## DR dispositions

@@ -35,7 +35,8 @@ points — `ced-api` and `ced-worker`.
 **What is designed and not built.** The agent layer (`src/ced/agents/` is
 empty), the authorization and quarantine boundaries, the provider call, the run
 state machine's transitions, the browser stream, and the Phase 1 measurements.
-Those belong to `walking-skeleton-agent-runtime` and
+Those belong to `walking-skeleton-role-compilation`,
+`walking-skeleton-authority-containment`, `walking-skeleton-step-lifecycle` and
 `walking-skeleton-evidence`. The two design subtrees keep their
 `STATUS: PLANNED` markers because what they specify is still mostly unbuilt;
 [`spikes/README.md`](../../spikes/README.md) § Phase 1 records exactly which of

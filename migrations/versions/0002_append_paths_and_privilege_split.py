@@ -128,7 +128,7 @@ _TYPE_SPACE_CLASS = (
 #:
 #: This is *not* the step-scoped vocabulary enumeration T4 declined
 #: (`src/ced/domain/events.py`): it constrains the character set, not the set of
-#: names, so `walking-skeleton-agent-runtime` adds whatever `foo.bar` types its
+#: names, so `walking-skeleton-authority-containment` adds whatever `foo.bar` types its
 #: toolset emits without touching a migration. What it buys is that the
 #: negative reserved-name rule becomes exhaustive *by construction* — every
 #: spelling that survives canonicalisation is plain ASCII, so it is either

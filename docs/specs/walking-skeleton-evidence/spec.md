@@ -20,7 +20,7 @@
 
 ## Objective
 
-The last of three specs delivering the Phase 1 walking skeleton, and the one
+The last of five specs delivering the Phase 1 walking skeleton, and the one
 that turns a working system into recorded evidence.
 
 A run moves through its state machine and publishes without a human touching
@@ -40,9 +40,10 @@ Success is that Phase 1's exit criteria are met and that the record says
 plainly what was established, what was substituted, and what was not
 established at all.
 
-**Its siblings.** `walking-skeleton-foundation` and
-`walking-skeleton-agent-runtime` are both hard dependencies: this spec measures
-a system they build.
+**Its siblings.** `walking-skeleton-foundation`,
+`walking-skeleton-role-compilation`, `walking-skeleton-authority-containment`
+and `walking-skeleton-step-lifecycle` are all hard dependencies: this spec
+measures a system they build.
 
 ## Durable Outputs
 
@@ -50,7 +51,7 @@ a system they build.
 | --- | --- | --- | --- | --- | --- |
 | Operations | Applicable — `step_deadline`, the page threshold and the token budget are operator-owned and derive from measurements taken here | `docs/architecture/pydantic-ai-worker-runtime/operations.md` | work-loop | Each recorded value with the sample size behind it and the platform it was measured on | Values satisfy the ordering invariant and cite their sample size |
 | Reusable learning | Applicable — Phase 1's whole purpose is the evidence Phase 2 plans against | `spikes/README.md` | work-loop | A Phase 1 section stating what was established, what was substituted, and what was not | Hypothesis checks reported separately from setup and teardown |
-| Current architecture | Applicable — r7 carries an outstanding r8 consistency pass and a `STATUS: PLANNED` marker | `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md`, `docs/architecture/README.md` | work-loop | Markers moved off `PLANNED` for what now exists | Status headers match the repository |
+| Current architecture | Applicable — r7 carries an outstanding r8 consistency pass and a `STATUS: PLANNED` marker, and r4 carries one too. r4's header conditions its move on the Phase 1 exit criteria no longer being owed, and four of the eight it adds are this spec's, so this is the first spec that can move it honestly | `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md`, `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md`, `docs/architecture/README.md` | work-loop | Markers moved off `PLANNED` for what now exists, with what remains unbuilt named in the same edit | Status headers match the repository, and each one names what the document still specifies that nobody has built |
 | Interface compatibility | Applicable — the stream's reconnect semantics extend the contract the foundation spec created | `contracts/openapi/runs.yaml` | work-loop | The `Last-Event-ID` behaviour documented in the contract and asserted by test | Contract and implementation agree under test |
 | User-facing promise | Not applicable — the browser client here is a test harness, not a product surface; the real experience belongs to the experience companion | — | — | — | — |
 
@@ -143,7 +144,7 @@ and the approval gate rules on each.
 ## Assumptions
 
 - Technical: p99 step duration is unknowable before real steps run, so `step_deadline` cannot be set before the measurement exists. The criterion is the measurement (source: `worker-runtime.md` § 11 Open Questions).
-- Technical: whether cancellation aborts an in-flight Bedrock stream promptly is unverified, and measuring it is AC-0309 itself. `botocore` is synchronous, so asyncio cancellation may unwind the coroutine while the socket lives; the agent-runtime spec supplies the hard timeout that bounds the step regardless, under its own criterion for bounding a hung step (source: `worker-runtime.md` § 9 Decisions, Alternatives, and Risks; `walking-skeleton-agent-runtime` § Bounding a hung step).
+- Technical: whether cancellation aborts an in-flight Bedrock stream promptly is unverified, and measuring it is AC-0309 itself. `botocore` is synchronous, so asyncio cancellation may unwind the coroutine while the socket lives; `walking-skeleton-step-lifecycle` supplies the hard timeout that bounds the step regardless, under its own criterion for bounding a hung step (source: `worker-runtime.md` § 9 Decisions, Alternatives, and Risks; `walking-skeleton-step-lifecycle` § Bounding a hung step).
 - Technical: measurements are taken on local containers, not on Fargate. The step is model-bound so p99 should mostly carry, but "mostly" is not measured, which is what AC-0314 records (source: user decision 2026-09-18).
 - Technical: a recorded Apple 10-Q fixture exists under `spikes/phase-0/fixtures/`, so AC-0312 needs no live SEC fetch — which matters because EDGAR returns 403 to this network (source: `spikes/README.md` § Spike 4).
 - Technical: spike 4 cost $0.022 and was **falsified as run**. A second falsification is an acceptable outcome of AC-0312 (source: `spikes/README.md` § Spike 4).

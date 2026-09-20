@@ -57,7 +57,7 @@ services:
   # stated reason the service exists; review round 1 caught it.
   #
   # It is here so the substrate the sibling specs need is already standing when
-  # `walking-skeleton-agent-runtime` writes the first payload object. Until
+  # `walking-skeleton-step-lifecycle` writes the first payload object. Until
   # then it is unused, which is recorded rather than hidden.
   minio:
     # quay.io, not Docker Hub: `docker pull minio/minio` returns "repository
