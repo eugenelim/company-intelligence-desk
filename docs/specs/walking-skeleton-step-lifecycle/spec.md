@@ -3,9 +3,9 @@
 - **Status:** Draft <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
-- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
+- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
 - **Brief:** none
-- **Descends from:** `runtime-architecture.md` § Rollout Phase 1
+- **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
 - **Contract:** none — this spec exposes no interface surface; it is reached through the foundation spec's API and the evidence spec's state machine
 - **Shape:** service
@@ -54,9 +54,9 @@ three to produce the Phase 1 measurements and the browser stream.
 | Semantic role | Applicability | Destination | Owner | Expected evidence | Closeout condition |
 | --- | --- | --- | --- | --- | --- |
 | Current architecture | Applicable — `docs/architecture/README.md` § What is built is the current map and this spec changes it | `docs/architecture/README.md` § What is built | work-loop | The model seam, the approval gate and persistence moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
-| Current architecture — the `worker-runtime.md` marker | Not applicable — that header states the condition for its own move, and `walking-skeleton-evidence` is the spec that clears it | — | — | — | — |
+| Current architecture — the `worker-runtime.md` marker | Applicable — r5's STATUS header names the provider call as unbuilt, and this spec builds it | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` header | work-loop | The provider call moved from unbuilt to built; with all three clauses cleared, whether `STATUS: PLANNED` itself still holds is decided in the same edit | The header's built and unbuilt lists match the repository |
 | Reusable learning | Applicable — this spec produces the provider and persistence evidence Phase 2 plans against | `spikes/README.md` | work-loop | A section stating what was established **and what was not**, including what the local credential scan does not demonstrate about a deployed fleet | Hypothesis checks reported separately from setup |
-| Decision rationale | Not applicable — no ratified decision changes here; the r4 unsafe-prefix table amendment belongs to `walking-skeleton-authority-containment` | — | — | — | — |
+| Decision rationale | Not applicable — no ratified decision changes here; the r5 unsafe-prefix table amendment belongs to `walking-skeleton-authority-containment` | — | — | — | — |
 | Interface compatibility | Not applicable — no interface surface; the API belongs to the foundation spec | — | — | — | — |
 | User-facing promise | Not applicable — nothing user-facing is deployed until Phase 2 | — | — | — | — |
 
@@ -64,13 +64,13 @@ three to produce the Phase 1 measurements and the browser stream.
 
 ### Always do
 
-- Treat r7 and r4 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
-- Honour `worker-runtime.md` § The approval gate step 2 as binding: the content-addressed payload object is written before the fenced append that carries its hash, on every persist path.
+- Treat r8 and r5 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
+- Honour `worker-runtime.md` § 3 Runtime Model, the approval gate's step 2 as binding: the content-addressed payload object is written before the fenced append that carries its hash, on every persist path.
 - Record what a check does **not** establish alongside what it does.
 
 ### Ask first
 
-- Any change to a ratified decision. The plan gives every DR decision and every change asked of r7 that this spec constructs a disposition, so this boundary is enforceable rather than aspirational.
+- Any change to a ratified decision. The plan gives every DR decision this spec constructs a disposition, so this boundary is enforceable rather than aspirational.
 - Adding a dependency beyond those in the plan's § Dependencies & integration.
 - Any spend above the Phase 0 order of magnitude. Phase 0 cost about $0.05 in total; a task that would cost more than $5 stops and asks.
 - Relaxing a criterion because it is expensive to demonstrate.
@@ -86,7 +86,7 @@ three to produce the Phase 1 measurements and the browser stream.
 
 Every criterion sits in exactly one group.
 
-- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237)** — the persistence and deadline criteria, because each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
+- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237, AC-0241, AC-0244)** — the persistence and deadline criteria, because each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
 - **Goal-based check (AC-0224, AC-0225)** — a scan of the running container for a long-lived credential, and the producer tuple read back off the run header. A one-liner is the verdict.
 - **End-to-end (AC-0223)** — the one criterion that calls a real provider, and the only reason the Phase 1 runtime needs a cloud credential at all.
 
@@ -102,23 +102,25 @@ and that stronger property is not what this criterion demonstrates.
 
 ## Acceptance Criteria
 
-Obligations come from `runtime-architecture.md` § Rollout Phase 1 criterion 2 —
+Obligations come from `runtime-architecture.md` § 10 Rollout, Phase 1 criterion 2 —
 "execute one step against a real provider via workload identity" — and from
-`worker-runtime.md` § Rollout criterion 6, the byte-identical round trip over a
+`worker-runtime.md` § 10 Rollout criterion 6, the byte-identical round trip over a
 realistic history. Those two sources cover AC-0223, AC-0224 and AC-0226.
 Obligations **beyond** them are tabled below, and the approval gate rules on
 each rather than inheriting it.
 
 | Obligation | Criteria | Why it is here | If cut |
 | --- | --- | --- | --- |
-| Record the producer tuple | AC-0225 | Inspectability is r7's first-ranked quality attribute, and a recorded run whose producer is unknown cannot be re-derived or compared across a version bump. No § Rollout criterion asks for it | Phase 1's measurements cannot be attributed to the stack that produced them |
-| Release the lease on suspension | AC-0237 | r4 § The approval gate step 3 makes lease release how a *different* worker resumes, which is exactly what AC-0227 then relies on. No § Rollout criterion asks for it, and AC-0232 covers only a hung step's release under `step_deadline` — a different path with a different trigger | A suspended step holds its lease until expiry, AC-0227's separate-process resume passes only because the test arranges it, and the approval gate stalls a worker for the whole TTL |
-| Resume across a process boundary | AC-0227 | r4 criterion 6 asks only that the bytes round-trip. Bytes that round-trip and cannot be resumed satisfy it while the approval gate stays unusable | The persistence format is proved correct and never proved sufficient |
+| Record the producer tuple | AC-0225 | Inspectability is r8's first-ranked quality attribute, and a recorded run whose producer is unknown cannot be re-derived or compared across a version bump. No § Rollout criterion asks for it | Phase 1's measurements cannot be attributed to the stack that produced them |
+| Release the lease on suspension | AC-0237 | r5 § 3 Runtime Model, the approval gate step 3 makes lease release how a *different* worker resumes, which is exactly what AC-0227 then relies on. No § Rollout criterion asks for it, and AC-0232 covers only a hung step's release under `step_deadline` — a different path with a different trigger | A suspended step holds its lease until expiry, AC-0227's separate-process resume passes only because the test arranges it, and the approval gate stalls a worker for the whole TTL |
+| Authorize a resumed step against a named role version | AC-0241 | AC-0229 covers the instruction text a resumed step is prompted with and says nothing about the ceiling, which its own rationale calls the load-bearing part — the role compilation is where the ceiling's sibling text lives. A resumed step whose ceiling comes from the bytes is authorized by whatever the suspended history carried | A role narrowed while a step waits for approval has no effect on that step, and the ceiling travels in attacker-adjacent persisted state |
+| Bound the reject-and-resume loop | AC-0244 | r5 § 3 Runtime Model, the approval gate returns the approver's reason as the deferred tool result and the agent revises. r5 names that shape two sections earlier as the negotiation the design forbids, with the cycle cap as its sole bound. DR5 defers the cap's *calibration* to the evidence spec, which defers the criterion, so the cap has no acceptance criterion anywhere | The cap ships absent, every gate is green, and each cycle costs a model call and a human interruption |
+| Resume across a process boundary | AC-0227 | r5 criterion 6 asks only that the bytes round-trip. Bytes that round-trip and cannot be resumed satisfy it while the approval gate stays unusable | The persistence format is proved correct and never proved sufficient |
 | Keep reasoning out of storage | AC-0228 | DR8's primary control is the compile-time thinking refusal, `walking-skeleton-role-compilation`'s AC-0204. This is the backstop that does not depend on that setting staying put | One settings regression silently puts reasoning traces in the durable record |
 | Prompt from the current compilation | AC-0229 | A resumed history carries the instruction text it was suspended with. The role compilation is where the ceiling's sibling text lives, so this is a security property rather than an ergonomic one | A resumed step is prompted by a role version that is no longer the authority |
-| Survive a crash between the two writes | AC-0230 | r4 § The approval gate step 2 fixes the write order; nothing asserts what a crash in the gap leaves behind | The ordering ships as prose and the failure it prevents is never observed |
-| Scope-qualify every payload key | AC-0231 | r7 change 5, a one-way door taken before the corpus exists | A bare content hash becomes the key and the door closes the wrong way |
-| Bound a hung step behaviourally | AC-0232 | r4 § Goals: "no step is *reported* running past `step_deadline`" | The delivery measures how bad a hung step is without ever bounding one |
+| Survive a crash between the two writes | AC-0230 | r5 § 3 Runtime Model, the approval gate step 2 fixes the write order; nothing asserts what a crash in the gap leaves behind | The ordering ships as prose and the failure it prevents is never observed |
+| Scope-qualify every payload key | AC-0231 | the scope-qualified object keys amendment, a one-way door taken before the corpus exists | A bare content hash becomes the key and the door closes the wrong way |
+| Bound a hung step behaviourally | AC-0232 | r5 § 1 Scope and Context, Goals: "no step is *reported* running past `step_deadline`" | The delivery measures how bad a hung step is without ever bounding one |
 
 **Calling a real provider**
 
@@ -130,6 +132,8 @@ each rather than inheriting it.
 
 - [ ] **AC-0226.** A message history containing a tool call, a tool return, a retry part, and a pending approval serialises, deserialises, and re-serialises to identical bytes.
 - [ ] **AC-0237.** A step suspended on `request_approval()` releases its lease, so the row is claimable by another worker without waiting for the lease to expire.
+- [ ] **AC-0241.** A resumed step's tool calls are authorized against the ceiling of the role version the step was suspended under, not against any ceiling carried in the persisted bytes.
+- [ ] **AC-0244.** A step that exceeds the configured number of reject-and-resume cycles fails with a recorded cause, observable in the run's event log.
 - [ ] **AC-0227.** A fresh agent in a separate process, sharing nothing with the original run but those bytes, resumes the suspended step and applies the approval decision.
 - [ ] **AC-0228.** No persisted message history contains a reasoning part, demonstrated against a history that carried one before persisting.
 - [ ] **AC-0229.** A step resumed from a history that carries stale instruction text is prompted by the current role compilation, and the stale text does not reach the model.
@@ -141,6 +145,17 @@ each rather than inheriting it.
 - [ ] **AC-0232.** A step whose model call hangs is failed and its lease released within `step_deadline`, whether or not the underlying provider call terminated.
 
 ## Follow-ons
+
+Every item below is a criterion-wording defect a spec-stage shaping or security
+review found in text this spec carries unchanged from the deleted
+`walking-skeleton-agent-runtime`. They were left unreworded by owner decision of
+2026-09-20, so the carry-across stays auditable against the parent; each needs an
+amendment rather than an in-place correction.
+
+- eugenelim: `workspace.toml` `[backlog].open` — **AC-0224's third clause is not decidable by its named observation.** "No credential that outlives the assumed-role session" is temporal and a one-moment container scan cannot falsify it; "no credentials file baked into the image" cannot be decided by scanning the running filesystem, because a secret added in one layer and removed in a later one is still recoverable. That half is scanner-owned and no image or secret scanner is wired in this repository.
+- eugenelim: `workspace.toml` `[backlog].open` — **AC-0223 has no oracle distinguishing a scoped role from an administrator.** A run under an over-broad role is byte-identical in the event log. Spike 7 H1 already observed the negative, so the fix is one extra call: a model id outside the role's policy denied under the same credentials.
+- eugenelim: `workspace.toml` `[backlog].open` — **AC-0232 states a bound with no reference point.** "Within `step_deadline`" does not say whether the interval runs from lease acquisition, step start or the model call, and the three give different verdicts on the same run.
+- eugenelim: `workspace.toml` `[backlog].open` — **AC-0229 and r5 § 3 Runtime Model disagree on which role version governs a resumed step.** The criterion says the current compilation; r5 says the same role version. AC-0241 pins the ceiling to the suspended version; the instruction-text half is left as the parent wrote it and the tension needs the owner's ruling.
 
 - eugenelim: `workspace.toml` `[backlog].open` — the credential broker commissioned by DR12, which is where per-integration credential scopes (`worker-runtime.md` change 9) are carried. Already tracked.
 
@@ -155,4 +170,4 @@ each rather than inheriting it.
 - Process: this spec is one of three cut from `walking-skeleton-agent-runtime`, whose directory was deleted on 2026-09-20. AC-0223 through AC-0232 carry across with their wording unchanged (source: user decision 2026-09-20).
 - Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
 - Product: the skeleton carries one analysis step over the recorded fixture rather than a live corpus — the thinnest construction that exercises every criterion (source: assumption stated 2026-09-18, to be confirmed at the approval gate).
-- Governance: r7 and r4 are ratified as of 2026-09-18, r7 with its Known-at-ship gaps accepted open, and the DR decisions settled (source: both documents' Sign-off and Status headers).
+- Governance: r8 and r5 are ratified as of 2026-09-18, r8 with its five accepted limits in § 9 open, and the DR decisions settled (source: both documents' Sign-off and Status headers).

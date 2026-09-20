@@ -2,7 +2,7 @@
 
 - **Spec:** [`spec.md`](spec.md)
 - **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
-- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4 §§ The toolset stack and Authority containment. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection, no failed-append path — so it is precedent for the *seam*, not for the mechanism AC-0211 asserts.
+- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 §§ The toolset stack and Authority containment. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection, no failed-append path — so it is precedent for the *seam*, not for the mechanism AC-0211 asserts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
 > only while Status is `Drafting`. After approval, spec and plan are pinned in
@@ -40,8 +40,8 @@ asserts the type and that it is not the retry type nor a subclass of it.
 ## Constraints
 
 - [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) — `WrapperToolset.call_tool` as the decision point. ADR-0002 pins 2.45.0.
-- `runtime-architecture.md` r7 — ratified with its Known-at-ship gaps accepted **open**.
-- `worker-runtime.md` r4 — see § DR dispositions and § Changes asked of r7 below.
+- `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**.
+- `worker-runtime.md` r5 — see § DR dispositions and § Amendments the worker runtime asked of its parent below.
 - **Hard dependency:** `walking-skeleton-role-compilation` ships the compiler, the four-layer stack and the fail-closed default. Its AC-0234 must stay green across this work; its AC-0233 is scoped to the no-predicate configuration and AC-0235 replaces it here.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
 - **Out of scope:** the compiler and the quarantine boundary, owned by `walking-skeleton-role-compilation`, which precedes this spec; the provider call, suspension and persistence, owned by `walking-skeleton-step-lifecycle`, which follows it; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
@@ -58,16 +58,15 @@ restates another's rows.
 | --- | --- | --- |
 | DR2 | Two database roles, one process | **Consumed here** — the decision point appends through the `policy-writer` identity the foundation spec created. The decision itself is the foundation's, asserted there against real roles |
 
-## Changes asked of r7
+## Amendments the worker runtime asked of its parent
 
-**This table lists only the changes this spec constructs.** A change absent from
-it is not this spec's, and no plan restates another's rows.
+r5 § 10 Rollout records that every amendment this subsystem required is now
+folded into `runtime-architecture.md` r8 and is no longer asked for from here,
+so there is nothing left for a spec to disposition. r5 names three as
+load-bearing for its § 4 invariants: the fenced policy append, the narrowed
+decidable fragment, and scope-qualified object keys.
 
-| # | Change | Disposition |
-| --- | --- | --- |
-| 7 | The decidable fragment is narrowed | **Lands**, T1 — AC-0217 reds if prefix stays expressible on an interpreted type |
-| 2 | The behavioural half — a duplicate terminating the step | **Lands**, T2, AC-0212. The schema half is the foundation's |
-| 8 | `may_exist`, the authoring-time containment gate | **Deferred** with an owner, recorded in the spec's Follow-ons |
+**Two of the three are this spec's.** The fenced policy append is the ordering T2 preserves, asserted by AC-0209, AC-0211 and AC-0239. The narrowed decidable fragment is T1's, asserted by AC-0217, which reds if prefix stays expressible on an interpreted type.
 
 ## Grounding
 
@@ -80,7 +79,7 @@ a version bump reds there rather than in this spec's authorization suite.
 
 ### Containment probe
 
-A probe run on 2026-09-18 tested the containment bypasses. Both rows of the r4
+A probe run on 2026-09-18 tested the containment bypasses. Both rows of the r5
 table behave as documented. Three things followed:
 
 - A **third bypass** the table omits: `https://www.sec.gov@attacker.example/`, whose userinfo makes a prefix check read the wrong host. The ratified rule handles it because predicates range over parsed components, so this hardens the case set rather than holing the design.
@@ -102,7 +101,8 @@ both seams — and a throwaway script is not that.
 
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
-| Decision rationale — the r4 unsafe-prefix table | T1 | The userinfo row added upstream | The table AC-0213 references is complete |
+| Decision rationale — the r5 unsafe-prefix table | T1 | The userinfo row added upstream | The table AC-0213 references is complete |
+| Current architecture — the `worker-runtime.md` marker | T4 | This spec's clause moved from unbuilt to built | The header's built and unbuilt lists match the repository |
 | Current architecture — `docs/architecture/README.md` § What is built | T3 | The containment fragment and the decision point moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
 | Reusable learning — `spikes/README.md` | T3 | A section stating what was and was not established | Hypothesis checks separated from setup |
 
@@ -166,7 +166,7 @@ External: none. No task here reaches a provider.
 **Touches:** src/**/domain/containment/**, tests/containment/**
 
 **Tests:**
-- AC-0213 uses the r4 table rows verbatim, because they are the documented bypasses and a paraphrase tests a different string, plus the userinfo row the probe found.
+- AC-0213 uses the r5 table rows verbatim, because they are the documented bypasses and a paraphrase tests a different string, plus the userinfo row the probe found.
 - AC-0214 asserts at the *adapter* that the value received is canonical. Asserting at the validator would pass while the adapter re-parses the original, which is the differential the rule exists to close.
 - AC-0216 patches one canonicaliser rule at a time in the test process and asserts that rule's case reds while the others stay green. Both halves matter: a patch that reds everything shows the rule set is entangled, not that the rule is load-bearing.
 - AC-0215 refuses a public-suffix argument at authoring time, resolved against the bundled dataset rather than a hand-kept list, so a newly delegated suffix does not silently become authorable.
@@ -176,7 +176,7 @@ External: none. No task here reaches a provider.
 
 **Approach:**
 - Domain types are `opaque-string`, `url`, `fs-path`, `content-locator`, `enum`, `number`, `date`. The canonicaliser decodes before dot-segment removal, which the probe confirmed is load-bearing and order-dependent.
-- File the userinfo row back to the r4 table as an amendment, so the table AC-0213 references stops being incomplete.
+- File the userinfo row back to the r5 table as an amendment, so the table AC-0213 references stops being incomplete.
 
 **Done when:** AC-0213 through AC-0218 are green and the property test passes over its generated space.
 
@@ -192,6 +192,9 @@ External: none. No task here reaches a provider.
 - AC-0210 uses a call inside the role ceiling and outside the initiating user's entitlements, which is the conjunct no ceiling-only test reaches.
 - AC-0211 forces the decision append to fail on its own connection and asserts the tool body did not run, using a spy the body increments. The spy is what makes "did not run" observable rather than inferred.
 - AC-0212 drives two invocations deriving the same key and asserts the body ran once and the step terminated duplicate-detected.
+- AC-0239 runs a decision point whose lease was taken by another worker and asserts all three outcomes: refusal, no committed decision, unmoved spy. The fence is the foundation's and correct; what this observes is that the caller passes the epoch it holds rather than re-reading the current one.
+- AC-0243 is AC-0211's admit-path twin and must be written as its own case: same forced append failure, but on a call the predicate admits, so the spy would move but for the ordering.
+- AC-0240 is an authoring-time refusal in T1's surface, verified with AC-0215 and AC-0217, and listed here because the criterion it guards against is a runtime one.
 - AC-0236 injects a fault inside the predicate itself, so the error path is exercised rather than a malformed argument that the predicate handles normally. It asserts all three outcomes together — refusal, the committed denial, the unmoved spy — because an error path that denies without recording is the failure this criterion exists to catch.
 - AC-0235 drives a call to a tool the acting role has no ceiling entry for, with the real predicate installed and the same spy AC-0211 uses. It is the only check here that a lookup finding nothing denies: AC-0207 needs an entry to fall outside of, and `walking-skeleton-role-compilation`'s AC-0233 was scoped to a configuration this task removes.
 - `walking-skeleton-role-compilation` AC-0234 runs unchanged in this task's suite. It asserts a refusal is not the retry type, in every configuration; AC-0208 asserts which domain type it is. The two texts no longer overlap, so neither restates the other.
@@ -200,20 +203,20 @@ External: none. No task here reaches a provider.
 **Approach:**
 - The decision point appends through the `policy-writer` identity on a second connection, taking the `steps` fence first so the ordering the foundation spec proved is preserved rather than extended.
 
-**Done when:** AC-0207 through AC-0212, AC-0235 and AC-0236 are green; `walking-skeleton-role-compilation` AC-0234 is still green; and that spec's AC-0233 suite is removed in this task, because the no-predicate configuration it enumerates no longer ships.
+**Done when:** AC-0207 through AC-0212, AC-0235, AC-0236, AC-0239, AC-0240 and AC-0243 are green; `walking-skeleton-role-compilation` AC-0234 is still green; and that spec's AC-0233 suite is removed in this task, because the no-predicate configuration it enumerates no longer ships.
 
 ### T3: The record says what this spec established and what it did not
 
 **Depends on:** T2
 
-**Touches:** spikes/README.md, docs/architecture/README.md
+**Touches:** spikes/README.md, docs/architecture/README.md, docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md
 
 **Tests:**
 - `python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green.
 
 **Approach:**
 - State plainly that the containment criteria establish the fragment refuses the documented bypasses and the generated predicate space, and establish nothing about a bypass nobody has written down.
-- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. The `STATUS: PLANNED` marker on `worker-runtime.md` is not touched; its header states the condition for its own move and `walking-skeleton-evidence` owns it.
+- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. r5's STATUS header lists the authorization boundary as unbuilt. Move that clause only.
 
 **Done when:** the status lint is green and the record separates what was established from what was not.
 

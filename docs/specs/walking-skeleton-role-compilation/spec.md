@@ -3,9 +3,9 @@
 - **Status:** Draft <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
-- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r7, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
+- **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
 - **Brief:** none
-- **Descends from:** `runtime-architecture.md` § Rollout Phase 1
+- **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
 - **Contract:** none — this spec exposes no interface surface; it is reached through the foundation spec's API and the evidence spec's state machine
 - **Shape:** service
@@ -56,9 +56,9 @@ three to produce the Phase 1 measurements and the browser stream.
 | Semantic role | Applicability | Destination | Owner | Expected evidence | Closeout condition |
 | --- | --- | --- | --- | --- | --- |
 | Current architecture | Applicable — `docs/architecture/README.md` § What is built is the current map and this spec changes it | `docs/architecture/README.md` § What is built | work-loop | The compiler, the toolset stack and the quarantined agent moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
-| Current architecture — the `worker-runtime.md` marker | Not applicable — that header states the condition for its own move, and `walking-skeleton-evidence` is the spec that clears it | — | — | — | — |
+| Current architecture — the `worker-runtime.md` marker | Applicable — r5's STATUS header names three things as unbuilt: the agent layer, the authorization boundary and the provider call. This spec builds the first | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` header | work-loop | The agent layer moved from unbuilt to built, the other two clauses untouched | The header's built and unbuilt lists match the repository |
 | Reusable learning | Applicable — this spec produces the compiler and quarantine evidence Phase 2 plans against | `spikes/README.md` | work-loop | A section stating what was established **and what was not** | Hypothesis checks reported separately from setup |
-| Decision rationale | Not applicable — no ratified decision changes here; the r4 unsafe-prefix table amendment belongs to `walking-skeleton-authority-containment` | — | — | — | — |
+| Decision rationale | Not applicable — no ratified decision changes here; the r5 unsafe-prefix table amendment belongs to `walking-skeleton-authority-containment` | — | — | — | — |
 | Interface compatibility | Not applicable — no interface surface; the API belongs to the foundation spec | — | — | — | — |
 | User-facing promise | Not applicable — nothing user-facing is deployed until Phase 2 | — | — | — | — |
 
@@ -66,7 +66,7 @@ three to produce the Phase 1 measurements and the browser stream.
 
 ### Always do
 
-- Treat r7 and r4 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
+- Treat r8 and r5 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
 - Construct the agent per step, never cached across steps, because a cached agent is a cached role version.
 - Record what a check does **not** establish alongside what it does.
 
@@ -101,31 +101,31 @@ AC-0218.
 
 **A note on what the suite cannot see.** The quarantine criteria assert that
 free text does not cross a boundary this system builds. They do not establish
-that the boundary resists an adversary — r7 records that no structural defence
+that the boundary resists an adversary — r8 records that no structural defence
 has been tested under an unlimited adaptive budget, and that remains an
 accepted open gap rather than something these criteria close.
 
 ## Acceptance Criteria
 
 **No § Rollout criterion in either ratified document asks for anything in this
-spec.** `runtime-architecture.md` § Rollout Phase 1's six clauses are a run, a
+spec.** `runtime-architecture.md` § 10 Rollout, Phase 1's six clauses are a run, a
 provider step, an event append, a browser stream, worker reacquisition and an
 unauthorised-call refusal; the last is `walking-skeleton-authority-containment`'s
 AC-0207 and the second is `walking-skeleton-step-lifecycle`'s AC-0223.
-`worker-runtime.md` § Rollout's added criteria 5, 6 and 8 belong to those two
+`worker-runtime.md` § 10 Rollout's added criteria 5, 6 and 8 belong to those two
 specs as well. Every criterion here is therefore **beyond source**, and the
 approval gate rules on each rather than inheriting it.
 
 | Obligation | Criteria | Why it is here | If cut |
 | --- | --- | --- | --- |
-| Keep every tool inside the wrapped stack | AC-0201 | r4 § An agent role compiles to an Agent makes the single-toolset shape the precondition for every later guarantee. A tool reachable beside the stack has no ceiling entry to violate, so no behavioural test anywhere can catch it | The authorization boundary is complete on paper and bypassable in one line |
-| Assert the stack's composition | AC-0202 | ADR-0001 D3 and r4 § The toolset stack make the policy decision point's position a security property, and reachability (AC-0201) is a different defect from ordering | A correctly-enclosed stack can still put the decision point too deep to see an unauthorised call |
-| Enforce the compile-time role guards | AC-0203, AC-0204, AC-0205, AC-0206 | DR13, DR8, DR9 and R5 each specify a compile-time refusal. r4 calls the DR9 one the control that stops a framework-conducted retry loop over attacker-authored filing text | Four settled decisions ship as prose with nothing asserting them |
+| Keep every tool inside the wrapped stack | AC-0201 | r5 § 2 Structural Model, an agent role compiles to an agent makes the single-toolset shape the precondition for every later guarantee. A tool reachable beside the stack has no ceiling entry to violate, so no behavioural test anywhere can catch it | The authorization boundary is complete on paper and bypassable in one line |
+| Assert the stack's composition | AC-0202 | ADR-0001 D3 and r5 § 2 Structural Model, the toolset stack make the policy decision point's position a security property, and reachability (AC-0201) is a different defect from ordering | A correctly-enclosed stack can still put the decision point too deep to see an unauthorised call |
+| Enforce the compile-time role guards | AC-0203, AC-0204, AC-0205, AC-0206 | DR13, DR8, DR9 and R5 each specify a compile-time refusal. r5 calls the DR9 one the control that stops a framework-conducted retry loop over attacker-authored filing text | Four settled decisions ship as prose with nothing asserting them |
 | Fail closed for the interval | AC-0233 | This spec ships the decision point's position and `walking-skeleton-authority-containment` ships its predicate. AC-0233 covers the configuration in between, and is scoped to it: with the predicate installed the fall-through guard is that spec's AC-0235 and the error-path guard its AC-0236, both of which can be decided against a real lookup and this one cannot. **Retirement trigger:** that spec's T2 removes this criterion's suite in the same task that installs the predicate | An unguarded runtime looks finished and the gap is invisible in a passing build |
 | Keep a denial terminal from the start | AC-0234 | The exception type is asserted from the first refusal this repository raises, rather than from the first *real* refusal. `walking-skeleton-authority-containment`'s AC-0208 names the concrete domain type; this one is the permanent negative and holds throughout | The interval's refusal ships as a retryable hint, and the boundary is a negotiation before anything asserts otherwise |
 | Constrain the quarantined role at compile time | AC-0219 | DR13 makes `trust_class` a construction rather than a declaration, and the compiled agent is the fact while the role record is only the input. No § Rollout criterion asks for it. It is tabled apart from the three below because it is a compile-time property verified with them in the compiler task, not a runtime one | A role declared quarantined can still resolve an integration, and the construction is a declaration after all |
-| Verify the quarantine boundary holds | AC-0220, AC-0221, AC-0222 | This spec builds the quarantined role and the parser. r7 ranks this boundary second of four quality attributes and r4 § The quarantined agent says the parser is where the real guarantee lives. No § Rollout criterion asks for it, which is an omission in those lists rather than a decision | The delivery builds a security boundary and measures only what it costs, never that it holds |
-| Pin the pipeline-first construction | AC-0238 | r4 § The quarantined agent puts the real guarantee in minting before the agent runs — "forgery is unrepresentable rather than detected". AC-0221 asserts only that a non-minted reference fails, which is the detection backstop: an implementation that mints the set *from* the agent's output, or lets it grow mid-run, passes AC-0221 unchanged. The structural claim otherwise lives only in plan prose, which is working material | The guarantee the architecture ranks second of four is contract-free, and the weaker construction the plan names as the failure mode ships with a green suite |
+| Verify the quarantine boundary holds | AC-0220, AC-0221, AC-0222 | This spec builds the quarantined role and the parser. r8 ranks this boundary second of four quality attributes and r5 § 4 Contracts and Invariants says the parser is where the real guarantee lives. No § Rollout criterion asks for it, which is an omission in those lists rather than a decision | The delivery builds a security boundary and measures only what it costs, never that it holds |
+| Pin the pipeline-first construction | AC-0238 | r5 § 4 Contracts and Invariants puts the real guarantee in minting before the agent runs — "forgery is unrepresentable rather than detected". AC-0221 asserts only that a non-minted reference fails, which is the detection backstop: an implementation that mints the set *from* the agent's output, or lets it grow mid-run, passes AC-0221 unchanged. The structural claim otherwise lives only in plan prose, which is working material | The guarantee the architecture ranks second of four is contract-free, and the weaker construction the plan names as the failure mode ships with a green suite |
 | Keep rejected text out of the durable record | AC-0242 | The context package is not free text's only sink. A rejected result whose diagnostic carries the offending prose puts attacker-authored text into the event log, which the evidence spec streams to a browser and any later context assembler reads back | AC-0222 holds on the path it walks while the same text reaches a reader by another one |
 
 **Compiling a role**
@@ -162,7 +162,6 @@ amendment rather than an in-place correction.
 - eugenelim: `workspace.toml` `[backlog].open` — **AC-0202 is two predicates under one checkbox.** The chain-order property and the structural checker's rejection of a hand-built wrong chain have separate failure modes and separate remedies, and the second names an internal helper the plan exists to decide.
 - eugenelim: `workspace.toml` `[backlog].open` — **AC-0222 is universally quantified and proven on one path.** One quarantined step, one planning step, one fixture. The Testing Strategy caveats adaptive adversaries but not path coverage, so a reader takes a single-path result as universal.
 - eugenelim: `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md` § Defence in depth — **the cheap local checks have no owner after the split.** Tool-result protocol validation, structural anomaly detection on retrieved chunks and YARA patterns are specified as implemented directly; no Phase 1 spec claims them. Low urgency, since the Phase 1 corpus is a fixed fixture and no attacker controls chunk size.
-- eugenelim: `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md` — the r8 consistency pass, named as outstanding in r7's own header.
 
 ## Assumptions
 
@@ -173,4 +172,4 @@ amendment rather than an in-place correction.
 - Process: this spec is one of three cut from `walking-skeleton-agent-runtime`, whose directory was deleted on 2026-09-20 because a single contract carrying AC-0201 through AC-0232 was roughly two and a half times the size of either Phase 1 sibling. AC-0201 through AC-0206 and AC-0219 through AC-0222 carry across with their wording unchanged; AC-0233 and AC-0234 are new and exist only because the split separates the decision point's position from its predicate, as is `walking-skeleton-authority-containment`'s AC-0235 (source: user decision 2026-09-20; adversarial spec review rounds 1 and 2, 2026-09-20).
 - Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
 - Product: the skeleton carries one coordinator role, one quarantined role, and one analysis role with a single registered tool, over the recorded fixture rather than a live corpus — the thinnest agent set that exercises every criterion (source: assumption stated 2026-09-18, to be confirmed at the approval gate).
-- Governance: r7 and r4 are ratified as of 2026-09-18, r7 with its Known-at-ship gaps accepted open, and the DR decisions settled (source: both documents' Sign-off and Status headers).
+- Governance: r8 and r5 are ratified as of 2026-09-18, r8 with its five accepted limits in § 9 open, and the DR decisions settled (source: both documents' Sign-off and Status headers).

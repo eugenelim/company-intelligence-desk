@@ -2,7 +2,7 @@
 
 - **Spec:** [`spec.md`](spec.md)
 - **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
-- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4 §§ An agent role compiles to an Agent, The toolset stack, The quarantined agent, and the integration registry under § Responsibility decomposition. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection — so it is precedent for the *seam*, not for any persistence mechanism.
+- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 §§ An agent role compiles to an Agent, The toolset stack, The quarantined agent, and the integration registry under § Responsibility decomposition. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection — so it is precedent for the *seam*, not for any persistence mechanism.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
 > only while Status is `Drafting`. After approval, spec and plan are pinned in
@@ -52,8 +52,8 @@ write first and trust least.
 ## Constraints
 
 - [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) — the framework at step-level-reasoning-library position; `Model` as the portability contract; `WrapperToolset.call_tool` as the decision point. ADR-0002 pins 2.45.0.
-- `runtime-architecture.md` r7 — ratified with its Known-at-ship gaps accepted **open**. Gap 1 in particular narrows the quarantine guarantee's *scope*; it does not license leaving the guarantee unverified, which is why this spec adds criteria for it.
-- `worker-runtime.md` r4 — see § DR dispositions below.
+- `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**. The first of those limits in particular narrows the quarantine guarantee's *scope*; it does not license leaving the guarantee unverified, which is why this spec adds criteria for it.
+- `worker-runtime.md` r5 — see § DR dispositions below. The amendments it once asked of its parent are folded into r8; see § Amendments the worker runtime asked of its parent.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
 - **Out of scope:** the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`, which follows this spec; the provider call, suspension and persistence, owned by `walking-skeleton-step-lifecycle`, which follows that one; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
@@ -73,17 +73,15 @@ this one does not own, and three copies of it go wrong the next time one moves.
 | DR9 | Zero tool and output retries on the quarantined role | **Lands**, T2, AC-0205 |
 | DR13 | `trust_class` is a construction, not a declaration | **Lands** — AC-0203 is the compile-time refusal and AC-0219 the compiled-agent assertion in T2, AC-0220 the parser and AC-0221 the minting authority in T3 |
 
-## Changes asked of r7
+## Amendments the worker runtime asked of its parent
 
-**This table lists only the changes this spec constructs.** It constructs none:
-every change r4 asks of r7 lands in the foundation spec or in one of the two
-siblings. The row is kept rather than the section deleted, because an
-Ask-first boundary over ratified decisions needs a stated disposition to be
-enforceable, and "none, and here is where they went" is one.
+r5 § 10 Rollout records that every amendment this subsystem required is now
+folded into `runtime-architecture.md` r8 and is no longer asked for from here,
+so there is nothing left for a spec to disposition. r5 names three as
+load-bearing for its § 4 invariants: the fenced policy append, the narrowed
+decidable fragment, and scope-qualified object keys.
 
-| # | Change | Disposition |
-| --- | --- | --- |
-| 1–12 | All of them | **Not this spec's.** 1, 2 (schema half), 3, 4 and 11 are the foundation's; 2's behavioural half, 7 and 8 are `walking-skeleton-authority-containment`'s; 5, 9 and 10 are `walking-skeleton-step-lifecycle`'s; 6 and 12 are the evidence spec's and the out-of-scope AWS deployment's |
+**None of the three is this spec's.** The first two are `walking-skeleton-authority-containment`'s and the third is `walking-skeleton-step-lifecycle`'s.
 
 ## Grounding probe
 
@@ -97,20 +95,20 @@ specs cite it here rather than repeating rows.
 
 | Claim under test | Source of the claim | Result |
 | --- | --- | --- |
-| `Agent.run` accepts `cancellation_token` | r4 § The pool | present in signature |
+| `Agent.run` accepts `cancellation_token` | r5 § 2 Structural Model, the pool | present in signature |
 | `UsageLimits` has `cost_limit`, `count_tokens_before_request`, `request_limit`, `tool_calls_limit` | DR6 | all present |
 | Tool and output retries budget separately, both zeroable | DR9 | the retry type carries exactly those two budgets |
 | `ModelSettings.thinking` exists; a reasoning part is the thing to strip | DR8 | both present |
 | `WrapperToolset.call_tool` is an overridable seam | ADR-0001 D3 | `(self, name, tool_args, ctx, tool)` |
-| `DeferredToolRequests` carries `calls` as well as `approvals` | r4 GAP 2 | both present |
+| `DeferredToolRequests` carries `calls` as well as `approvals` | r5 GAP 2 | both present |
 | `BedrockConverseModel` takes a model id and nothing else | ADR-0001 D2 | only the model name is required |
-| A realistic history round-trips byte-identically | r4 § Rollout criterion 6 | identical on second dump, over tool call, tool return and retry parts |
+| A realistic history round-trips byte-identically | r5 § 10 Rollout criterion 6 | identical on second dump, over tool call, tool return and retry parts |
 | A reasoning-stripped history round-trips and leaks nothing | DR8 | identical, no reasoning in the bytes |
 | `result.usage` is a property; `stream_text` debounces by default | probe-established; no upstream document states either | both confirmed |
 
 `DeferredToolRequests` resolves from a private module re-exported at the package
 root. T1 imports it from the root and the framework-seam contract test pins
-that, because a re-export moving is exactly the additive-minor drift r4's risk
+that, because a re-export moving is exactly the additive-minor drift r5's risk
 register names.
 
 That probe also surfaced the closure gotcha: a tool registered on a nested
@@ -135,6 +133,7 @@ provider seam is `walking-skeleton-step-lifecycle`'s; no task here reaches one.
 
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
+| Current architecture — the `worker-runtime.md` marker | T4 | This spec's clause moved from unbuilt to built | The header's built and unbuilt lists match the repository |
 | Current architecture — `docs/architecture/README.md` § What is built | T4 | The compiler, the toolset stack and the quarantined agent moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
 | Reusable learning — `spikes/README.md` | T4 | A section stating what was and was not established | Hypothesis checks separated from setup |
 
@@ -147,7 +146,7 @@ Shape is `service`; the sub-sections below are the set that shape selects.
 - **The compiler is the only constructor of the agent.** It asserts the agent holds exactly one toolset, that it is the decision point, and that the chain beneath it is the specified order. Nesting order only governs tools reached *through* the wrapped stack, so a sibling tool has no ceiling entry to violate and no behavioural test can catch it. Traces to: AC-0201, AC-0202.
 - **The structural check is a function over a constructed chain, not a parameter on the compiler.** Asserting order by making the compiler accept an ordered layer list would widen a production contract to make a test possible, and would put stack order in a caller's hands. Instead the compiler builds the chain and calls a checker; the checker is unit-tested against hand-built wrong chains, and the compiled agent is asserted by walking it. Traces to: AC-0202.
 - **The decision point ships with its position, not its predicate, and refuses everything in between.** Splitting the stack's composition from its containment logic is what makes two reviewable specs out of one; making the interval admit anything would turn the split into a security regression. The interval's rule is not "a lookup miss denies" — there is no lookup to miss, and a criterion phrased around one would pass while every entered tool ran unchecked. Nor is it "refused unless a predicate admits it", which is circular once a predicate exists: the implementation's own verdict becomes the oracle, and a fall-through satisfies it. So AC-0233 is scoped to the no-predicate configuration, where an enumeration over the tool surface decides it outright, and the permanent fall-through guard is `walking-skeleton-authority-containment`'s AC-0235, which a real lookup can fail. AC-0234 keeps the refusal terminal from the first refusal this repository raises; AC-0208 names the concrete domain type once the real denial path exists. Traces to: AC-0202, AC-0233, AC-0234.
-- **Rejected: typed output as the quarantine boundary.** It would delete the parser and a reviewer will ask. It makes the boundary depend on the framework's serializer and the model's cooperation — the same class of argument r7 used to reject detection-based defence. Typed output stays as a layer.
+- **Rejected: typed output as the quarantine boundary.** It would delete the parser and a reviewer will ask. It makes the boundary depend on the framework's serializer and the model's cooperation — the same class of argument r8 uses to reject detection-based defence. Typed output stays as a layer.
 
 ### Interfaces & contracts
 
@@ -244,26 +243,28 @@ fixture. No task here reaches a provider.
 **Tests:**
 - AC-0220 feeds the parser output that is neither a closed-vocabulary label nor a typed scalar and asserts the step fails. The parser is the runtime's, outside the agent — a test that drives the agent's structured output instead is testing the layer, not the boundary.
 - AC-0221 is the criterion to write first and trust least: a well-formed reference that resolves in *another* step's set must still fail. Shape validity is not provenance, and a parser that checks only shape admits an attacker-chosen value inside a well-formed reference.
+- AC-0238 asserts an ordering, not a value: the recorded mint precedes the agent's first model turn, and a mutation attempted against the set after the run raises. Asserting only that the set is correct would pass on an implementation that builds it from the agent's output.
+- AC-0242 drives a refused integration result whose text is distinctive, then greps the run's events for it. The parser's rejection is the thing under test; the diagnostic carrying the rejected prose into the log is the thing this catches.
 - AC-0222 runs a quarantined step over the recorded filing, then a planning step, and asserts the planning step's assembled context contains no free text — including after a round trip through the database, which is the indirect path that would otherwise reopen the boundary.
 
 **Approach:**
 - The quarantine spine reaches no registered tool. The quarantined role resolves no integrations (AC-0219) and the planning step in AC-0222 is asserted on its assembled context, not on a tool call, so the spine and AC-0233's blanket refusal are satisfiable together.
 - The deterministic pipeline mints the candidate reference set *before* the quarantined agent runs. The agent selects and labels among candidates that already resolve and cannot mint an identifier. Building the weaker construction — agent emits, parser rejects — is the failure mode here, and it is the one spike 4 measured and the design explicitly moved away from.
 
-**Done when:** AC-0220, AC-0221 and AC-0222 are green.
+**Done when:** AC-0220, AC-0221, AC-0222, AC-0238 and AC-0242 are green.
 
 ### T4: The record says what this spec established and what it did not
 
 **Depends on:** T3
 
-**Touches:** spikes/README.md, docs/architecture/README.md
+**Touches:** spikes/README.md, docs/architecture/README.md, docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md
 
 **Tests:**
 - `python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green.
 
 **Approach:**
-- State plainly that the quarantine criteria establish the boundary holds against the cases written, and establish nothing about an adaptive adversary — r7 records that no structural defence has been tested under an unlimited budget, and that gap stays open.
-- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. The `STATUS: PLANNED` marker on `worker-runtime.md` is not touched; its header states the condition for its own move and `walking-skeleton-evidence` owns it.
+- State plainly that the quarantine criteria establish the boundary holds against the cases written, and establish nothing about an adaptive adversary — r8 records that no structural defence has been tested under an unlimited budget, and that gap stays open.
+- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. r5's STATUS header lists the agent layer, the authorization boundary and the provider call as unbuilt. Move the first clause only; the other two are the siblings'.
 
 **Done when:** the status lint is green and the record separates what was established from what was not.
 

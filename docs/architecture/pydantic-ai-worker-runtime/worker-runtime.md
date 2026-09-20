@@ -6,7 +6,9 @@ not. [`../README.md`](../README.md) § What is built is the current map.
 
 **Decision sought:** accept this as the specification of the inside of a leased
 step and the pool that leases them, binding on
-[`walking-skeleton-agent-runtime`](../../specs/walking-skeleton-agent-runtime/spec.md).
+[`walking-skeleton-role-compilation`](../../specs/walking-skeleton-role-compilation/spec.md),
+[`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md)
+and [`walking-skeleton-step-lifecycle`](../../specs/walking-skeleton-step-lifecycle/spec.md).
 
 **Author:** eugenelim
 **Status:** Accepted — 2026-09-18, alongside the runtime architecture

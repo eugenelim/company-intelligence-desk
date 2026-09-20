@@ -2,7 +2,7 @@
 
 - **Spec:** [`spec.md`](spec.md)
 - **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
-- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r4 §§ The model seam, The approval gate, and The pool. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the scoped-role Bedrock call, the history round trip and the approval gate across a process boundary. **Named deviation:** that spike persisted to memory rather than to an object store, so it is precedent for the *round trip*, not for the crash-ordering AC-0230 asserts.
+- **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 §§ The model seam, The approval gate, and The pool. **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the scoped-role Bedrock call, the history round trip and the approval gate across a process boundary. **Named deviation:** that spike persisted to memory rather than to an object store, so it is precedent for the *round trip*, not for the crash-ordering AC-0230 asserts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
 > only while Status is `Drafting`. After approval, spec and plan are pinned in
@@ -41,8 +41,8 @@ stronger than what the scan can see. The record has to say so.
 ## Constraints
 
 - [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) — `Model` as the portability contract; `DeferredToolRequests` carrying the approval gate. ADR-0002 pins 2.45.0.
-- `runtime-architecture.md` r7 — ratified with its Known-at-ship gaps accepted **open**.
-- `worker-runtime.md` r4 — see § DR dispositions and § Changes asked of r7 below.
+- `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**.
+- `worker-runtime.md` r5 — see § DR dispositions and § Amendments the worker runtime asked of its parent below.
 - **Hard dependency:** `walking-skeleton-role-compilation` ships the compiler and pins the framework including the `[bedrock]` extra.
 - **Hard dependency:** `walking-skeleton-authority-containment` ships the containment predicate. AC-0227 requires an approved tool body to run, and the decision point admits nothing until that predicate exists.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
@@ -63,16 +63,15 @@ restates another's rows.
 | DR8 | Thinking off, and reasoning parts stripped before persisting | **Partly here** — AC-0228 is the storage backstop that does not depend on a setting staying put and lands in T3. The primary control is `walking-skeleton-role-compilation`'s |
 | DR12 | Per-integration credential scoping is blast radius, not isolation | **Deferred** to the commissioned broker, recorded in the spec's Follow-ons. MVP has one integration, so the union this would bound is a single scope |
 
-## Changes asked of r7
+## Amendments the worker runtime asked of its parent
 
-**This table lists only the changes this spec constructs.** A change absent from
-it is not this spec's, and no plan restates another's rows.
+r5 § 10 Rollout records that every amendment this subsystem required is now
+folded into `runtime-architecture.md` r8 and is no longer asked for from here,
+so there is nothing left for a spec to disposition. r5 names three as
+load-bearing for its § 4 invariants: the fenced policy append, the narrowed
+decidable fragment, and scope-qualified object keys.
 
-| # | Change | Disposition |
-| --- | --- | --- |
-| 5 | Scope-qualified object keys | **Lands**, T3, AC-0231. A one-way door, taken before the corpus exists |
-| 10 | `CredentialProvider` satisfied at the model boundary | **Lands**, T1, per DR3 |
-| 9 | Per-integration credential scopes | **Deferred** with an owner, recorded in the spec's Follow-ons |
+**One of the three is this spec's:** scope-qualified object keys, landing in T3 under AC-0231. A one-way door, taken before the corpus exists. The relocated credential seam is also this spec's, satisfied at the model boundary in T1 per DR3.
 
 ## Grounding
 
@@ -110,6 +109,7 @@ No probe is committed. Its content becomes the persistence suite in T3.
 
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
+| Current architecture — the `worker-runtime.md` marker | T4 | The provider-call clause moved from unbuilt to built | The header's built and unbuilt lists match the repository |
 | Current architecture — `docs/architecture/README.md` § What is built | T4 | The model seam, the approval gate and persistence moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
 | Reusable learning — `spikes/README.md` | T4 | A section stating what was and was not established, including what the container scan does not show about a deployed fleet | Hypothesis checks separated from setup |
 
@@ -207,6 +207,8 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 - AC-0226 uses a history carrying a tool call, a tool return, a retry part **and** a pending approval. The probe showed each half works; the combination is what spike 7 never asserted.
 - AC-0227 builds the resuming agent in a separate process, sharing nothing but the bytes. Same-process reuse would pass on in-memory state the design forbids relying on. The approved tool needs a ceiling entry the containment predicate admits, which is why `walking-skeleton-authority-containment` is a hard dependency and not a peer.
 - AC-0228 persists a history that carried a reasoning part and asserts the bytes contain none — a storage property, asserted on storage.
+- AC-0241 resumes a step whose role version was narrowed after suspension and asserts the tool call is judged against the suspended version's ceiling. The ceiling's source is the assertion; a test that only checks the call is refused passes on the wrong ceiling.
+- AC-0244 drives the configured number of reject-and-resume cycles plus one and reads the failure cause off the event log, not off the raised exception.
 - AC-0229 replays a history carrying stale instruction text and asserts the model receives the current compilation. This is a security property, not an ergonomic one: the role compilation is where the ceiling's sibling text lives.
 - AC-0230 injects a crash between the payload write and the fenced append.
 - AC-0231 asserts the key's scope prefix.
@@ -214,20 +216,20 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 **Approach:**
 - The reasoning strip happens in the executor before serialising, per § Design decisions.
 
-**Done when:** AC-0226 through AC-0231 are green.
+**Done when:** AC-0226 through AC-0231, AC-0241 and AC-0244 are green.
 
 ### T4: The record says what this spec established and what it did not
 
 **Depends on:** T3
 
-**Touches:** spikes/README.md, docs/architecture/README.md
+**Touches:** spikes/README.md, docs/architecture/README.md, docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md
 
 **Tests:**
 - `python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green.
 
 **Approach:**
 - Record what the local substitution does not establish: on a deployed fleet the task role supplies credentials with no session key in the process environment, and that stronger property is not what AC-0224 demonstrates.
-- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. The `STATUS: PLANNED` marker on `worker-runtime.md` is not touched; its header states the condition for its own move and `walking-skeleton-evidence` owns it.
+- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. r5's STATUS header lists the provider call as unbuilt. Move that clause, and decide in the same edit whether `STATUS: PLANNED` still holds once all three are cleared.
 
 **Done when:** the status lint is green and the record separates what was established from what was not.
 
