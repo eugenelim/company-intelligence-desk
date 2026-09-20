@@ -4,6 +4,21 @@ This reference owns the work-loop details for controlled contract amendments and
 the bounded evidence handoff to `close-work`. The main skill owns when these gates
 fire; this page owns their complete payload and recovery rules.
 
+## What a delivery contract binds, and for how long
+
+A spec and plan bind this delivery, not the repository forever: living while the
+plan is drafting, pinned from plan approval, frozen once the spec is `Shipped`,
+when the code becomes the truth. A frozen spec no longer constrains how the system
+behaves: later work that contradicts one is recorded in the code, and in a
+decision record when it reverses a decision, never by rewriting the shipped
+spec — though its status line still takes the two pointers that contract
+licenses, and the deferral anchors its body names still have to resolve.
+Full contract: the `new-spec` skill's `references/spec-and-plan-contract.md` —
+`**Lifecycle:**` and § *A spec directory freezes as a unit, when the spec ships*
+for the three stages, § *Superseding a frozen document* for the status line's
+two pointers, and § *Spec metadata contract* → **Historical deferral token** for
+the anchors a frozen body still owes.
+
 ## Rejected planning gates
 
 If the spec is rejected, fire `spec-rejected` from `SPEC-HUMAN-GATE` to return to
@@ -77,6 +92,16 @@ criteria and task rows. The ledger is not hash-pinned, so recording an
 observation there needs no amendment to either approved artifact. A genuine
 specification or plan error is different and still follows the controlled
 amendment procedure above.
+
+A declared discovery is an observation, not an error. When a plan recorded a
+seam as `no stub (implementation-discovered)`, grounding that arrives during
+implementation goes in the verification ledger. The plan predicted the
+discovery, so recording it amends neither approved artifact.
+
+A falsified settled decision is an error. When approval settled a design
+decision and execution falsifies it, the plan is wrong and takes the controlled
+amendment procedure above. The verification ledger is not a route for a
+settled decision that execution falsified.
 
 ## Completion evidence handoff
 
