@@ -46,6 +46,7 @@ stronger than what the scan can see. The record has to say so.
 - **Hard dependency:** `walking-skeleton-role-compilation` ships the compiler and pins the framework including the `[bedrock]` extra.
 - **Hard dependency:** `walking-skeleton-authority-containment` ships the containment predicate. AC-0227 requires an approved tool body to run, and the decision point admits nothing until that predicate exists.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
+- **Placement rule.** A criterion goes to the spec that can execute its observation, with its subject owner cited in the obligation row. The original cut placed by subject; AC-0247 and AC-0249 are placed by executability — the first needs a tool body to run, the second's subject owner is Shipped and frozen. The rule is written down so the next placement is a decision rather than a precedent, and so a reader who finds a criterion outside its subject's spec knows why.
 - **Out of scope:** the compiler and the quarantine boundary, owned by `walking-skeleton-role-compilation`; the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`. Both precede this spec; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
 ## DR dispositions
@@ -122,6 +123,7 @@ Shape is `service`; the sub-sections below are the set that shape selects.
 - **Reasoning parts are stripped in the executor before serialising, not via a history processor.** A processor changes what is *sent to the model* and leaves reasoning in exactly the artifact that must not hold it. Traces to: AC-0228.
 - **The agent's only approval lever is contentless.** `request_approval()` takes no payload, so the agent cannot choose what gets published; the published artifact is the application's typed artifact. Traces to: AC-0227.
 - **The credential seam is the model layer and nothing indirects it.** `BedrockConverseModel` resolves the ambient chain, so there is no `CredentialProvider` object to misconfigure and no place to put a static key. Traces to: AC-0224.
+- **No authority input crosses the suspension boundary in the persisted bytes.** The role version is named in the step record and the compilation is fresh from it; the initiating principal comes from the run record; the integration registry resolves at the versions that role version named. The decision point `walking-skeleton-authority-containment` builds evaluates the ceiling and the entitlements conjunct, so this spec's change is confined to what the resume path hands it. Traces to: AC-0229, AC-0241, AC-0245, AC-0248, AC-0253.
 
 ### Interfaces & contracts
 
@@ -135,17 +137,6 @@ No schema change. This spec reads the tables the foundation spec created and
 writes `events` and payload objects through the append paths that spec owns.
 Object keys become scope-qualified here because this spec writes the Phase 1
 runtime's first payload object. Traces to: AC-0231.
-
-### Design decisions — resume-time authority
-
-Three authority inputs cross the suspension boundary, and none of them travels
-in the persisted bytes. The role version is named in the step record and the
-compilation is fresh from it (AC-0229, AC-0241); the initiating principal comes
-from the run record (AC-0245); the integration registry resolves at the versions
-that role version named (AC-0248). The decision point
-`walking-skeleton-authority-containment` builds is where the ceiling and the
-entitlements conjunct are evaluated, so this spec's change is confined to what
-the resume path hands it. Traces to: AC-0229, AC-0241, AC-0245, AC-0248.
 
 ### Failure, edge cases & resilience
 
@@ -218,7 +209,7 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 - AC-0226 uses a history carrying a tool call, a tool return, a retry part **and** a pending approval. The probe showed each half works; the combination is what spike 7 never asserted.
 - AC-0227 builds the resuming agent in a separate process, sharing nothing but the bytes. Same-process reuse would pass on in-memory state the design forbids relying on. The approved tool needs a ceiling entry the containment predicate admits, which is why `walking-skeleton-authority-containment` is a hard dependency and not a peer.
 - AC-0228 persists a history that carried a reasoning part and asserts the bytes contain none — a storage property, asserted on storage.
-- AC-0245 revokes an entitlement while a step waits for approval, then resumes it, and asserts the call is refused. The conjunct is evaluated in the decision point `walking-skeleton-authority-containment` builds, so this task's change is that the resume path hands it the current entitlements rather than a snapshot lifted from the persisted history; the file is in Touches for that reason. The revocation must bite through the entitlements conjunct, because AC-0241 pins the ceiling half to the suspended version and it cannot carry revocation.
+- AC-0253 revokes an entitlement while a step waits for approval, then resumes it, and asserts the call is refused; AC-0245 is the separate provenance half, driven with a history naming a different principal from the run's. The conjunct is evaluated in the decision point `walking-skeleton-authority-containment` builds, so this task's change is that the resume path hands it the current entitlements rather than a snapshot lifted from the persisted history; the file is in Touches for that reason. The revocation must bite through the entitlements conjunct, because AC-0241 pins the ceiling half to the suspended version and it cannot carry revocation.
 - AC-0248 resumes a step after the registry has moved on and asserts the compilation resolved the versions the suspended role version named. The observable is which registry rows the compilation read, not whether the call is refused, because a ceiling can survive a schema change and still mean something different.
 - AC-0241 resumes a step whose role version was narrowed after suspension and asserts the tool call is judged against the suspended version's ceiling. The ceiling's source is the assertion; a test that only checks the call is refused passes on the wrong ceiling.
 - AC-0229 replays a history carrying stale instruction text and asserts the model receives a fresh compilation of the suspended role version, not the bytes' text and not a later version. Asserting only that the stale text is absent would pass on a compilation of the wrong version, which is the half AC-0241 depends on.
@@ -228,7 +219,7 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 **Approach:**
 - The reasoning strip happens in the executor before serialising, per § Design decisions.
 
-**Done when:** AC-0226 through AC-0231, AC-0241, AC-0245 and AC-0248 are green.
+**Done when:** AC-0226 through AC-0231, AC-0241, AC-0245, AC-0248 and AC-0253 are green.
 
 ### T4: The record says what this spec established and what it did not
 

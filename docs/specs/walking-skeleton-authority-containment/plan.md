@@ -44,6 +44,7 @@ asserts the type and that it is not the retry type nor a subclass of it.
 - `worker-runtime.md` r5 — see § DR dispositions and § Amendments the worker runtime asked of its parent below.
 - **Hard dependency:** `walking-skeleton-role-compilation` ships the compiler, the four-layer stack and the fail-closed default. Its AC-0234 must stay green across this work; its AC-0233 is scoped to the no-predicate configuration and AC-0235 replaces it here.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
+- **Placement rule.** A criterion goes to the spec that can execute its observation, with its subject owner cited in the obligation row. The original cut placed by subject; AC-0247 and AC-0249 are placed by executability — the first needs a tool body to run, the second's subject owner is Shipped and frozen. The rule is written down so the next placement is a decision rather than a precedent, and so a reader who finds a criterion outside its subject's spec knows why.
 - **Out of scope:** the compiler and the quarantine boundary, owned by `walking-skeleton-role-compilation`, which precedes this spec; the provider call, suspension and persistence, owned by `walking-skeleton-step-lifecycle`, which follows it; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
 ## DR dispositions
@@ -125,7 +126,7 @@ exercised directly by its own suite. Traces to: AC-0215, AC-0217, AC-0207.
 
 ### Data & schema
 
-No schema change. This spec reads `agent_role` and `entitlements`, and writes
+No schema change. AC-0249 *reads* a grant rather than changing one: a red result stops the task, and the repair is an expand-only migration owned by the Shipped foundation spec through the erratum path, not a schema change made here. This spec reads `agent_role` and `entitlements`, and writes
 `events` through the append path the foundation spec owns, on the
 `policy-writer` identity that spec created.
 
@@ -193,10 +194,11 @@ External: none. No task here reaches a provider.
 - AC-0210 uses a call inside the role ceiling and outside the initiating user's entitlements, which is the conjunct no ceiling-only test reaches.
 - AC-0211 forces the decision append to fail on its own connection and asserts the tool body did not run, using a spy the body increments. The spy is what makes "did not run" observable rather than inferred.
 - AC-0212 drives two invocations deriving the same key and asserts the body ran once and the step terminated duplicate-detected.
-- AC-0239 runs a decision point whose lease was taken by another worker and asserts all four outcomes: refusal, no committed decision, unmoved spy, and the step still claimable by its new owner rather than carrying a terminal event. The fourth is the one AC-0211 disagrees with, so a test that skips it leaves the discriminator unobserved. The fence is the foundation's and correct; what this observes is that the caller passes the epoch it holds rather than re-reading the current one.
+- AC-0239 runs a decision point whose lease was taken by another worker and asserts all four outcomes: refusal, no committed decision, unmoved spy, and the step still claimable by its new owner rather than carrying a terminal event. AC-0211 now carries the fence-held qualifier, so the two no longer disagree; the fourth outcome is what distinguishes them and a test that skips it leaves the discriminator unobserved.
+- AC-0252 injects a connection-level failure rather than a serialization failure, so the worker cannot attribute it, and asserts the step terminates. The fence is the foundation's and correct; what this observes is that the caller passes the epoch it holds rather than re-reading the current one.
 - AC-0243 is AC-0211's admit-path twin and must be written as its own case: same forced append failure, but on a call the predicate admits, so the spy would move but for the ordering.
 - AC-0247 drives a tool body whose return is free text and asserts the step-event toolset's attribution record never held it. Asserting only that the step fails would pass on a layer that parses too late.
-- AC-0249 opens a connection as `app_worker` and attempts a write to each of the three tables, asserting the database refuses. The application cannot be the thing that refuses, or the criterion tests the caller rather than the grant.
+- AC-0249 opens a connection as each runtime identity in turn and attempts a write to each of the three tables, asserting the database refuses. The application cannot be the thing that refuses, or the criterion tests the caller rather than the grant.
 - AC-0236 injects a fault inside the predicate itself, so the error path is exercised rather than a malformed argument that the predicate handles normally. It asserts all three outcomes together — refusal, the committed denial, the unmoved spy — because an error path that denies without recording is the failure this criterion exists to catch.
 - AC-0235 drives a call to a tool the acting role has no ceiling entry for, with the real predicate installed and the same spy AC-0211 uses. It is the only check here that a lookup finding nothing denies: AC-0207 needs an entry to fall outside of, and `walking-skeleton-role-compilation`'s AC-0233 was scoped to a configuration this task removes.
 - `walking-skeleton-role-compilation` AC-0234 runs unchanged in this task's suite. It asserts a refusal is not the retry type, in every configuration; AC-0208 asserts the handler that catches a denial does not also catch a programming error. The two texts no longer overlap, so neither restates the other.
@@ -205,7 +207,7 @@ External: none. No task here reaches a provider.
 **Approach:**
 - The decision point appends through the `policy-writer` identity on a second connection, taking the `steps` fence first so the ordering the foundation spec proved is preserved rather than extended.
 
-**Done when:** AC-0207 through AC-0212, AC-0235, AC-0236, AC-0239, AC-0243, AC-0247 and AC-0249 are green; `walking-skeleton-role-compilation` AC-0234 is still green; and that spec's AC-0233 suite is removed in this task, because the no-predicate configuration it enumerates no longer ships.
+**Done when:** AC-0207 through AC-0212, AC-0235, AC-0236, AC-0239, AC-0243, AC-0247, AC-0249 and AC-0252 are green; `walking-skeleton-role-compilation` AC-0234 is still green; and that spec's AC-0233 suite is removed in this task, because the no-predicate configuration it enumerates no longer ships.
 
 ### T3: The record says what this spec established and what it did not
 

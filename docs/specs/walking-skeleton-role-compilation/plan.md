@@ -55,6 +55,7 @@ write first and trust least.
 - `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**. The first of those limits in particular narrows the quarantine guarantee's *scope*; it does not license leaving the guarantee unverified, which is why this spec adds criteria for it.
 - `worker-runtime.md` r5 — see § DR dispositions below. The amendments it once asked of its parent are folded into r8; see § Amendments the worker runtime asked of its parent.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
+- **Placement rule.** A criterion goes to the spec that can execute its observation, with its subject owner cited in the obligation row. The original cut placed by subject; AC-0247 and AC-0249 are placed by executability — the first needs a tool body to run, the second's subject owner is Shipped and frozen. The rule is written down so the next placement is a decision rather than a precedent, and so a reader who finds a criterion outside its subject's spec knows why.
 - **Out of scope:** the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`, which follows this spec; the provider call, suspension and persistence, owned by `walking-skeleton-step-lifecycle`, which follows that one; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
 ## DR dispositions
@@ -212,7 +213,7 @@ fixture. No task here reaches a provider.
 
 **Done when:** both checks above hold.
 
-### T2: A role compiles, five bad roles refuse to, and the stack denies
+### T2: A role compiles, bad roles refuse to, and the stack denies
 
 **Depends on:** T1
 
@@ -273,7 +274,7 @@ fixture. No task here reaches a provider.
 ## Rollout
 
 - **Delivery:** three stacked PRs — T1+T2, T3, T4. Each leaves the repository working and is independently reviewable.
-- **Review shape:** T3 is **DEEP** and is sized as its own PR for that reason: it is security-boundary work that attracts a mandatory security review, and it carries a failure mode that is invisible in a passing suite. T2 is **MIXED** — the compiler plus seven refusal cases — and splits at the seam between construction and the structural checker if the diff outgrows one reviewable unit. No task here is WIDE.
+- **Review shape:** T3 is **DEEP** and is sized as its own PR for that reason: it is security-boundary work that attracts a mandatory security review, and it carries a failure mode that is invisible in a passing suite. T2 is **MIXED** — the compiler plus its refusal cases — and splits at the seam between construction and the structural checker if the diff outgrows one reviewable unit. No task here is WIDE.
 
 ## Risks
 
