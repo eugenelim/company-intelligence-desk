@@ -1,9 +1,19 @@
-"""The single place this runtime resolves its `pydantic_ai` names.
+"""Where this runtime resolves the `pydantic_ai` names its design rests on.
 
-Every framework name the agent layer depends on is bound here, so a re-export
-moving in a minor release is a one-file change rather than a scatter of import
-edits — and so the framework-seam contract suite has one object to assert
-against. ADR-0001 puts `pydantic_ai` at the step-level-reasoning-library
+**The seam is the probed set, not every framework name.** Each name below is a
+row of `plan.md` § Grounding probe — a claim a ratified document rests on, and
+one the framework-seam contract suite asserts — so a re-export moving in a
+minor release is a one-file change and reds the offline gate rather than a
+production step. `tests/contract/test_seam_module.py` closes `__all__` to
+exactly that set plus the two pin constants, which is what keeps the set a
+contract rather than a convenience import.
+
+Ordinary framework names carrying no such claim — `RunContext`, `ToolsetTool`,
+`AbstractToolset` among them — resolve directly where they are used.
+`agents/` and `adapters/` are both admitted layers under
+`tests/architecture/dependency_direction.py`, so that is legal, and routing
+them through here would widen the seam into an import hub and red the test
+above. ADR-0001 puts `pydantic_ai` at the step-level-reasoning-library
 position; ADR-0002 D1 pins the version exactly, because the vendor does not
 class an additive re-export move as breaking.
 

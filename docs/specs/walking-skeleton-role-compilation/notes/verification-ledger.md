@@ -285,3 +285,118 @@ Both containers reached `ready`, and the full run at r7's real lease timings is
 286 passed with the four `tests/fault_injection` checks no longer skipped. The
 one failure is the pre-existing `.github` layout case. 179 s sits inside the
 spread `AGENTS.md` § The local substrate declines to publish a range for.
+
+## T2c — the toolset stack and the structural checker
+
+Layer (c) of T2: `src/ced/agents/toolsets/**` and the offline suite under
+`tests/compiler/`. The compiler, `ced.agents.models` and the quarantine parser
+are later layers and are not here.
+
+### What was observed by running it, not asserted
+
+**`WrapperToolset` is a `@dataclass`, and a subclass that adds state must be
+one too.** `for_run` and `for_run_step` rebuild the layer with
+`dataclasses.replace`, which calls `type(obj)(...)` from `__dataclass_fields__`.
+A plain subclass carrying an extra attribute therefore breaks at that call and
+not at construction, which is the worst place to find it. Probed directly
+against the installed 2.45.0:
+
+```
+$ ./.venv/bin/python -c '...'
+['wrapped']                                     # fields(WrapperToolset)
+7                                               # @dataclass subclass: replace keeps `extra`
+plain replace fails: TypeError Plain.__init__() missing 1 required positional argument: 'extra'
+```
+
+All three layers are `@dataclass` for that reason, and each says so in its own
+docstring.
+
+**`RunContext.tool_call_id` is annotated `str | None` and is populated at
+`call_tool`.** `derived_idempotency_key` takes a `str`, so the annotation is
+not academic. Probed by driving a real `Agent(TestModel())` through a spy
+wrapper:
+
+```
+[('ping', 'pyd_ai_tool_call_id__ping', '01a0c4cd-a83a-70d2-b0ca-3d722d1683bb')]
+```
+
+The value is present in practice; the layer still refuses rather than deriving
+a key from a substitute, because an absent id means the fence has nothing to
+dedup on.
+
+### What the new suite decides, and what it does not
+
+- `tests/compiler/test_stack_order_checker.py` decides **AC-0202's second
+  predicate only** — the checker rejects a hand-built chain in any other
+  composition, and accepts the ratified one. Seven wrong compositions, each a
+  chain the compiler must never produce. AC-0202's first predicate walks a real
+  `CompiledRole.stack` and belongs to the compiler layer.
+- `tests/compiler/test_decision_point_refuses.py` decides **AC-0234**, in both
+  directions: the raised type is the interval's declared `ToolCallDenied`, and
+  it is neither `ModelRetry` nor a subclass. `ModelRetry`'s identity comes from
+  `ced.adapters.framework_contract`, so the exclusion is measured against the
+  same object production code resolves.
+- **AC-0233 is not decided here.** It enumerates by reading `agent_role` and
+  `integration_registry` and carries the `substrate` marker; it needs the
+  compiler and both registries, which are later layers.
+- **AC-0201 is not decided here.** It is asserted against the constructed
+  `Agent`, which this layer does not build.
+
+### Paths this layer ships unexercised, and why that is by contract
+
+`StepEventToolset.call_tool` and `TrustClassToolset.call_tool` are never
+reached. The decision point sits above both and refuses every call until
+`walking-skeleton-authority-containment` supplies the predicate, so no tool
+body executes anywhere in this spec — the spec's § Testing Strategy states
+this outright. The refusal is by construction: the decision point admits only
+when its resolver returns an admitting entry, and its default resolver,
+`NoCeilingEntries`, has none. One check rehearses the admit path with an
+injected resolver that admits, which is what shows the refusal came from the
+resolver being empty rather than from a literal someone could invert.
+
+`PolicyDecisionPoint`'s delegation to the wrapped layer is unreachable for the
+same reason.
+
+**A limit recorded rather than designed around.** r5 § 2 wants
+`tool.completed` to carry the parse outcome, so a result the trust-class layer
+rejects is attributable rather than merely absent. The shipped `events`
+envelope has no outcome column and no payload object is written until
+`walking-skeleton-step-lifecycle`, so a raising parse leaves `tool.invoked`
+appended with no completion beside it. What a reader can tell today is that the
+call started and did not finish. Recorded in `step_events.py`.
+
+### Gates
+
+```
+$ ./.venv/bin/ruff format --check .        exit 1 — plan.md:250 only, the known pinned stub
+$ ./.venv/bin/ruff check .                 exit 0 — All checks passed!
+$ ./.venv/bin/mypy                         exit 0 — no issues in 21 source files
+$ ./.venv/bin/python -m pytest -m 'not substrate'
+                                           exit 1 — 1 failed, 131 passed in 9.40s
+$ ./.venv/bin/python -m pytest             exit 1 — 1 failed, 302 passed in 175.41s
+$ python3 tools/lint-no-identifiers.py --staged   exit 0
+$ python3 tools/hooks/pre-pr.py                   exit 0
+```
+
+Offline moved 115 → 131 and the full run 286 → 302, both +16. The single
+failure in each is the pre-existing `.github` layout case.
+`tests/architecture/test_dependency_direction.py` is green in both runs, which
+is what holds the `Never do` on `pydantic_ai` imports: `agents/` is an admitted
+layer, so this package importing the framework is legal.
+
+**`framework_contract`'s docstring was corrected in this layer, not left to
+disagree with its own test.** T1 wrote "every framework name the agent layer
+depends on is bound here". Layer (c) made that false: `RunContext`,
+`ToolsetTool` and `AbstractToolset` resolve directly in
+`agents/toolsets/`, which `tests/architecture/dependency_direction.py` admits
+because `agents/` is an allowed layer. Routing them through the seam module
+would have redded T1's own
+`test_the_exported_surface_is_exactly_the_seam_plus_the_pin_constants`, which
+closes `__all__` to the § Grounding probe rows plus the two pin constants.
+
+The implementer surfaced the disagreement and correctly declined to resolve it
+itself. The controller resolved it toward the test rather than the docstring:
+the probed set is the thing with a claim behind it and a suite asserting it,
+and widening the seam into an import hub would make the contract suite assert
+a set nobody chose. The docstring now states the narrow rule and names the
+three exceptions, so the file no longer promises something it does not do.

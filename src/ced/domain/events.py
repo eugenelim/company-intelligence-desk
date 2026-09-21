@@ -50,6 +50,14 @@ TERMINAL_EVENT_TYPES: Final = frozenset({"run.completed", "run.failed", RUN_CANC
 #: partial unique index in revision 0002 is scoped to it.
 TOOL_INVOKED: Final = "tool.invoked"
 
+#: The step-scoped type closing a tool invocation. r5 § 2 names the pair
+#: `tool.invoked` / `tool.completed` on the observability layer, and says
+#: `tool.completed` records the parse outcome so a rejected result is
+#: attributable rather than merely absent. It carries no unique index, so it
+#: is not named by a migration — it is here because its partner is, and a
+#: second home for half a pair is how the two drift.
+TOOL_COMPLETED: Final = "tool.completed"
+
 #: The step-scoped **vocabulary** is deliberately not enumerated here or in the
 #: schema. `walking-skeleton-authority-containment` adds the types its toolset emits,
 #: and an enum frozen now would make each one a migration against a shipped
