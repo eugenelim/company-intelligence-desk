@@ -3,15 +3,15 @@
 **STATUS: PLANNED** — nothing here is built. `src/ced/agents/` is empty.
 [`../README.md`](../README.md) § What is built is the current map.
 
-**Decision sought:** accept closing `agent_role` and `integration_registry` to
+**Decision ratified 2026-09-21:** closing `agent_role` and `integration_registry` to
 the record shapes `worker-runtime.md` r5 ratifies, accept the four construction
 seams the compiler needs, and accept the four r5 deviations
 [ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md) records, as the
 precondition for building `walking-skeleton-role-compilation`.
 
 **Author(s):** eugenelim
-**Status:** Draft
-**Last updated:** 2026-09-20
+**Status:** Ratified
+**Last updated:** 2026-09-21
 **Reviewers:** eugenelim
 
 **Baseline — current architecture:**
@@ -63,7 +63,7 @@ Which elements change, and which are linked because they do not?
 | `ced.adapters.postgres.roles` | new | `load_role(role_name, version)` for one role and its pinned registry rows; `list_roles()` and `list_integration_tools()` for AC-0233, which must read the tables |
 | `ced.agents.compiler` | new | Baseline § 8 names `src/ced/agents/` designed and empty. Holds the two-entry `output_schema_ref` mapping as a dict, not a module |
 | `ced.agents.models` | new | Calls `PoolConfig.model_factory` with the role's `model_id` after checking `CED_POOL_ALLOWED_MODEL_IDS`, which is where AC-0251 is enforced. It selects no implementation — r5 § 2 R3 keeps that deploy-time |
-| `PoolConfig` — `default_limits`, `allowed_model_ids`, `model_factory: Callable[[str], Model]` | modified | r5 § 6; `allowed_model_ids` from r5 § 2 R5 |
+| `PoolConfig` — `default_limits`, `allowed_model_ids`, `model_factory` | modified | r5 § 6; `allowed_model_ids` from r5 § 2 R5. **The annotation is indirected, and the seam's shape is not.** `PoolConfig` lives in `src/ced/worker/pool.py`, and `tests/architecture/dependency_direction.py` admits a `pydantic_ai` name only in `agents/` and `adapters/` — its AST walk reaches a `TYPE_CHECKING`-guarded import too, so `model_factory: Callable[[str], Model]` written literally here reds the offline gate and breaks the role-compilation spec's own `Never do`. The field is therefore typed by a `Protocol` declared in `worker/` that names no framework type, and `pydantic_ai.models.Model` appears only in `ced.agents.models`, which supplies the factory. Only where the framework name is written moves |
 | The containment engine and r5 § 4's canonicalizer | out of scope | Owned by [`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md), which builds the decision point's predicate |
 | `agent_role.instructions` | unchanged | Diverges from r5 § 4; see § 4 and § 5 |
 | `agent_role.pool_class` | unchanged | Ships already; r5 § 6's guard reads it against `integration_registry.pool_classes` |
@@ -211,8 +211,19 @@ reasoning parts before serializing — is `walking-skeleton-step-lifecycle`'s.
 `input_tokens_limit`: the latter is cumulative across a run and cannot bound a
 single request. `count_tokens_before_request` enforces both ahead of time, so
 the distinction is the window each bounds, not when it is checked.
-`output_tokens_limit` and `total_tokens_limit` are excluded because neither is
-knowable before the request.
+`output_tokens_limit` and `total_tokens_limit` are excluded, and the ground is
+**not** that neither is knowable before the request — that reading does not
+survive the pinned version. On 2.45.0, `UsageLimits.check_before_request`
+carries a `total_tokens_limit` arm that raises against run-to-date usage before
+the next request is issued, and `check_tokens` enforces both
+`output_tokens_limit` and `total_tokens_limit` after every response. Both are
+enforceable bounds this configuration declines to set. They are excluded
+because Phase 1 issues no provider call outside
+[`walking-skeleton-step-lifecycle`](../../specs/walking-skeleton-step-lifecycle/spec.md)'s
+AC-0223, so neither has anything to bound here;
+[ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md) D1 records the
+residual output- and total-token exposure that leaves, alongside the suspended
+pre-request input bound.
 
 `cost_limit` is excluded because ADR-0006 D1 suspends the pre-request spend
 bound it would serve. The exclusion assumes AC-0246's reworded text, which § 8

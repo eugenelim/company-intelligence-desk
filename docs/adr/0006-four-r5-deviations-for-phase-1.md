@@ -1,7 +1,7 @@
 # ADR-0006: Four r5 deviations for Phase 1, three with named return conditions
 
 - **Status:** Accepted
-- **Date:** 2026-09-20
+- **Date:** 2026-09-20 (D3 contingency discharged 2026-09-21)
 - **Areas:** schema, cost, configuration
 - **Reversibility:** high
 - **Decision-makers:** eugenelim (owner)
@@ -65,10 +65,12 @@ authority. r5 is Accepted, a reader of r5 alone would see none of these, and
 to `docs/adr/`.
 
 D1 and D2 are decided independently of
-[`role-configuration-seams.md`](../architecture/role-configuration-seams/role-configuration-seams.md),
-which is Draft: their grounds are framework and provider facts. D4's ground is
-the owner's ruling. **D3 alone is contingent** on that document's empty-ceiling
-derivation being ratified; if the derivation changes, D3 is reopened.
+[`role-configuration-seams.md`](../architecture/role-configuration-seams/role-configuration-seams.md):
+their grounds are framework and provider facts. D4's ground is the owner's
+ruling. **D3 alone was contingent** on that document's empty-ceiling derivation
+being ratified. That document was ratified on 2026-09-21, so the contingency is
+discharged and D3 is accepted outright; if the derivation later changes, D3 is
+reopened on its own return condition below.
 
 ## Decision
 
@@ -80,7 +82,7 @@ revision is unchanged; an erratum line points here.
 | --- | --- | --- | --- | --- |
 | **D1** | Token spend per step is bounded before the call (r5 § 1, § 4, § 7) | suspended | The Bedrock IAM shape for `bedrock:CountTokens` against a geo-prefixed model id is re-derived and `count_tokens_before_request` can be enabled in production | `walking-skeleton-step-lifecycle` |
 | **D2** | Instruction text is content-addressed and referenced by hash (r5 § 4, § 5, § 6) | suspended | The object-store write path exists, so a hash can be written as well as read | `walking-skeleton-step-lifecycle` |
-| **D3** *(provisional — accepted on ratification of `role-configuration-seams.md`)* | A `free-text` integration is bindable, to a quarantined role only (r5 § 4) | narrowed to unreachable | Role class stops being derived from an empty ceiling, or a quarantined role gains a way to hold an integration | `walking-skeleton-role-compilation` |
+| **D3** | A `free-text` integration is bindable, to a quarantined role only (r5 § 4) | narrowed to unreachable | Role class stops being derived from an empty ceiling, or a quarantined role gains a way to hold an integration | `walking-skeleton-role-compilation` |
 | **D4** | `Effective limits = min(pool default, role value)` (r5 § 4) | replaced by the strict reading | Never, unless the owner reverses the 2026-09-20 ruling | `walking-skeleton-role-compilation` |
 
 Until each returns:
@@ -130,6 +132,19 @@ log alone.
 The free-text narrowing costs an untested branch in the trust-class parser, and
 the limits replacement costs nothing beyond r5's own text disagreeing with
 itself until the erratum is read.
+
+**Residual output- and total-token exposure, recorded here because D1 is why it
+matters.** The pool's declarable limit set is the four integer keys
+`role-configuration-seams.md` § 4 names; `output_tokens_limit` and
+`total_tokens_limit` are not among them. On the pinned 2.45.0 both are
+enforceable — `UsageLimits.check_before_request` raises on `total_tokens_limit`
+against run-to-date usage, and `check_tokens` enforces both after every
+response — so excluding them declines two real run-level bounds rather than two
+unavailable ones. With D1 suspending the pre-request input bound, `request_limit`
+is the only ceiling left between a looping step and unbounded output spend. That
+is acceptable on the same ground as D1 itself and no other: Phase 1 makes no
+provider call outside `walking-skeleton-step-lifecycle`'s single criterion. The
+Revisit trigger below therefore governs this exposure too.
 
 **Revisit if:** Phase 1 gains a provider call outside
 `walking-skeleton-step-lifecycle`'s single criterion, or an autonomous loop that
