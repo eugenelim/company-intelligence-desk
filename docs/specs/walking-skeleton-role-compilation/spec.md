@@ -1,6 +1,6 @@
 # Spec: Walking skeleton — role compilation and the quarantine boundary
 
-- **Status:** Approved <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Status:** Implementing <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Designed by:** [`role-configuration-seams`](../../architecture/role-configuration-seams/role-configuration-seams.md), which closes `agent_role` and `integration_registry` to r5's shapes and names the compiler's seams. Ratified 2026-09-21. The configuration criteria — AC-0203, AC-0204, AC-0206, AC-0219, AC-0251, AC-0258, AC-0260, AC-0262, AC-0266, AC-0267, AC-0269 — read fields that design provides, and AC-0270 reads the pool configuration beside them. The parser, mint and decision-point criteria do not: the design's § 1 routes the quarantine guarantee out of its scope and names no such surface, which is why AC-0268 is derived from r5 § 4 directly.
