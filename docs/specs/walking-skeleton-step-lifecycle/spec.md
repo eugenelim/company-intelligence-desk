@@ -89,7 +89,9 @@ three to produce the Phase 1 measurements and the browser stream.
 
 Every criterion sits in exactly one group.
 
-- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237, AC-0241, AC-0245, AC-0248, AC-0253, AC-0254, AC-0222, AC-0242, AC-0255, AC-0256)** — the persistence and deadline criteria, plus the four quarantine criteria received from `walking-skeleton-role-compilation`. **AC-0222 and AC-0242 carry the `substrate` marker** — the first needs the database round trip that is its whole point, the second searches the run's events and the payload objects they reference — while AC-0255 and AC-0256 run offline. Each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
+- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237, AC-0241, AC-0245, AC-0248, AC-0253, AC-0254, AC-0222, AC-0242, AC-0255, AC-0256, AC-0263, AC-0264)** — the persistence and deadline criteria, plus the four quarantine criteria received from `walking-skeleton-role-compilation`. **AC-0222 and AC-0242 carry the `substrate` marker** — the first needs the database round trip that is its whole point, the second searches the run's events and the payload objects they reference — while AC-0255, AC-0256 and AC-0263 run offline and AC-0264 carries the marker, since it is a write the database refuses.
+
+**Stub coverage:** AC-0255 carries a validated red stub against the parser seam; AC-0222, AC-0242 and AC-0256 carry `no stub (implementation-discovered)` with T5's discovery predicate. Each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
 - **Goal-based check (AC-0224, AC-0225)** — a scan of the running container for a long-lived credential, and the producer tuple read back off the run header. A one-liner is the verdict.
 - **End-to-end (AC-0223)** — the one criterion that calls a real provider, and the only reason the Phase 1 runtime needs a cloud credential at all.
 
@@ -158,16 +160,21 @@ builds. Placement per [`../README.md`](../README.md) § Cutting one outcome into
 several specs; owner decision of 2026-09-20 after a design pass found no task in
 that spec could host the module they fail through.
 
-- [ ] **AC-0222.** No free text produced by a quarantined step reaches a planning step's context package, including by way of stored state read back from the database. *Subject owner: `walking-skeleton-role-compilation`.*
+- [ ] **AC-0222.** The planning step succeeds with the quarantined step's admitted references and typed scalars present in its context package, and none of the fixture's distinctive free text appears there — including after a round trip through the database. Both halves are asserted: the absence alone is satisfied by an assembler that passes nothing through, which is a severed channel rather than a held boundary. *Subject owner: `walking-skeleton-role-compilation`.*
 - [ ] **AC-0242.** A refused integration result records its rejection without the rejected text reaching the event log or any payload object an event of that run references. *Subject owner: `walking-skeleton-role-compilation`.*
-- [ ] **AC-0255.** Every field of a quarantined agent's own output — labels, typed scalars and references alike — is admitted by the runtime's deterministic parser outside the agent. An agent whose declared `output_schema_ref` would accept a value the parser refuses still fails the step, which is what shows the parser and not the framework's schema is the admitting component. *Subject owner: `walking-skeleton-role-compilation`.*
-- [ ] **AC-0256.** A planning role's context package containing anything outside the admitted types fails the step in the runtime's context assembler, before the agent is constructed, whatever produced that content and by whichever assembly path it arrived. *Subject owner: `walking-skeleton-role-compilation`.*
+- [ ] **AC-0255.** Every field of a quarantined agent's own output — labels, typed scalars and references alike — is admitted by the runtime's deterministic parser outside the agent. An agent declared with the permissive `free-form` output contract — which the framework's schema accepts unparsed — still fails the step, which is what shows the parser and not the serializer is the admitting component. This spec adds `free-form` as the output set's third member and the compiler guard that keeps a quarantined role from declaring it, since it is the spec that needs one. *Subject owner: `walking-skeleton-role-compilation`.*
+- [ ] **AC-0256.** A planning role's context package containing anything outside r5 § 4's admitted types — references, closed-vocabulary labels and typed scalars — fails the step in the runtime's context assembler, observed by the agent constructor never being reached. It holds whatever produced the content, across every assembly path this delivery builds. *Subject owner: `walking-skeleton-role-compilation`.*
+
+- [ ] **AC-0264.** A rewrite of an `integration_registry` row at a version a role's `ceiling` pins is refused. r5 § 4 states that a version in use is immutable, and the widened key alone does not enforce it: an in-place edit of a pinned row's `arg_schema` reclassifies an argument under a step already in flight, reopening the prefix constructor `walking-skeleton-authority-containment`'s AC-0217 exists to remove, with AC-0248 green throughout. The enforcement seam is the implementation's choice; the refusal is not.
+- [ ] **AC-0263.** The usage limits in force at the model call are the compiled role's resolved values, observed on a stub model that records the limits it was invoked under — not values the caller supplied. A test that passes its own limits goes green while production bounds nothing.
 
 **Bounding a hung step**
 
 - [ ] **AC-0232.** A step whose model call hangs is failed and its lease released within `step_deadline`, whether or not the underlying provider call terminated.
 
 ## Follow-ons
+
+- eugenelim: this spec § Acceptance Criteria — **AC-0222 is universally quantified and proven on one path.** One quarantined step, one planning step, one fixture. The Testing Strategy caveats adaptive adversaries but not path coverage, so a reader takes a single-path result as universal. Recorded here with the criterion; `walking-skeleton-role-compilation` is its subject owner.
 
 - eugenelim: [`walking-skeleton-evidence`](../walking-skeleton-evidence/spec.md) § Follow-ons — **no criterion records who approved a publication.** That spec owns the transition and holds the finding; it is named here because this spec's approval gate is where the unattributed decision is taken.
 

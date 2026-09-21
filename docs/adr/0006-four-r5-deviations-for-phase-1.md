@@ -147,7 +147,11 @@ suspension free to lift early.
   asserts a per-request token bound refuses a request under production wiring;
   one asserts an instruction hash resolves from the event log alone. Either
   going green lifts its row; either staying absent when that spec ships is the
-  failure signal. D3 is lifted by a design change rather than a criterion, and
+  failure signal. D1's deployment half — `count_tokens_before_request` staying
+  `false` wherever `BedrockConverseModel` is wired — is asserted where the pool
+  configuration is validated, in `walking-skeleton-role-compilation`'s
+  `verify_boot` check, so the mitigation is checked rather than remembered.
+  D3 is lifted by a design change rather than a criterion, and
   its own signal is the trust-class parser's free-text branch gaining a test.
   D4 has no return condition and no signal; it stands until reversed.
 - **Owner:** eugenelim

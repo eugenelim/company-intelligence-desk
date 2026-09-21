@@ -70,7 +70,7 @@ this one does not own, and three copies of it go wrong the next time one moves.
 
 | DR | Decision | Disposition |
 | --- | --- | --- |
-| DR6 | Three spend ceilings; the step one is pre-call | **Partly here** — the per-step `cost_limit` with pre-request counting, `request_limit` and `tool_calls_limit` land in T2 under AC-0206. The per-run ceiling is the evidence spec's, and the per-account AWS Budgets alarm is outside the application entirely |
+| DR6 | Three spend ceilings; the step one is pre-call | **Partly here, and partly suspended** — `request_limit` and `tool_calls_limit` land in T2 under AC-0206, token-denominated. `cost_limit` is excluded from `model_settings.limits` entirely, and the pre-request bound is suspended by [ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md) D1, so AC-0246 exercises it against a counting stub and no criterion here bounds spend in production. The per-run ceiling is the evidence spec's, and the per-account AWS Budgets alarm is outside the application entirely |
 | DR8 | Thinking off, and reasoning parts stripped before persisting | **Partly here** — AC-0204 is the primary control and lands in T2. The storage backstop is `walking-skeleton-step-lifecycle`'s |
 | DR9 | Zero tool and output retries on the quarantined role | **Lands**, T2, AC-0205 |
 | DR13 | `trust_class` is a construction, not a declaration | **Lands** — AC-0203 is the compile-time refusal and AC-0219 the compiled-agent assertion in T2, AC-0220 the parser and AC-0221 the minting authority in T3 |
@@ -126,7 +126,7 @@ provider seam is `walking-skeleton-step-lifecycle`'s; no task here reaches one.
 ## Construction tests
 
 **Integration tests:**
-- One quarantine end-to-end: the deterministic pipeline mints a reference set from the recorded filing, the quarantined agent selects among them, the parser admits, and a planning step receives references and scalars only. This is the spine AC-0219 through AC-0222 read.
+- One quarantine end-to-end: the deterministic pipeline mints a reference set from the recorded filing, the quarantined agent selects among them, the parser admits, and a planning step receives references and scalars only. This is the spine AC-0219, AC-0220, AC-0221, AC-0238 and AC-0250 read; the onward crossing into a planning step is `walking-skeleton-step-lifecycle`'s.
 - One framework-seam contract suite (T1) asserting every check in § Grounding probe, so a version bump fails the build rather than a runtime.
 
 **Manual verification:** none. Every criterion here is machine-checkable.
@@ -215,13 +215,13 @@ fixture. No task here reaches a provider.
 - The contract suite asserts every check in § Grounding probe, including the package-root import path for the deferred-requests type. A re-export moving is additive-minor drift the vendor does not class as breaking, so it must red here rather than in a runtime.
 - **`no stub (goal-based)`.** This task carries no acceptance criterion; its verification is the `Done when` gate plus the recorded downgrade transcript.
 - A deliberate downgrade of the pin reds the suite. **Mode: manual verification** — no test can install a different version of its own dependency. The artifact is a transcript in `notes/verification-ledger.md` showing the pin moved, the suite run, the failure, and the pin restored.
-- Two probe rows this task pins, both load-bearing and neither covered before: the toolset surfaces AC-0202 must not root on, and the token-counting and cost-derivation behaviour AC-0246 must not rest on.
+- Three probe rows this task pins, none covered before and all load-bearing: the toolset observation surfaces AC-0202 must not root on; `Model.count_tokens` raising `NotImplementedError` with no override on `TestModel` or `FunctionModel`; and `UsageLimits.per_request_input_tokens_limit` as the per-request bound AC-0246 reads, distinct from the cumulative `input_tokens_limit`.
 - The original second check, restated: Without this the suite proves the current version behaves as documented and nothing about its ability to notice a change, which is the only thing it exists for.
 
 **Approach:**
-- Add the framework dependencies to the manifest the foundation spec created.
+- The manifest already carries the pin under ADR-0002 D1, so `pyproject.toml` is untouched; this task writes the contract suite and the three probe rows above.
 
-**Done when:** both checks above hold.
+**Done when:** all five checks above hold — the contract suite green under `pytest -m 'not substrate'`, every § Grounding probe row asserted including the three this task adds, and the downgrade transcript recorded in `notes/verification-ledger.md`.
 
 ### T2: A role compiles, bad roles refuse to, and the stack denies
 
@@ -235,32 +235,46 @@ fixture. No task here reaches a provider.
   ```python
   # STUB: AC-0202
   # tests/compiler/test_stack_composition.py
+  from pydantic_ai.toolsets import FunctionToolset
+
   from ced.agents.compiler import compile_role
+  from ced.agents.toolsets import (
+      PolicyDecisionPoint,
+      StepEventToolset,
+      TrustClassToolset,
+  )
 
 
   def test_the_compiled_stack_is_exactly_four_layers_in_order() -> None:
-      compiled = compile_role(role=analysis_role(), integrations=(), pool=pool_defaults())
+      compiled = compile_role(
+          role={"role_name": "analysis", "version": 1, "ceiling": [], "pool_class": None,
+                "model_settings": {"model_id": "stub:counting", "settings": {}, "limits": {}},
+                "output_schema_ref": "reference-selection"},
+          integrations=(),
+          pool={"default_limits": {}, "allowed_model_ids": ["stub:counting"]},
+      )
 
-      chain: list[str] = []
+      chain = []
       node = compiled.stack
       while node is not None:
-          chain.append(type(node).__name__)
+          chain.append(type(node))
           node = getattr(node, "wrapped", None)
 
       assert chain == [
-          "PolicyDecisionPoint",
-          "StepEventToolset",
-          "TrustClassToolset",
-          "FunctionToolset",
+          PolicyDecisionPoint,
+          StepEventToolset,
+          TrustClassToolset,
+          FunctionToolset,
       ]
   ```
 
-  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.agents.compiler'` — an import-time failure is a collection error, not a test failure. The walk roots at `CompiledRole.stack` and traverses `.wrapped`, both pinned in § Grounding probe. The task's other criteria grow from this surface.
+  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.agents.compiler'` — an import-time failure is a collection error, not a test failure. The role literal is inline rather than a fixture, because `tdd-stubs.md` forbids inventing a helper to manufacture a stub, and it carries an **empty ceiling** so AC-0260's unresolved-binding case does not fire against `integrations=()`. The chain compares imported classes, not name strings, so a rename reds only on behaviour. The seam is `role-configuration-seams` § 3; the walk roots at `CompiledRole.stack` and traverses `.wrapped`.
 - AC-0201 has two cases, each a compile error rather than a call-time denial: a `ceiling` entry naming an integration the compiler was not given, and a `tool_name` absent from that integration's `tools`.
 - AC-0202 walks the constructed chain and asserts the type order; the checker is separately unit-tested against hand-built wrong chains, which is what lets the ordering be asserted without the compiler accepting a layer list.
 - AC-0203, AC-0204, AC-0205, AC-0219 and AC-0251 are each a role record the compiler must reject or constrain. AC-0203's case set covers every non-quarantined role the skeleton carries, not just the planning one, because that is the scope r5's R2 states. AC-0205 asserts the compiled budgets are zero rather than that the role record requested zero — the record is the input, the compiled agent is the fact.
 - AC-0246 uses a stub model that records whether its request method ran, with a ceiling below the counted tokens. A settings read would pass on a flag that is set and never consulted; the stub is what makes "before the request" observable. AC-0206 cannot see this either way.
 - AC-0206 needs both directions: a role wider than the pool default fails the build, a narrower one compiles to its own value. Only the widening case protects the operator's reviewable deploy, and it fails rather than clamps so the role file and the limit in force cannot disagree.
+- `verify_boot` refuses a missing or malformed `CED_POOL_DEFAULT_LIMITS` or `CED_POOL_ALLOWED_MODEL_IDS`, naming the variable. Both are required with no in-code default on a `restart: "no"` fleet, so the failure must be legible at startup rather than at first claim; `src/ced/worker/pool.py:167` is the existing seam.
 - AC-0233 enumerates the skeleton's roles and registered tools, drives a call through each with a spy the tool body increments, and asserts no spy moved. The spy is what makes "did not execute" observable rather than inferred, and the enumeration is what stops the criterion passing on a miss path alone. The suite runs in the no-predicate configuration the criterion names, so it retires with that configuration rather than being carried forward by the successor.
 - AC-0234 asserts the raised type is not the framework's retry type nor a subclass. A bare "raises" assertion passes on the wrong one, and the wrong one degrades the boundary into a negotiation with no visible failure.
 - Tools resolve as module-level callables from the registry; a closure trips the framework's context-parameter inference, which the probe hit directly.
@@ -270,7 +284,7 @@ fixture. No task here reaches a provider.
 - The usage-limit narrowing is applied where the pool default is known, so the compiled agent carries the resolved value and the role record keeps the requested one. Resolving it at call time would make AC-0206's widening case unobservable on the compiled agent.
 - The decision point is installed as the outermost layer with no predicate bound to it. It holds a reference to a resolver that has no entries, which is what makes the interval refuse by construction rather than by a branch someone can delete.
 
-**Done when:** AC-0201 through AC-0206, AC-0219, AC-0234, AC-0246, AC-0251, AC-0258 and AC-0259 are green under `pytest -m 'not substrate'`; AC-0233 and the `tests/schema/` migration check are green under the full `pytest` run against the Compose substrate.
+**Done when:** AC-0201 through AC-0206, AC-0219, AC-0234, AC-0246, AC-0251, AC-0258, AC-0259, AC-0260 and AC-0262 are green under `pytest -m 'not substrate'`; AC-0233, AC-0261 and a `tests/schema/` check are green under the full `pytest` run against the Compose substrate. That check must name each added column, the widened `(integration_name, version)` key and the retained `SELECT` grants: its existing `EXPECTED_TABLES` assertions pass verbatim against a revision that adds nothing, so the new surface has to be named to be gated.
 
 ### T3: The parser admits only what the boundary allows
 
@@ -292,18 +306,20 @@ fixture. No task here reaches a provider.
   def test_free_text_is_refused() -> None:
       with pytest.raises(AdmittedTypeRefused):
           admit("Apple reported record revenue this quarter.")
+
+
+  def test_a_closed_vocabulary_label_is_admitted() -> None:
+      assert admit("revenue-recognition") == "revenue-recognition"
   ```
 
-  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.domain.quarantine'` — the missing package, not the module. The mint interface AC-0238 and AC-0250 read is **`no stub (implementation-discovered)`**: the candidate set is per-step in-process state by the owner's ruling of 2026-09-20, so its holder is chosen while building the step path T2 does not define. Proof obligation: write the red assertion against the mint interface as discovered, prove the red, and record the seam in `notes/verification-ledger.md` before production code.
+  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.domain.quarantine'` — the missing package, not the module. The admitted case is paired with the refusal because a rejection-only stub is satisfied by an `admit` that raises on everything. The mint interface AC-0238 and AC-0250 read is **`no stub (implementation-discovered)`**: the candidate set is per-step in-process state by the owner's ruling of 2026-09-20, and its holder is chosen while building the minting pipeline under `src/**/domain/quarantine/**` — this task's own `Touches`, so the predicate resolves inside T3 rather than waiting on a step path no task in this plan defines. Proof obligation: write the red assertion against the mint interface as discovered, prove the red, and record the seam in `notes/verification-ledger.md` before production code.
 - AC-0220 feeds the parser output that is neither a closed-vocabulary label nor a typed scalar and asserts the step fails. The parser is the runtime's, outside the agent — a test that drives the agent's structured output instead is testing the layer, not the boundary.
 - AC-0221 is the criterion to write first and trust least: a well-formed reference that resolves in *another* step's set must still fail. Shape validity is not provenance, and a parser that checks only shape admits an attacker-chosen value inside a well-formed reference.
-- AC-0238 asserts an ordering and an equality, not a value: the recorded mint precedes the agent's first model turn, and the before and after snapshots match. AC-0250 is separate because a set nothing tries to mutate satisfies AC-0238 with no enforcement built at all. A post-run probe alone cannot see a resolver that consults a second source while the agent runs, which is the "agent emits, resolver accommodates" shape this criterion exists to catch.
-- AC-0242 drives a refused integration result whose text is distinctive, then searches the run's events **and every payload object they reference** for it. Stopping at the events table leaves the prose one dereference away, still streamed and still readable by a later context assembler. The parser's rejection is the thing under test; the diagnostic carrying the rejected prose into the log is the thing this catches.
-- AC-0222 runs a quarantined step over the recorded filing, then a planning step, and asserts the planning step's assembled context contains no free text — including after a round trip through the database, which is the indirect path that would otherwise reopen the boundary.
+- AC-0238 asserts non-emptiness, an ordering and an equality: the pre-turn set equals what the pipeline derives from the recorded fixture, which is what stops a mint producing nothing from satisfying both snapshots. It also asserts the recorded mint precedes the agent's first model turn, and the before and after snapshots match. AC-0250 is separate because a set nothing tries to mutate satisfies AC-0238 with no enforcement built at all. A post-run probe alone cannot see a resolver that consults a second source while the agent runs, which is the "agent emits, resolver accommodates" shape this criterion exists to catch.
 
 **Approach:**
 - The integration result the parser judges arrives through the runtime's own retrieval path, not as a tool-body return value, so AC-0220, AC-0242 and AC-0233's blanket refusal are consistent. This is the same construction AC-0219 forces: a quarantined role resolves no integrations, so it has no tool to call.
-- The quarantine spine reaches no registered tool. The quarantined role resolves no integrations (AC-0219) and the planning step in AC-0222 is asserted on its assembled context, not on a tool call, so the spine and AC-0233's blanket refusal are satisfiable together.
+- The quarantine spine reaches no registered tool: the quarantined role resolves no integrations (AC-0219), so the spine and AC-0233's blanket refusal are satisfiable together. The planning-step half of that spine is `walking-skeleton-step-lifecycle`'s T5, under AC-0222.
 - The deterministic pipeline mints the candidate reference set *before* the quarantined agent runs. The agent selects and labels among candidates that already resolve and cannot mint an identifier. Building the weaker construction — agent emits, parser rejects — is the failure mode here, and it is the one spike 4 measured and the design explicitly moved away from.
 
 **Done when:** AC-0220, AC-0221, AC-0238 and AC-0250 are green under `pytest -m 'not substrate'`. AC-0222 and AC-0242 moved to `walking-skeleton-step-lifecycle`, which owns the step path they fail through.

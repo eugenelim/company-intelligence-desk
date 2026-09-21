@@ -238,7 +238,23 @@ context assembler, and no task there could host the module they fail through.
 - AC-0242 drives a refused integration result whose text is distinctive, then searches the run's events **and every payload object they reference**. AC-0231 makes this spec the first to write a payload object, so the second arm is live here rather than vacuous. Carries `@pytest.mark.substrate`.
 - AC-0255 drives the quarantined agent's own output through the parser, then repeats with the role's `output_schema_ref` widened so the framework's schema would accept the refused value, and asserts the step still fails. Runs offline.
 - AC-0256 assembles a planning role's context containing a value outside the admitted types by a path that does not originate in a quarantined step, and asserts the assembler fails the step before the agent is constructed. No database.
-- **`no stub (implementation-discovered)`.** Discovery predicate: the context assembler's seam is chosen while building the step path T1 and T3 define, and `src/ced/worker/context.py` does not exist. Proof obligation: write one compilable red assertion per criterion against the assembler as discovered, prove each red, and record the seam in `notes/verification-ledger.md` before production code.
+- **Stub** (`stub: true`) for AC-0255 — the parser seam is pinned by `walking-skeleton-role-compilation`'s own stub, so this criterion does not wait on discovery:
+
+  ```python
+  # STUB: AC-0255
+  # tests/quarantine_step/test_agent_output_is_parsed.py
+  import pytest
+
+  from ced.domain.quarantine.parser import AdmittedTypeRefused, admit
+
+
+  def test_agent_output_fields_go_through_the_parser() -> None:
+      with pytest.raises(AdmittedTypeRefused):
+          admit("Apple reported record revenue this quarter.")
+  ```
+
+  Validation: fails at collection with `ModuleNotFoundError: No module named 'ced.domain.quarantine'`. The widening arm grows from this surface once the output-contract member exists.
+- **`no stub (implementation-discovered)`** for AC-0222, AC-0242 and AC-0256. Discovery predicate: the context assembler's seam is chosen while building the step path T1 and T3 define, and `src/ced/worker/context.py` does not exist. Proof obligation: write one compilable red assertion per criterion against the assembler as discovered, prove each red, and record the seam in `notes/verification-ledger.md` before production code.
 
 **Approach:**
 - The assembler is AC-0256's enforcement point and runs before the agent is constructed, so a context carrying free text never reaches a model. AC-0255's parser is the sibling spec's; this task drives it through a step rather than reimplementing it.
@@ -264,7 +280,7 @@ context assembler, and no task there could host the module they fail through.
 ## Rollout
 
 - **Delivery:** four stacked PRs — T1+T2, T3, T5, T4. Each leaves the repository working and is independently reviewable.
-- **Review shape:** every task here is **MIXED** or smaller. T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite.
+- **Review shape:** T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite. Every other task here is **MIXED** or smaller.
 
 ## Risks
 

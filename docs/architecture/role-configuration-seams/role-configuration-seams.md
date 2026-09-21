@@ -182,9 +182,10 @@ What changes in stored state?
 | `agent_role.output_schema_ref` | `text NOT NULL DEFAULT 'finding-set'` | A closed-set name, not a hash; members below |
 | `agent_role.display_name` | `text` | Read by nothing here; taken because r5 § 6 ratifies it and the column is free on an empty table |
 | `agent_role.ceiling` entries | `[{integration_name, integration_version, tool_name, predicates}]` | Binding fields only; no DDL change. The canonical empty value is `[]`; `{}` or any non-array fails to load, so role class never turns on a loader accident. `predicates`' shape is out of scope — see below |
+| `integration_registry` currency and immutability | A ceiling entry's pinned `(integration_name, integration_version)` is the only way a version is selected — there is no "current version" concept, so nothing is ambiguous when a second version exists, and `list_integration_tools()` spans every row because AC-0233 enumerates the whole tool surface rather than the bound subset. r5 § 4's "a version in use is immutable" needs enforcement this delta does not build: `walking-skeleton-step-lifecycle` owns it, since AC-0248 depends on it | Stated here, built there |
 | `integration_registry` PK | `(integration_name, version)` | **Not a plain `ADD COLUMN`.** Trivial on today's empty table, a rewrite on a populated one. A failure leaves the old key and the revision unapplied: it runs in one transaction |
 | `integration_registry.pool_classes` | `jsonb NOT NULL DEFAULT '[]'::jsonb`, pool-class names; empty means every class | The other half of r5 § 6's sixth guard — the compiler refuses a role whose integrations are not all available to its `pool_class`, which already ships |
-| `integration_registry.tools` | `jsonb NOT NULL DEFAULT '[]'::jsonb`, an array of tool names | What `list_integration_tools()` reads, making AC-0233's enumeration a table read. A non-array or an empty array fails to load; a ceiling entry naming a `tool_name` absent from the pinned row fails to compile |
+| `integration_registry.tools` | `jsonb`, nullable with **no default**, an array of tool names | What `list_integration_tools()` reads, making AC-0233's enumeration a table read. A default of `'[]'` would make every row inserted without it born valid and unloadable; nullable-with-no-default makes the omission visible where it happens. A non-array or an empty array fails to load, and a ceiling entry naming a `tool_name` absent from the pinned row fails to compile |
 | `integration_registry` new columns | `version integer NOT NULL DEFAULT 1`, `arg_schema jsonb NOT NULL DEFAULT '{}'::jsonb`, `ceiling_fragment jsonb NOT NULL DEFAULT '{}'::jsonb`, `kind text`, `adapter_ref text`, `connection_ref text`, `credential_scope text` | |
 | `integration_registry.config` | left in place, unread, deprecated | No backfill: the table is empty. Dropping it is a later contract change |
 | Grants | none needed | Both tables carry `GRANT SELECT … TO app_api, app_worker` from migration 0001 |
@@ -316,8 +317,8 @@ Who builds each part?
 | Amending `0001_base_schema.py`'s `ceiling` column comment, which assigns the predicate shape to this spec, to name `walking-skeleton-authority-containment` | `walking-skeleton-role-compilation` |
 | Replacing § Testing Strategy's free-text paragraph with a citation of ADR-0006 D3 | `walking-skeleton-role-compilation` |
 
-**Criterion placement is an open amendment, not a settled fact.** The live
-`walking-skeleton-role-compilation` spec still carries AC-0222 and AC-0242.
+**Criterion placement has landed.** `walking-skeleton-role-compilation` no
+longer carries AC-0222 or AC-0242.
 
 This design asks that both move to `walking-skeleton-step-lifecycle`, under
 [`../../specs/README.md`](../../specs/README.md) § Cutting one outcome into
@@ -326,5 +327,7 @@ asks for two new criteria there: one putting the runtime's parser on a
 quarantined agent's own output, one asserting a planning role's context by
 destination rather than provenance.
 
-Until those amendments land the placement is proposed, and a builder should read
-the live specs rather than this row.
+Both moved to `walking-skeleton-step-lifecycle`, which also gained AC-0255,
+AC-0256 and AC-0263 and a T5 owning the context assembler they fail through.
+A builder should still read the live specs, which are authoritative over this
+row.
