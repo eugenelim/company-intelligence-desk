@@ -107,6 +107,21 @@ services:
       # partitions itself the same way on `in-process-tests`; the API and its
       # suite keep the column default.
       CED_POOL_CLASS: fault-injection
+      # Required, with no in-code default: `role-configuration-seams` § 6
+      # assigns the pool's spend bound and model set to deployment time, and a
+      # silent default is a bound nobody chose. `verify_boot` refuses a missing
+      # or malformed value before it opens a connection, and `restart: "no"`
+      # below keeps the worker dead — so a typo here costs the two-worker
+      # precondition `tests/fault_injection` needs. These containers run a
+      # sleeping step body and compile no role; the values are here because the
+      # worker will not start without them.
+      CED_POOL_DEFAULT_LIMITS: >-
+        {"per_request_input_tokens_limit": 20000,
+         "input_tokens_limit": 200000,
+         "request_limit": 20,
+         "tool_calls_limit": 40,
+         "count_tokens_before_request": false}
+      CED_POOL_ALLOWED_MODEL_IDS: '["stub:counting"]'
       # A sleep, not a model call: this suite needs no credential and no spend.
       CED_STEP_BODY_SECONDS: "600"
     depends_on:
@@ -133,4 +148,11 @@ services:
       # `environment` replaces rather than merges under `<<`, so the partition
       # has to be repeated here; the anchor's other keys are inherited.
       CED_POOL_CLASS: fault-injection
+      CED_POOL_DEFAULT_LIMITS: >-
+        {"per_request_input_tokens_limit": 20000,
+         "input_tokens_limit": 200000,
+         "request_limit": 20,
+         "tool_calls_limit": 40,
+         "count_tokens_before_request": false}
+      CED_POOL_ALLOWED_MODEL_IDS: '["stub:counting"]'
       CED_STEP_BODY_SECONDS: "600"

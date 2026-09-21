@@ -81,16 +81,24 @@ dies.
     store: nothing in this spec reads or writes an object, and an S3 client
     here would put the AWS SDK outside `adapters/`, which the
     dependency-direction gate forbids.
+
+**The boot sequence validates the pool configuration before it opens either
+connection.** `validate_pool_config` is its own callable and `verify_boot`
+calls it first, so a malformed `CED_POOL_DEFAULT_LIMITS` or
+`CED_POOL_ALLOWED_MODEL_IDS` fails without reaching for a database — and so the
+refusals are decidable offline, which is where
+`walking-skeleton-role-compilation`'s AC-0265 and AC-0270 are asserted.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import FrameType
 from uuid import UUID
@@ -127,6 +135,37 @@ CRITERION_REACQUISITION_BOUND_SECONDS = 150
 #: r7 change 3. One class in MVP, so the predicate narrows nothing yet.
 DEFAULT_POOL_CLASS = "default"
 
+#: The two deploy-time variables `role-configuration-seams` § 6 adds. Both are
+#: **required with no in-code default**: § 6 assigns them to deployment-time
+#: configuration whose change alters failure behaviour, and a silent default is
+#: a spend bound nobody chose. On a `restart: "no"` fleet the failure has to be
+#: legible at startup rather than at first claim.
+DEFAULT_LIMITS_VAR = "CED_POOL_DEFAULT_LIMITS"
+ALLOWED_MODEL_IDS_VAR = "CED_POOL_ALLOWED_MODEL_IDS"
+
+#: The four integer keys of `role-configuration-seams` § 5's `limits` shape.
+#: Every one must be present and non-null. On the pinned 2.45.0,
+#: `UsageLimits.request_limit` defaults to 50 and the other three default to
+#: `None`, which is no bound at all — so a pool that ships one unset is
+#: unlimited on that axis, and AC-0206 never notices: it only ever compares a
+#: role against the pool, never the pool against itself.
+#: `tests/contract/test_usage_limits.py` pins those defaults.
+DEFAULT_LIMIT_KEYS = (
+    "per_request_input_tokens_limit",
+    "input_tokens_limit",
+    "request_limit",
+    "tool_calls_limit",
+)
+
+#: Pool-owned, per § 5: a role declaring it fails to compile. ADR-0006 D1
+#: suspends the pre-request spend bound, and its deployment half — this flag
+#: staying `false` wherever the Bedrock model is wired — is checked here rather
+#: than remembered. Absent, AC-0246's pre-request bound is inert in production;
+#: present, every invocation breaks on an IAM shape ADR-0006 records as not
+#: re-derived. 2.45.0 defaults the field to `False`, so an omitted key is
+#: already the state D1 wants and is admitted.
+COUNT_TOKENS_KEY = "count_tokens_before_request"
+
 
 @dataclass(frozen=True)
 class Lease:
@@ -140,32 +179,140 @@ class Lease:
 
 @dataclass(frozen=True)
 class PoolConfig:
+    """The pool's configuration. The limits and the model set are deploy-time.
+
+    **The timings are not environment-overridable.** They were, on the stated
+    ground that "a test can compress them", and no caller ever did:
+    `tests/worker` constructs `PoolConfig` directly and Compose sets the worker
+    id, the pool class and the step-body duration. Three unread variables were
+    removed under `AGENTS.md` § Cut before adding rung 1. AC-0010 and AC-0011
+    are measured at r7's values, which is what makes them measurements of the
+    numbers those criteria state.
+
+    `default_limits` and `allowed_model_ids` carry no dataclass default for the
+    same reason their variables carry no in-code one: an unset spend bound
+    nobody chose is the failure this configuration exists to prevent.
+    """
+
     worker_id: str
+    #: § 5's `limits` shape: the four integer keys plus the pool-owned
+    #: `count_tokens_before_request`, which `validate_pool_config` admits only
+    #: as `false` and normalizes to present.
+    default_limits: Mapping[str, int | bool]
+    #: § 6: a model id absent from this set fails AC-0251 at compile time.
+    allowed_model_ids: tuple[str, ...]
     pool_class: str = DEFAULT_POOL_CLASS
     lease_ttl_seconds: int = LEASE_TTL_SECONDS
     heartbeat_seconds: int = HEARTBEAT_SECONDS
     poll_seconds: int = POLL_SECONDS
 
-    @classmethod
-    def from_environment(cls) -> PoolConfig:
-        """Read the deploy-time configuration.
 
-        **The timings are not environment-overridable.** They were, on the
-        stated ground that "a test can compress them", and no caller ever did:
-        `tests/worker` constructs `PoolConfig` directly and Compose sets only
-        the worker id and the step-body duration. Three unread variables were
-        removed under `AGENTS.md` § Cut before adding rung 1. AC-0010 and
-        AC-0011 are measured at r7's values, which is what makes them
-        measurements of the numbers those criteria state.
-        """
-        return cls(
-            worker_id=os.environ.get("CED_WORKER_ID", f"worker-{os.getpid()}"),
-            pool_class=os.environ.get("CED_POOL_CLASS", DEFAULT_POOL_CLASS),
+def _parse_json_variable(env: Mapping[str, str], name: str) -> object:
+    """Decode one required JSON variable, naming it on every refusal."""
+    raw = env.get(name)
+    if raw is None or raw.strip() == "":
+        raise ValueError(f"{name} is required and is unset; it has no in-code default")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} is not valid JSON: {exc}") from exc
+
+
+def _parse_default_limits(env: Mapping[str, str]) -> Mapping[str, int | bool]:
+    """Decode `CED_POOL_DEFAULT_LIMITS` into § 5's `limits` shape.
+
+    Three refusals, each naming what failed, and they are three rather than one
+    because the later ones are invisible to the earlier ones:
+
+    * the variable is missing, unparseable, or not a JSON object — named by
+      variable;
+    * a key outside the shape — named by key. A typo of an integer key would
+      also be caught by the per-key check below, but a typo of
+      `count_tokens_before_request` would not: the flag check reads one exact
+      name, so an unrecognised near-miss would sail past it and leave ADR-0006
+      D1's deployment half unchecked. The closed set is what makes that guard
+      fail closed;
+    * a key omitted, nulled, or not an integer — named by key. This is the
+      AC-0265 case, and it is distinct from the first: such an object is
+      neither missing nor malformed.
+    """
+    value = _parse_json_variable(env, DEFAULT_LIMITS_VAR)
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"{DEFAULT_LIMITS_VAR} must be a JSON object in the limits shape, "
+            f"not {type(value).__name__}"
         )
 
+    admitted = set(DEFAULT_LIMIT_KEYS) | {COUNT_TOKENS_KEY}
+    unknown = sorted(set(value) - admitted)
+    if unknown:
+        raise ValueError(
+            f"{DEFAULT_LIMITS_VAR} carries unrecognised key(s) {unknown}; "
+            f"the shape is {sorted(admitted)}"
+        )
 
-def verify_boot(config: PoolConfig) -> None:
-    """Open and verify both database connections before claiming anything.
+    limits: dict[str, int | bool] = {}
+    for key in DEFAULT_LIMIT_KEYS:
+        entry = value.get(key)
+        if entry is None:
+            raise ValueError(
+                f"{DEFAULT_LIMITS_VAR} omits or nulls {key}; all four integer "
+                "limits are required, because an unset one is no bound at all"
+            )
+        # `bool` is a subclass of `int`, so a JSON `true` would otherwise be
+        # accepted as the integer 1.
+        if isinstance(entry, bool) or not isinstance(entry, int):
+            raise ValueError(f"{DEFAULT_LIMITS_VAR} gives {key} as {entry!r}, not an integer")
+        limits[key] = entry
+
+    flag = value.get(COUNT_TOKENS_KEY, False)
+    if flag is not False:
+        raise ValueError(
+            f"{DEFAULT_LIMITS_VAR} sets {COUNT_TOKENS_KEY} to {flag!r}; only false is "
+            "admitted while ADR-0006 D1 suspends the pre-request bound"
+        )
+    limits[COUNT_TOKENS_KEY] = False
+    return limits
+
+
+def _parse_allowed_model_ids(env: Mapping[str, str]) -> tuple[str, ...]:
+    """Decode `CED_POOL_ALLOWED_MODEL_IDS`, naming the variable on refusal."""
+    value = _parse_json_variable(env, ALLOWED_MODEL_IDS_VAR)
+    if not isinstance(value, list):
+        raise ValueError(
+            f"{ALLOWED_MODEL_IDS_VAR} must be a JSON array of model ids, "
+            f"not {type(value).__name__}"
+        )
+    for entry in value:
+        if not isinstance(entry, str):
+            raise ValueError(
+                f"{ALLOWED_MODEL_IDS_VAR} carries {entry!r}, which is not a model id"
+            )
+    return tuple(value)
+
+
+def validate_pool_config(env: Mapping[str, str]) -> PoolConfig:
+    """Read and validate the deploy-time configuration. Refuse, never default.
+
+    Separate from `verify_boot` so the refusals are decidable with no database:
+    `verify_boot` opens two connections and has no return before them, so a
+    configuration it *admits* is observable only here.
+    """
+    return PoolConfig(
+        worker_id=env.get("CED_WORKER_ID", f"worker-{os.getpid()}"),
+        default_limits=_parse_default_limits(env),
+        allowed_model_ids=_parse_allowed_model_ids(env),
+        pool_class=env.get("CED_POOL_CLASS", DEFAULT_POOL_CLASS),
+    )
+
+
+def verify_boot(env: Mapping[str, str]) -> PoolConfig:
+    """Validate the configuration, then open and verify both connections.
+
+    The configuration is validated **first**, before either connection: a pool
+    that cannot state its spend bound should not reach for a database to find
+    that out, and the refusal being reachable with no substrate is what puts
+    AC-0265 and AC-0270 in the offline gate.
 
     A worker that claims a step before it can finish one manufactures a lease
     expiry and a 150-second recovery for a problem a readiness check catches in
@@ -177,11 +324,13 @@ def verify_boot(config: PoolConfig) -> None:
     of r7 item 11. The strength of the split rests on the database grant rather
     than on credential separation, because the task role can obtain both.
     """
+    config = validate_pool_config(env)
     for role in ("worker", "policy"):
         with psycopg.connect(database_url(role)) as conn:
             row = conn.execute("SELECT session_user").fetchone()
             assert row is not None
             log.info("boot: %s connection verified as %s", role, row[0])
+    return config
 
 
 def claim_one(conn: psycopg.Connection, config: PoolConfig) -> Lease | None:
@@ -319,6 +468,11 @@ class Worker:
     def run_forever(self) -> None:
         """Poll, claim, execute. Crash-only on a database failure.
 
+        Boot verification is `run`'s, not this method's: `verify_boot` now
+        returns the validated `PoolConfig` this worker is constructed from, so
+        calling it here would mean validating an environment twice and risking
+        a config that disagrees with the one in hand.
+
         **There is no in-loop retry**, so a reset connection or a restarted
         backend propagates out and the process exits. That is a recorded
         posture rather than an oversight: in-loop retry is machinery for the
@@ -329,7 +483,6 @@ class Worker:
         the fault-injection suite's ECS substitution covers container kill and
         not process exit.
         """
-        verify_boot(self.config)
         log.info("ready: %s polling class %s", self.config.worker_id, self.config.pool_class)
         with psycopg.connect(database_url("worker")) as conn:
             while not self._stop.is_set():
@@ -529,7 +682,9 @@ def run() -> None:
         level=os.environ.get("CED_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    worker = Worker(PoolConfig.from_environment())
+    # Validate, then verify the connections, then construct: a worker is never
+    # built from a configuration the boot check has not already admitted.
+    worker = Worker(verify_boot(os.environ))
     worker.install_signal_handlers()
     try:
         worker.run_forever()

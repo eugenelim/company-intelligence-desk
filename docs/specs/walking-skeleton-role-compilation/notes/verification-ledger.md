@@ -174,3 +174,114 @@ failed; the failure is the pre-existing `.github` case in
 exits 1 on `plan.md:250` alone, also pre-existing. Substrate: 167 passed, 4
 skipped in 28 s, the skips being `tests/fault_injection` with no worker
 containers started.
+
+## T2b — the pool configuration and the operational surfaces
+
+**Date:** 2026-09-21. Worktree `walking-skeleton-role-compilation`, the project
+virtualenv at `.venv`, Python 3.13.13, `pydantic-ai-slim` 2.45.0. Postgres and
+MinIO up from `deploy/compose.yaml`, schema at revision 0003; the worker
+containers were **not** started, so `tests/fault_injection` skipped.
+
+**What the layer built.** `validate_pool_config(env) -> PoolConfig` parses
+`CED_POOL_DEFAULT_LIMITS` and `CED_POOL_ALLOWED_MODEL_IDS`; `verify_boot(env)`
+calls it first and returns the validated config, and `PoolConfig` gained
+`default_limits` and `allowed_model_ids`. `PoolConfig.from_environment` is
+gone — `validate_pool_config` is what replaced it, and its one caller was
+`run()`. `model_factory` is **not** added: its `Protocol` and its only
+consumer, `ced.agents.models`, belong to the later layer, and adding the field
+now would mean a placeholder or an import of a module that does not exist.
+That is the open hand-off out of this layer.
+
+**`verify_boot`'s signature changed, and it had to.** It took a `PoolConfig`;
+it now takes the environment, because the callable AC-0265 and AC-0270 name has
+to be the one that parses. `run_forever` no longer calls it — `run()` does, and
+constructs the `Worker` from what it returns, so no worker is built from a
+configuration the boot check has not admitted. `src/ced/worker/main.py`
+re-exports `run` and needed no change.
+
+**The defaults this rests on were read off the installed package, not
+inferred.** `dataclasses.fields(pydantic_ai.usage.UsageLimits)` on 2.45.0:
+`request_limit` default `50`; `per_request_input_tokens_limit`,
+`input_tokens_limit`, `tool_calls_limit`, `cost_limit`, `output_tokens_limit`,
+`total_tokens_limit` all default `None`; `count_tokens_before_request` defaults
+`False`. So an omitted key is unlimited on three of AC-0265's four axes and
+silently bounded at 50 on the fourth, and AC-0270's omitted-key case is already
+the state ADR-0006 D1 wants.
+
+**Two refusals beyond the criteria's literal text, both recorded as decisions.**
+A limits key outside the closed shape is refused naming it: the AC-0270 guard
+reads one exact name, so a misspelled `count_tokens_before_request` would
+otherwise pass unseen while looking deliberate. A non-integer value for one of
+the four keys is refused naming the key, with `bool` excluded explicitly —
+`bool` subclasses `int`, so a JSON `true` would land as a request limit of 1.
+An **empty** `CED_POOL_ALLOWED_MODEL_IDS` array is admitted: no criterion
+refuses it, and AC-0251 gives a better error with the role in hand than a boot
+failure naming no role.
+
+**The delegation gap is closed by measurement, not by reading.** With
+`verify_boot` mutated to build a `PoolConfig` inline instead of calling
+`validate_pool_config`, 27 of the 30 checks in
+`tests/worker/test_pool_configuration.py` fail; the 3 survivors are the
+admitted cases, which call `validate_pool_config` directly and are observable
+nowhere else. The suite's autouse fixture replaces `psycopg.connect` with a
+function that fails the test, so "the refusal precedes the connection" is
+asserted rather than assumed — without it these checks would pass against a
+running substrate for the wrong reason.
+
+**The documented invocation was run, not reasoned about.** The `AGENTS.md`
+§ Running the two deployables block, copied verbatim, logs
+`boot: worker connection verified as app_worker`, then the policy connection,
+then `ready: worker-<pid> polling class default`, and exits 0 on `SIGTERM`.
+With both variables unset the same entry point exits **1** on
+`ValueError: CED_POOL_DEFAULT_LIMITS is required and is unset; it has no
+in-code default`.
+
+**Compose was verified through Compose's own renderer.** `docker-compose -f
+deploy/compose.yaml config` renders both `worker-a` and `worker-b` with the two
+new variables, and `validate_pool_config` accepts each rendered environment.
+The folded (`>-`) block keeps its newlines because the continuation lines are
+more-indented, which is immaterial: JSON treats them as whitespace, and the
+rendered string parses. `worker-b` carries its own copies because `environment`
+replaces rather than merges under the `<<` anchor.
+
+**Statements walked backwards.** `PoolConfig.from_environment`'s docstring said
+Compose sets "only the worker id and the step-body duration" — already false for
+`CED_POOL_CLASS` and now false twice over; the text moved to the `PoolConfig`
+class docstring and was corrected. The module docstring's boot-sequence bullet
+gained the validation step. `deploy/compose.yaml`'s MinIO comment, the
+foundation ledger's "MinIO is not in the worker boot check", and
+`AGENTS.md`'s `CED_POOL_CLASS` note all stay true and were left alone.
+`docs/specs/walking-skeleton-role-compilation/notes/pre-execute-gate-findings.md`
+still says `from_environment` reads two variables — correct as a record of what
+the gate found, and not edited.
+
+**Gate counts.** Offline went from 85 passed / 1 failed to **115 passed / 1
+failed in 9.11 s**; substrate-only is **167 passed, 4 skipped in 33.84 s**,
+unchanged; the whole suite is **282 passed / 1 failed / 4 skipped in 38.80 s**,
+against a 252/1/4 baseline. The failure is the pre-existing `.github` case in
+`tests/architecture/test_recorded_layout.py`. `ruff format --check .` still
+exits 1 on `plan.md:250` alone; `ruff check .` and `mypy` pass.
+`tools/lint-no-identifiers.py`, `tools/hooks/pre-pr.py` and
+`lint-spec-status.py --all` are clean.
+
+**The worker containers were started against the new required variables, not
+reasoned about.** Layer (b) makes `CED_POOL_DEFAULT_LIMITS` and
+`CED_POOL_ALLOWED_MODEL_IDS` required with no in-code default on a
+`restart: "no"` fleet, so a compose file that set them wrongly would leave both
+workers dead and cost `tests/fault_injection` its two-worker precondition — the
+failure that looks unrelated. Controller check, after the layer landed:
+
+```
+$ docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
+$ docker-compose -f deploy/compose.yaml logs worker-a
+worker-a-1  | INFO ced.worker.pool boot: worker connection verified as app_worker
+worker-a-1  | INFO ced.worker.pool boot: policy connection verified as app_policy
+worker-a-1  | INFO ced.worker.pool ready: worker-a polling class fault-injection
+$ ./.venv/bin/python -m pytest
+1 failed, 286 passed in 179.29s
+```
+
+Both containers reached `ready`, and the full run at r7's real lease timings is
+286 passed with the four `tests/fault_injection` checks no longer skipped. The
+one failure is the pre-existing `.github` layout case. 179 s sits inside the
+spread `AGENTS.md` § The local substrate declines to publish a range for.

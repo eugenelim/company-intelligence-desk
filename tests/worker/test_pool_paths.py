@@ -17,6 +17,7 @@ the mechanism.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import uuid
@@ -57,13 +58,56 @@ pytestmark = pytest.mark.substrate
 #: worker someone starts by hand.
 TEST_POOL_CLASS = "in-process-tests"
 
+#: `PoolConfig` carries the pool's deploy-time limits and model set, neither of
+#: which has a dataclass default — see `pool.PoolConfig`. Nothing in this file
+#: reads either one: these paths claim, renew, release and drain. They are
+#: supplied once here so the constructions below stay about the timings they
+#: are testing. `tests/worker/test_pool_configuration.py` owns the parse.
+POOL_LIMITS: dict[str, int | bool] = {
+    "per_request_input_tokens_limit": 20_000,
+    "input_tokens_limit": 200_000,
+    "request_limit": 20,
+    "tool_calls_limit": 40,
+    "count_tokens_before_request": False,
+}
+POOL_MODEL_IDS = ("stub:counting",)
+
 FAST = pool.PoolConfig(
     worker_id="test-worker",
+    default_limits=POOL_LIMITS,
+    allowed_model_ids=POOL_MODEL_IDS,
     pool_class=TEST_POOL_CLASS,
     lease_ttl_seconds=3,
     heartbeat_seconds=1,
     poll_seconds=1,
 )
+
+#: The environment `verify_boot` is driven with below: the two required pool
+#: variables in their admitted shapes. The refusals are offline and live in
+#: `test_pool_configuration.py`; what these two substrate checks exercise is
+#: the connection half, which is why this environment must be a valid one.
+VALID_POOL_ENV = {
+    "CED_WORKER_ID": "test-worker",
+    "CED_POOL_CLASS": TEST_POOL_CLASS,
+    "CED_POOL_DEFAULT_LIMITS": json.dumps(POOL_LIMITS),
+    "CED_POOL_ALLOWED_MODEL_IDS": json.dumps(list(POOL_MODEL_IDS)),
+}
+
+
+def _other_worker(
+    worker_id: str,
+    *,
+    pool_class: str = TEST_POOL_CLASS,
+    lease_ttl_seconds: int = pool.LEASE_TTL_SECONDS,
+) -> pool.PoolConfig:
+    """A second identity on this suite's class, differing only where asked."""
+    return pool.PoolConfig(
+        worker_id=worker_id,
+        default_limits=POOL_LIMITS,
+        allowed_model_ids=POOL_MODEL_IDS,
+        pool_class=pool_class,
+        lease_ttl_seconds=lease_ttl_seconds,
+    )
 
 
 @dataclass
@@ -199,9 +243,7 @@ def test_claim_one_returns_none_when_nothing_is_runnable(
     worker_conn: psycopg.Connection,
 ) -> None:
     """Otherwise the poll loop would spin on a phantom lease."""
-    assert (
-        pool.claim_one(worker_conn, pool.PoolConfig(worker_id="w", pool_class="none")) is None
-    )
+    assert pool.claim_one(worker_conn, _other_worker("w", pool_class="none")) is None
 
 
 def test_a_second_claim_of_a_reacquired_step_invalidates_the_first_lease(
@@ -225,11 +267,7 @@ def test_a_second_claim_of_a_reacquired_step_invalidates_the_first_lease(
 
     second = pool.claim_one(
         worker_conn,
-        pool.PoolConfig(
-            worker_id="other-worker",
-            pool_class=TEST_POOL_CLASS,
-            lease_ttl_seconds=3,
-        ),
+        _other_worker("other-worker", lease_ttl_seconds=3),
     )
     assert second is not None
     assert second.epoch == first.epoch + 1
@@ -285,7 +323,7 @@ def test_renew_is_fenced_on_epoch_and_on_owner(
     with pytest.raises(event_log.Fenced):
         pool.renew(worker_conn, FAST, stale)
 
-    impostor = pool.PoolConfig(worker_id="not-the-owner", pool_class=TEST_POOL_CLASS)
+    impostor = _other_worker("not-the-owner")
     with pytest.raises(event_log.Fenced):
         pool.renew(worker_conn, impostor, lease)
 
@@ -489,7 +527,7 @@ def test_a_drain_expires_the_lease_and_joins_the_body(
 
 def test_verify_boot_opens_both_roles(require_substrate: None) -> None:
     """The happy path: both roles connect and readiness passes."""
-    pool.verify_boot(FAST)
+    assert pool.verify_boot(VALID_POOL_ENV).worker_id == "test-worker"
 
 
 def test_verify_boot_raises_when_the_policy_connection_is_unreachable(
@@ -518,7 +556,7 @@ def test_verify_boot_raises_when_the_policy_connection_is_unreachable(
     monkeypatch.setenv(ROLE_ENV_VARS["policy"], unreachable)
 
     with pytest.raises(psycopg.OperationalError):
-        pool.verify_boot(FAST)
+        pool.verify_boot(VALID_POOL_ENV)
 
 
 def _dsn() -> str:

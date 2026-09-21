@@ -214,12 +214,31 @@ One package, two entry points, per [ADR-0003](docs/adr/0003-repository-layout.md
 
 ```bash
 CED_API_PORT=58080 ./.venv/bin/ced-api      # default 8000, loopback only
-./.venv/bin/ced-worker                      # set CED_WORKER_ID to tell two apart
+
+# The worker. Both pool variables are required and have no in-code default.
+CED_POOL_DEFAULT_LIMITS='{"per_request_input_tokens_limit": 20000,
+                          "input_tokens_limit": 200000,
+                          "request_limit": 20,
+                          "tool_calls_limit": 40,
+                          "count_tokens_before_request": false}' \
+CED_POOL_ALLOWED_MODEL_IDS='["stub:counting"]' \
+  ./.venv/bin/ced-worker                    # set CED_WORKER_ID to tell two apart
 ```
 
 Both need the substrate up. `CED_API_HOST` and `CED_API_PORT` exist because
 8000 is the most contended port on a developer machine; the default binds
 loopback, since nothing here is authenticated and r7 puts OIDC at the ingress.
+
+`CED_POOL_DEFAULT_LIMITS` and `CED_POOL_ALLOWED_MODEL_IDS` are the pool's spend
+bound and its set of admitted model ids. `verify_boot` refuses a missing or
+malformed value, and refuses a limits object that omits one of the four integer
+keys or sets `count_tokens_before_request` to anything but `false` — before it
+opens a database connection, so the failure is legible at startup rather than
+at the first claim. The refusal names the variable or the key.
+`role-configuration-seams` § 6 records why neither variable may default
+silently, and `deploy/compose.yaml` sets the same two on both worker services.
+The values above are a working example, not a recommended budget; the model id
+is a placeholder, since nothing wires a provider yet.
 
 ### Repository checks
 
