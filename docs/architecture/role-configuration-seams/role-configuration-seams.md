@@ -137,11 +137,16 @@ that opens the payload-object write path owns that half;
 `walking-skeleton-role-compilation`'s AC-0261 asserts what the shipped envelope
 can carry, which is that the event is distinguishable from a runtime fault and
 names the failing role. A record the loader rejects is appended with its own
-event type rather than as a step fault — the type must satisfy the shipped
-`events_type_is_canonical` CHECK, `^[a-z0-9]+(\.[a-z0-9]+)+$`, so the stage is
-carried as a dotted type such as `role.load_failed` and not as the bare string
-`load_role`, which that CHECK rejects and for which the envelope has no
-`stage` column.
+event type rather than as a step fault — **the type must satisfy the shipped
+`events_type_is_canonical` CHECK, `^[a-z0-9]+(\.[a-z0-9]+)+$`, and that pattern
+is the constraint — not any example of it.** Each dot-separated segment is
+lowercase alphanumeric only: no underscore, no hyphen, which is why
+migration 0001's own comment records the admitted set being narrowed off
+`tool_invoked` and `tool-invoked`. `role.load.failed` satisfies it;
+`role.load_failed` does not, and neither does the bare string `load_role`,
+for which the envelope has no `stage` column either. Check a proposed type
+against the pattern rather than against a previous example: both earlier
+values written here failed it.
 
 `CompiledRole` carries `.limits` because the framework takes `usage_limits` per
 call, not per agent — the pinned 2.45.0's `Agent.__init__` has no such
