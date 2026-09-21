@@ -1,7 +1,7 @@
 # ADR-0006: Four r5 deviations for Phase 1, three with named return conditions
 
 - **Status:** Accepted
-- **Date:** 2026-09-20 (D3 contingency discharged 2026-09-21)
+- **Date:** 2026-09-20
 - **Areas:** schema, cost, configuration
 - **Reversibility:** high
 - **Decision-makers:** eugenelim (owner)
@@ -156,15 +156,28 @@ suspension free to lift early.
 ## Confirmation
 
 - **Mode:** test for D1 and D2; design change for D3; none for D4
-- **Signal:** D1 and D2 each **became** a criterion in
+- **Signal:** D1 and D2 are each carried as an **owned follow-on with a
+  register entry** in
   [`walking-skeleton-step-lifecycle`](../specs/walking-skeleton-step-lifecycle/spec.md)
-  on 2026-09-21, through the amendment this record obliges. **AC-0271** asserts
-  a per-request token bound refuses a request under production wiring;
-  **AC-0272** asserts an instruction hash resolves from the event log alone.
-  Either going green lifts its row; either staying absent when that spec ships
-  is the failure signal. Both are recorded there as return-condition criteria
-  excluded from that spec's ship gate, because neither can be green while its
-  deviation stands. D1's deployment half — `count_tokens_before_request`
+  § Follow-ons, backed by a `workspace.toml [backlog].open` record, and each
+  **becomes a criterion in that spec when its deviation lifts**. D1's is that a
+  per-request token bound refuses a request under production wiring; D2's is
+  that an instruction hash resolves from the event log alone. Either becoming a
+  green criterion lifts its row; either **being absent from both the follow-on
+  list and the register** when that spec ships is the failure signal.
+  **This wording was amended on 2026-09-21 and the reason is recorded, because
+  it replaces a stricter one.** The original said each must *become a criterion*
+  in that spec outright. Carried literally that put two permanently unchecked
+  `- [ ]` lines in an Approved spec's Acceptance Criteria, and
+  `lint-spec-status.py` appends a HARD violation for every unchecked criterion
+  at a `Shipped` transition with no deferral exemption — so the obligation as
+  written could not be discharged without either failing that gate or checking
+  a box for something known false. `spec-and-plan-contract.md` prescribes the
+  follow-on-plus-register carrier for exactly this case. The exit from each
+  suspension stays executable and mechanically discoverable, which is what the
+  original wording was protecting; only its carrier changed
+  (source: owner decision 2026-09-21, on adjudicated adversarial and
+  quality-engineer findings). D1's deployment half — `count_tokens_before_request`
   staying `false` wherever `BedrockConverseModel` is wired — is a separate
   obligation and is asserted where the pool configuration is validated, as
   [`walking-skeleton-role-compilation`](../specs/walking-skeleton-role-compilation/spec.md)'s

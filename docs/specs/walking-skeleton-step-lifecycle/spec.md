@@ -93,7 +93,6 @@ Every criterion sits in exactly one group.
 
 **Stub coverage:** AC-0255 carries a validated red stub against the parser seam; AC-0222, AC-0242 and AC-0256 carry `no stub (implementation-discovered)` with T5's discovery predicate. Each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
 - **Goal-based check (AC-0224, AC-0225)** — a scan of the running container for a long-lived credential, and the producer tuple read back off the run header. A one-liner is the verdict.
-- **Return-condition criteria (AC-0271, AC-0272)** — neither is built or demonstrated in Phase 1 and neither is part of the ship gate. Each states the executable exit from a suspension [ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md) records, so the suspension has a written way back rather than an intention. Their verification mode is fixed when the deviation lifts; recording them now is what the ADR's § Confirmation requires of this spec.
 - **End-to-end (AC-0223)** — the one criterion that calls a real provider, and the only reason the Phase 1 runtime needs a cloud credential at all.
 
 Every criterion touching the provider runs under a scoped assumed role, never
@@ -173,23 +172,21 @@ that spec could host the module they fail through.
 
 - [ ] **AC-0232.** A step whose model call hangs is failed and its lease released within `step_deadline`, whether or not the underlying provider call terminated.
 
-**Lifting the two recorded r5 suspensions**
-
-Both criteria below exist because [ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md)
-§ Confirmation names this spec as the owner of D1's and D2's return conditions
-and states that either "staying absent when that spec ships is the failure
-signal". They are **return-condition criteria**: each goes green when its
-deviation lifts, and neither can be green while the deviation stands, so both
-are excluded from this spec's ship gate and carry that exclusion in their own
-text. They are contract all the same — their absence is what the ADR treats as
-the failure, and their presence is what makes each suspension's exit
-executable rather than remembered. D1's *deployment* half is a different
-obligation and lives in `walking-skeleton-role-compilation`'s AC-0270.
-
-- [ ] **AC-0271.** *(Return-condition criterion — excluded from the Phase 1 ship gate; see above.)* A per-request token bound refuses a request under production wiring: with `count_tokens_before_request` enabled against the deployed `BedrockConverseModel`, a step whose counted input exceeds `per_request_input_tokens_limit` raises before the provider request is issued. Green lifts ADR-0006 D1. It cannot be green while D1 stands, because D1 is precisely the decision to keep that flag `false` in production until the Bedrock IAM shape for `bedrock:CountTokens` against a geo-prefixed model id is re-derived.
-- [ ] **AC-0272.** *(Return-condition criterion — excluded from the Phase 1 ship gate; see above.)* An instruction hash resolves from the event log alone: the text a step was prompted with is recoverable by following a content-addressed reference the event carries, without joining mutable state. Green lifts ADR-0006 D2. It cannot be green while D2 stands, because D2 is the decision to hold `agent_role.instructions` inline until the object-store write path exists, so there is no hash to write.
-
 ## Follow-ons
+
+**The two r5 suspensions this spec owns the return conditions for.** Each is a
+follow-on with a register entry rather than an acceptance criterion, because
+neither can be green while its deviation stands and an unchecked criterion is a
+HARD violation at a `Shipped` transition. [ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md)
+§ Confirmation was amended on 2026-09-21 to admit this carrier; each becomes a
+criterion in this spec when its deviation lifts. **AC-0271 and AC-0272 were
+allocated to these two on 2026-09-21 and withdrawn the same day; neither
+identifier is reallocated.** D1's *deployment* half is a separate obligation
+already discharged as `walking-skeleton-role-compilation`'s AC-0270.
+
+- eugenelim, register entry on `docs/adr/0006-four-r5-deviations-for-phase-1.md`: **ADR-0006 D1's return condition.** When the Bedrock IAM shape for `bedrock:CountTokens` against a geo-prefixed model id is re-derived and `count_tokens_before_request` can be enabled in production, this spec gains a criterion that a per-request token bound refuses a request under production wiring — a step whose counted input exceeds `per_request_input_tokens_limit` raises before the provider request is issued. Until then D1 stands and `request_limit` is the acting bound.
+- eugenelim, register entry on `docs/adr/0006-four-r5-deviations-for-phase-1.md`: **ADR-0006 D2's return condition.** When the object-store write path exists, so a hash can be written as well as read, this spec gains a criterion that an instruction hash resolves from the event log alone — the text a step was prompted with is recoverable by following a content-addressed reference the event carries, without joining mutable state. Until then `agent_role.instructions` holds text inline.
+
 
 - eugenelim: this spec § Acceptance Criteria — **AC-0222 is universally quantified and proven on one path.** One quarantined step, one planning step, one fixture. The Testing Strategy caveats adaptive adversaries but not path coverage, so a reader takes a single-path result as universal. Recorded here with the criterion; `walking-skeleton-role-compilation` is its subject owner.
 
@@ -214,7 +211,7 @@ amendment rather than an in-place correction.
 - Technical: `pydantic-ai` is pinned to 2.45.0 rather than ADR-0001 D5's 2.44.0 (source: user decision 2026-09-18). The framework-seam probe that established this is recorded once, in `walking-skeleton-role-compilation/plan.md` § Grounding probe; this spec cites it there rather than repeating it.
 - Technical: a deferred-approval history round-trips byte-identically and a fresh agent resumes from the bytes alone, established offline before this spec was written. AC-0226's residual risk is therefore the *combination* of a realistic shape with a pending approval, not the mechanism (source: `plan.md` § Approval probe).
 - Technical: `walking-skeleton-role-compilation` ships the compiler whose output this spec executes, and pins the framework including the `[bedrock]` extra. This spec adds no framework dependency (source: `walking-skeleton-role-compilation/plan.md` § Dependencies & integration).
-- Process: AC-0271 and AC-0272 were added on 2026-09-21 by amendment, discharging the obligation ADR-0006 § Confirmation places on this spec by name — that D1 and D2 each become a criterion here, and that either staying absent when this spec ships is the failure signal. Neither is buildable in Phase 1, because each asserts the lifting of a deviation that currently stands, so both are excluded from the ship gate and say so in their own text. **This is the one place this spec carries a criterion it does not expect to check**, and it is deliberate: the alternative considered and rejected was amending ADR-0006 to relocate the obligation, which changes the Accepted authority rather than discharging it (source: owner decision 2026-09-21, following an adjudicated adversarial and security review of `walking-skeleton-role-compilation`).
+- Process: ADR-0006 D1's and D2's return conditions were added on 2026-09-21, first as acceptance criteria AC-0271 and AC-0272 and then, the same day, as owned follow-ons with register entries. The first shape was wrong and the reason is worth keeping: a criterion that cannot be green while its deviation stands is an unchecked `- [ ]` line, and `lint-spec-status.py` makes every one of those a HARD violation at a `Shipped` transition with no deferral exemption, so the spec could not ship without either failing the gate or checking a box for something known false. ADR-0006 § Confirmation was amended to admit the follow-on carrier `spec-and-plan-contract.md` already prescribes. **Neither withdrawn identifier is reallocated.** The alternative considered and rejected was exempting return-condition criteria in the lint, which would have weakened a gate for every spec in the repository to fit two lines in this one (source: owner decision 2026-09-21, on adjudicated adversarial and quality-engineer findings).
 - Process: AC-0229 is the one criterion carried into *this spec* whose wording changed. The parent said a resumed step is prompted by "the current role compilation", which reads as the latest version and contradicts `worker-runtime.md` r5 § 3 — the resuming worker constructs from the same role version — and therefore contradicted AC-0241, which pins the ceiling that way. The criterion now says a fresh compilation of the suspended version, which keeps its original security property, that instruction text must not come from the persisted bytes, and resolves the split (source: owner ruling 2026-09-20 after an adversarial spec review).
 - Technical: `walking-skeleton-authority-containment` ships the containment predicate, and without it the decision point admits no call. AC-0227 needs an approved tool body to run, so that spec is a hard dependency rather than a peer (source: `walking-skeleton-role-compilation/spec.md` AC-0233; adversarial spec review, 2026-09-20).
 - Technical: the foundation spec ships the schema, both append paths, the privilege split and the pool. This spec adds no column; it writes the Phase 1 runtime's first payload object, which is why object keys become scope-qualified here (source: `walking-skeleton-foundation/plan.md` § Data & schema).

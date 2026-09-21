@@ -127,9 +127,21 @@ sequenceDiagram
 ```
 
 On the refusal path `compile_role` raises rather than returning, so no caller
-holds a partially compiled agent, and the executor appends `step.failed` naming
-the refusing guard — which is what distinguishes a bad role file from a runtime
-fault. A record the loader rejects names `load_role` as the stage instead.
+holds a partially compiled agent, and the executor appends a compile-refusal
+event — which is what distinguishes a bad role file from a runtime fault.
+**Naming the refusing guard is deferred**, and the reason is the envelope:
+migration 0001's `events` table carries `run_id`, `seq`, `type`, `step_id`,
+`agent_role`, `principal`, `payload_ref`, `idempotency_key` and
+`schema_version`, and no column among them holds a guard identity. The spec
+that opens the payload-object write path owns that half;
+`walking-skeleton-role-compilation`'s AC-0261 asserts what the shipped envelope
+can carry, which is that the event is distinguishable from a runtime fault and
+names the failing role. A record the loader rejects is appended with its own
+event type rather than as a step fault — the type must satisfy the shipped
+`events_type_is_canonical` CHECK, `^[a-z0-9]+(\.[a-z0-9]+)+$`, so the stage is
+carried as a dotted type such as `role.load_failed` and not as the bare string
+`load_role`, which that CHECK rejects and for which the envelope has no
+`stage` column.
 
 `CompiledRole` carries `.limits` because the framework takes `usage_limits` per
 call, not per agent — the pinned 2.45.0's `Agent.__init__` has no such
@@ -285,7 +297,7 @@ What must an operator do differently?
 | `deploy/compose.yaml` | both worker services | `restart: "no"` keeps a failed worker dead, and `tests/fault_injection` fails its two-worker precondition |
 | `AGENTS.md` § Running the two deployables | the documented `ced-worker` invocation | A developer follows the documented command and it fails |
 | `tests/worker/test_pool_paths.py` | four `PoolConfig(...)` constructions | The offline suite fails |
-| A role that stops compiling | the compiler raises; the executor appends `step.failed` naming the guard | An operator cannot tell a bad role file from a runtime fault |
+| A role that stops compiling | the compiler raises; the executor appends a compile-refusal event naming the failing role, distinguishable by type from a runtime fault. Naming the refusing *guard* is deferred — the `events` envelope has no column for it; see § 3 | An operator cannot tell a bad role file from a runtime fault |
 
 Both variables are required with no in-code default: r5 § 6 assigns these to
 deployment-time configuration whose change alters failure behaviour, and a
