@@ -400,3 +400,173 @@ the probed set is the thing with a claim behind it and a suite asserting it,
 and widening the seam into an import hub would make the contract suite assert
 a set nobody chose. The docstring now states the narrow rule and names the
 three exceptions, so the file no longer promises something it does not do.
+
+## T2d
+
+Layer (d) of T2: `ced.agents.compiler`, `ced.agents.models` and the
+`PoolConfig.model_factory` seam. Layers (a), (b) and (c) are committed; the
+compile-time role refusals are layer (e)'s and are not here.
+
+### The approved stub, before any production code
+
+The AC-0202 stub was extracted **programmatically** from `plan.md` lines
+236–268 — read, two-space fence indent stripped, written to
+`tests/compiler/test_stack_composition.py`. Byte identity was then verified by
+re-adding the indent and comparing against the plan's own lines:
+
+```
+fence open : '  ```python\n'
+fence close: '  ```\n'
+line count plan/file: 33 33
+BYTE IDENTITY (after re-adding the 2-space fence indent): True
+plan == plan_norm (no trailing-space blanks in plan): True
+```
+
+The observed red, run before `src/ced/agents/compiler.py` existed, matches
+what the plan records — a **collection** error, not a test failure:
+
+```
+$ ./.venv/bin/python -m pytest tests/compiler/test_stack_composition.py
+collected 0 items / 1 error
+ERROR collecting tests/compiler/test_stack_composition.py
+tests/compiler/test_stack_composition.py:5: in <module>
+    from ced.agents.compiler import compile_role
+E   ModuleNotFoundError: No module named 'ced.agents.compiler'
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 1.03s ===============================
+EXIT=2
+```
+
+**Order matters and is recorded as such: byte identity was verified, then the
+red was observed, and only afterwards was the file formatted.** `ruff format`
+rewrote the inline role literal across seven lines, so the materialized copy
+no longer matches the plan text. That is expected — the plan block is the
+starting point, and `ruff format --check .` reds on the block inside `plan.md`
+itself, which is a backlog item awaiting an owner decision and is why the
+stub could not be formatted first.
+
+### Gates
+
+```
+$ ./.venv/bin/ruff format --check .        exit 1 — plan.md:250 only, the pinned
+                                           stub block; pre-existing, in the backlog
+$ ./.venv/bin/ruff check .                 exit 0
+$ ./.venv/bin/mypy                         exit 0 — no issues in 23 source files
+$ ./.venv/bin/python -m pytest -m 'not substrate'
+                                           exit 1 — 1 failed, 148 passed in 9.48s
+$ ./.venv/bin/python -m pytest             exit 1 — 1 failed, 319 passed in 166.74s
+$ python3 tools/lint-no-identifiers.py --staged   exit 0
+$ python3 tools/hooks/pre-pr.py                   exit 0
+```
+
+Offline moved 131 → 148 and the full run 302 → 319, both +17. The single
+failure in each is the pre-existing `.github` layout case.
+`tests/architecture/test_dependency_direction.py` is green in both runs, which
+is what holds the `Never do` the `model_factory` seam bends around:
+`pydantic_ai.models.Model` is named in `ced.agents.models` and nowhere else,
+and `PoolConfig.model_factory` is typed by `ModelFactory`, a `Protocol`
+declared in `worker/` whose `__call__` returns `object`.
+
+### Framework facts verified against the installed 2.45.0
+
+Each was run, not inferred, and each is load-bearing for a criterion:
+
+* `Agent.__init__` has **no** `usage_limits` parameter and no `output_retries`
+  one. `model` is `Model | KnownModelName | str | None = None`, so `Agent()`
+  constructs with no model, and `retries` is `int | AgentRetries | None`. This
+  is why `CompiledRole` carries `.limits` and why a pool with no factory still
+  compiles.
+* A compiled agent's retry budgets are readable only as `Agent._max_tool_retries`
+  and `Agent._max_output_retries` — `0`/`0` under `retries={"tools": 0,
+  "output": 0}` and `1`/`1` under the default. There is no public reader on
+  2.45.0. AC-0205's first half reads those two names; its second half is
+  behavioural and depends on neither.
+* A malformed structured output under zero output retries raises
+  `UnexpectedModelBehavior("Exceeded maximum output retries (0)")` after
+  **one** model request; under the framework default it raises after **two**.
+  The contrast is what makes the quarantined role's single turn a measurement.
+* A refusal raised inside a wrapper toolset's `call_tool` propagates out of
+  `Agent.run` unchanged, with the request count at one — the framework catches
+  `ModelRetry` and nothing else.
+* `_AgentFunctionToolset` is a `FunctionToolset` subclass carrying a `.tools`
+  dict, which is the surface AC-0201's decorator case is decided on.
+* `FunctionToolset.add_function(func, name=...)` registers one module-level
+  callable under any tool name, so the compiler needs no closure per tool —
+  the closure the § Grounding probe hit trips context-parameter inference.
+
+### Interval states this layer ships, and why each is a value rather than a lie
+
+* **`StepEventToolset` now takes one `StepContext | None`** instead of six
+  separate fields. The compiler builds the layer with `None`, because the
+  stack's order is fixed and a missing layer is a different agent, and the
+  step path that supplies a connection and a fenced identity is
+  `walking-skeleton-step-lifecycle`'s. Six independently-optional fields would
+  have made "unbound" a combination rather than a value; the alternative —
+  passing a fabricated run id and a `cast(Any, None)` connection from
+  production code — would have put a lie where an operator reads one. An
+  unbound layer raises if a call ever reaches it, which is reachable only if
+  the decision point above it admits, and nothing admits.
+* **`compiler.no_parser_installed`** stands where T3's deterministic parser
+  will be wired and refuses whatever it is handed. `trust_class.py` says
+  nothing there stubs a parser; that is still true of that module, and its
+  docstring now records what the compiler wires in the meantime.
+* **`compiler.unresolved_tool`** is the body every bound tool resolves to.
+  Phase 1 reads no `adapter_ref`, so no tool resolves to a real adapter, and a
+  body that raises is what keeps "no tool body executes" a property of the
+  runtime rather than of what nobody happened to call.
+
+### What layer (d) decides, and what it does not
+
+Decided here: AC-0201 (both cases, against the constructed `Agent`), AC-0202's
+first predicate (the materialized stub; the checker half stays layer (c)'s),
+AC-0205, AC-0219 (both directions) and AC-0259. Left to layer (e): AC-0203,
+AC-0204, AC-0206, AC-0246, AC-0251's compile half, AC-0258, AC-0260, AC-0267
+and AC-0269. Where those guards are absent, a malformed record fails on the
+framework's own error rather than on a named refusal — the compiler's module
+docstring says so rather than leaving a reader to discover it.
+
+### Statements found false while walking backwards
+
+* `step_events.py`'s module docstring said the step context arrives "as
+  constructor parameters"; it now arrives as one `StepContext`, and the
+  docstring says what `None` means.
+* `PoolConfig`'s docstring explained why `default_limits` and
+  `allowed_model_ids` carry no dataclass default; `model_factory` does carry
+  one, and the docstring now says why — it is wiring rather than a bound.
+* `trust_class.py`, as above.
+
+Reported and **not** edited, each outside this task's `Touches`:
+
+* `role-configuration-seams.md`'s header — "**STATUS: PLANNED** — nothing here
+  is built. `src/ced/agents/` is empty." That stopped being true at layer (c)
+  and is further false now.
+* `worker-runtime.md` § 8's implementation map — "Agent compiler, toolset
+  stack, quarantined role | `src/ced/agents/` | … | Designed — the package is
+  empty".
+* `docs/architecture/README.md` § What is built names neither the toolset
+  stack nor the compiler.
+* `framework_contract.py`'s docstring calls `ced.agents.models` "the module
+  that supplies the model factory". It *consumes* the factory; the pool
+  supplies it. The ratified design's `PoolConfig` row words it the same way,
+  so the wording is inherited rather than introduced here.
+
+**Controller edit after layer (d) returned: `compile_role`'s fourth parameter
+was removed.** The layer shipped `compile_role(role, integrations, pool, step)`
+with `step: StepContext | None = None`, so the event layer could be bound once
+a step path existed. No caller in this repository supplies it — the chain
+builders construct `StepEventToolset` directly — so it was reach for a caller
+that does not exist, which `AGENTS.md` § Cut before adding rung 1 refuses. The
+ratified design and the approved stub both name the seam at three arguments.
+The compiler now builds the event layer unbound, and the spec that builds the
+step path adds the argument together with the criterion that reads it, the
+same way this spec leaves the output-contract set's third member to the spec
+that needs it. `StepContext` itself stays: it is what makes "unbound" one
+value rather than a combination of six optional fields.
+
+**Carried forward to the substrate layer, from layer (d)'s report.** AC-0233's
+bullet says to drive a call through each pair "with a spy the tool body
+increments". Every bound tool in this spec resolves to `unresolved_tool`, which
+*raises* — Phase 1 reads no `adapter_ref`, so no tool resolves to a real
+adapter. A spy that **replaces** the body satisfies the criterion; a spy that
+wraps it does not, because the wrapped body raises before the counter moves.
+Recorded before that layer starts rather than discovered inside it.

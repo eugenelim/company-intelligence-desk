@@ -26,7 +26,7 @@ from ced.agents.toolsets.policy import (
     PolicyDecisionPoint,
     ToolCallDenied,
 )
-from ced.agents.toolsets.step_events import StepEventToolset
+from ced.agents.toolsets.step_events import StepContext, StepEventToolset
 from ced.agents.toolsets.structure import (
     EXPECTED_STACK_ORDER,
     StackOrderError,
@@ -41,6 +41,7 @@ __all__ = [
     "PolicyDecisionPoint",
     "ResultParser",
     "StackOrderError",
+    "StepContext",
     "StepEventToolset",
     "ToolCallDenied",
     "TrustClassToolset",

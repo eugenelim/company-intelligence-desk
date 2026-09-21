@@ -101,6 +101,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import FrameType
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 import psycopg
@@ -167,6 +168,27 @@ DEFAULT_LIMIT_KEYS = (
 COUNT_TOKENS_KEY = "count_tokens_before_request"
 
 
+@runtime_checkable
+class ModelFactory(Protocol):
+    """Turns a role's `model_id` into the wired framework model, deploy-time.
+
+    **This protocol names no framework type, and that is mechanical rather
+    than stylistic.** `role-configuration-seams.md` § 2 gives the field as
+    `Callable[[str], Model]`; `tests/architecture/dependency_direction.py`
+    admits a `pydantic_ai` name only in `agents/` and `adapters/`, and its AST
+    walk reaches a `TYPE_CHECKING`-guarded import too, so that annotation
+    written here would red the offline gate. `ced.agents.models` is where the
+    framework name is written and where the return value is checked, so the
+    seam's shape is unchanged and only the place the name appears moves.
+
+    r5 § 2 R3: the `Model` *implementation* is injected by the pool, never
+    read from role data.
+    """
+
+    def __call__(self, model_id: str) -> object:
+        """Return the wired model for `model_id`."""
+
+
 @dataclass(frozen=True)
 class Lease:
     """A claimed step. `epoch` is what every subsequent write is fenced on."""
@@ -192,6 +214,7 @@ class PoolConfig:
     `default_limits` and `allowed_model_ids` carry no dataclass default for the
     same reason their variables carry no in-code one: an unset spend bound
     nobody chose is the failure this configuration exists to prevent.
+    `model_factory` does carry one, because it is wiring rather than a bound.
     """
 
     worker_id: str
@@ -201,6 +224,12 @@ class PoolConfig:
     default_limits: Mapping[str, int | bool]
     #: § 6: a model id absent from this set fails AC-0251 at compile time.
     allowed_model_ids: tuple[str, ...]
+    #: § 6's deploy-time model wiring. Unlike the two fields above it comes
+    #: from no environment variable — it is a callable the process supplies —
+    #: so `validate_pool_config` never sets it and it defaults to unwired.
+    #: `ced.agents.models` returns no model at all when it is `None`, which
+    #: compiles an agent that cannot run rather than one wired to a guess.
+    model_factory: ModelFactory | None = None
     pool_class: str = DEFAULT_POOL_CLASS
     lease_ttl_seconds: int = LEASE_TTL_SECONDS
     heartbeat_seconds: int = HEARTBEAT_SECONDS

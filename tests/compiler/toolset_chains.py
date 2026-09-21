@@ -20,6 +20,7 @@ from uuid import UUID
 from ced.adapters.framework_contract import FunctionToolset
 from ced.agents.toolsets import (
     PolicyDecisionPoint,
+    StepContext,
     StepEventToolset,
     TrustClassToolset,
 )
@@ -29,14 +30,14 @@ from ced.agents.toolsets import (
 #: letter-bearing on purpose: an all-digit twelve-character tail is what
 #: `tools/lint-no-identifiers.py` reads as an account id, and `AGENTS.md`
 #: § Security considerations asks for letter placeholders for that reason.
-STEP_CONTEXT: dict[str, Any] = {
-    "connection": cast(Any, None),
-    "run_id": UUID("aaaaaaaa-0000-4000-8000-00000000000a"),
-    "step_id": UUID("bbbbbbbb-0000-4000-8000-00000000000b"),
-    "lease_epoch": 1,
-    "principal": "app_worker",
-    "agent_role": "analysis",
-}
+STEP_CONTEXT = StepContext(
+    connection=cast(Any, None),
+    run_id=UUID("aaaaaaaa-0000-4000-8000-00000000000a"),
+    step_id=UUID("bbbbbbbb-0000-4000-8000-00000000000b"),
+    lease_epoch=1,
+    principal="app_worker",
+    agent_role="analysis",
+)
 
 
 def never_parses(tool_name: str, result: Any) -> Any:
@@ -51,7 +52,7 @@ def a_function_toolset() -> FunctionToolset[Any]:
 
 def a_step_event_layer(wrapped: Any) -> StepEventToolset:
     """The observability layer, with the step context the step path will inject."""
-    return StepEventToolset(wrapped, **STEP_CONTEXT)
+    return StepEventToolset(wrapped, STEP_CONTEXT)
 
 
 def a_trust_class_layer(wrapped: Any) -> TrustClassToolset:

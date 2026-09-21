@@ -76,7 +76,7 @@ def test_the_ratified_order_is_accepted() -> None:
         pytest.param(
             lambda: StepEventToolset(
                 PolicyDecisionPoint(a_trust_class_layer(a_function_toolset())),
-                **STEP_CONTEXT,
+                STEP_CONTEXT,
             ),
             id="decision-point-not-outermost",
         ),

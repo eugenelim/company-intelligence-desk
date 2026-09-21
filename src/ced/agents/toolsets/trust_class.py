@@ -13,7 +13,8 @@ serializer this layer trusts. `parse_result` is the named seam; T3 supplies
 the callable from `ced.domain.quarantine` and may narrow the protocol below,
 which is why `trust_class.py` is in that task's `Touches` as well as this
 one's. Nothing here stubs a parser, because a stub would compete with the one
-T3 lands.
+T3 lands; until it does, the compiler wires a parser that refuses whatever it
+is handed, which is the fail-closed direction and not a parse.
 
 **What this does not establish.** No tool body executes anywhere in this spec
 — the decision point refuses every call until the successor's predicate
