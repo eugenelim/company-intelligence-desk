@@ -77,6 +77,9 @@ three to produce the Phase 1 measurements and the browser stream.
 
 ### Never do
 
+- **No typed output standing in for the deterministic parser.** Structured output is a layer; the boundary is the parser, because a control must not rest on the model's cooperation or the framework's serializer. Carried from `walking-skeleton-role-compilation` § Boundaries with the four criteria it governs.
+- **No free text crossing from a quarantined role to a planning role**, including indirectly through stored state or a resolved value. Carried with the same four.
+
 - **No static or long-lived model-provider credential anywhere** — no `AKIA`-prefixed key, no credentials file baked into an image, no inline secret.
 - **No history processor standing in for the executor's reasoning strip.** A processor changes what is *sent to the model* and leaves the reasoning part in exactly the artifact that must not hold it, which is the mistake AC-0228 is written to catch rather than restate.
 - **No `pydantic_ai` import outside `agents/` and `adapters/`.**
@@ -86,7 +89,7 @@ three to produce the Phase 1 measurements and the browser stream.
 
 Every criterion sits in exactly one group.
 
-- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237, AC-0241, AC-0245, AC-0248, AC-0253, AC-0254)** — the persistence and deadline criteria, because each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
+- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237, AC-0241, AC-0245, AC-0248, AC-0253, AC-0254, AC-0222, AC-0242, AC-0255, AC-0256)** — the persistence and deadline criteria, plus the four quarantine criteria received from `walking-skeleton-role-compilation`. **AC-0222 and AC-0242 carry the `substrate` marker** — the first needs the database round trip that is its whole point, the second searches the run's events and the payload objects they reference — while AC-0255 and AC-0256 run offline. Each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
 - **Goal-based check (AC-0224, AC-0225)** — a scan of the running container for a long-lived credential, and the producer tuple read back off the run header. A one-liner is the verdict.
 - **End-to-end (AC-0223)** — the one criterion that calls a real provider, and the only reason the Phase 1 runtime needs a cloud credential at all.
 
@@ -111,6 +114,7 @@ each rather than inheriting it.
 
 | Obligation | Criteria | Why it is here | If cut |
 | --- | --- | --- | --- |
+| Hold the quarantine boundary where a step can run | AC-0222, AC-0242, AC-0255, AC-0256 | Subject owner is `walking-skeleton-role-compilation`, which builds the quarantined role and the parser; each is decided against a running step and the context assembler this spec builds. [`../README.md`](../README.md) § Cutting one outcome into several specs sends a criterion whose observation needs a later spec's component to the spec that can execute it, and requires the row to cite the subject owner | The boundary r8 ranks second of four is asserted in a spec that cannot run it, and passes vacuously |
 | Name the members that carry the tuple's integrity | AC-0254 | r8 § 5 enumerates fourteen producer fields; AC-0225 names two illustrative ones. Three are security-bearing and neither criterion required them: `model_adapter` and `fetch_adapter`, which r8 says exist "so a fixture run can never be mistaken for a live one", and `tool_manifest_hash`. AC-0223's oracle reads the log for a `step.completed` whose producer tuple names the live adapter — the one check distinguishing a real provider call from a replay — so it rests on a field no criterion required | The Phase 1 evidence base cannot tell a fixture run from a live one, and AC-0223 proves nothing it claims |
 | Record the producer tuple | AC-0225 | Inspectability is r8's first-ranked quality attribute, and a recorded run whose producer is unknown cannot be re-derived or compared across a version bump. No § Rollout criterion asks for it | Phase 1's measurements cannot be attributed to the stack that produced them |
 | Release the lease on suspension | AC-0237 | r5 § 3 Runtime Model, the approval gate step 3 makes lease release how a *different* worker resumes, which is exactly what AC-0227 then relies on. No § Rollout criterion asks for it, and AC-0232 covers only a hung step's release under `step_deadline` — a different path with a different trigger | A suspended step holds its lease until expiry, AC-0227's separate-process resume passes only because the test arranges it, and the approval gate stalls a worker for the whole TTL |
@@ -144,6 +148,20 @@ each rather than inheriting it.
 - [ ] **AC-0229.** A step resumed from a history that carries stale instruction text is prompted by a fresh compilation of the role version it was suspended under, and the stale text does not reach the model.
 - [ ] **AC-0230.** With a crash injected between the payload write and the fenced append, an unreferenced payload object remains and no event carries a payload reference that does not resolve.
 - [ ] **AC-0231.** Every payload object key is scope-qualified as `<owner_scope>/<content_hash>`, so a bare content hash is never the key.
+
+**Holding the quarantine boundary through a running step**
+
+These four are `walking-skeleton-role-compilation`'s by subject — it builds the
+quarantined role, the parser and the compiled stack — and sit here because none
+can be observed without a running step and the context assembler this spec
+builds. Placement per [`../README.md`](../README.md) § Cutting one outcome into
+several specs; owner decision of 2026-09-20 after a design pass found no task in
+that spec could host the module they fail through.
+
+- [ ] **AC-0222.** No free text produced by a quarantined step reaches a planning step's context package, including by way of stored state read back from the database. *Subject owner: `walking-skeleton-role-compilation`.*
+- [ ] **AC-0242.** A refused integration result records its rejection without the rejected text reaching the event log or any payload object an event of that run references. *Subject owner: `walking-skeleton-role-compilation`.*
+- [ ] **AC-0255.** Every field of a quarantined agent's own output — labels, typed scalars and references alike — is admitted by the runtime's deterministic parser outside the agent. An agent whose declared `output_schema_ref` would accept a value the parser refuses still fails the step, which is what shows the parser and not the framework's schema is the admitting component. *Subject owner: `walking-skeleton-role-compilation`.*
+- [ ] **AC-0256.** A planning role's context package containing anything outside the admitted types fails the step in the runtime's context assembler, before the agent is constructed, whatever produced that content and by whichever assembly path it arrived. *Subject owner: `walking-skeleton-role-compilation`.*
 
 **Bounding a hung step**
 

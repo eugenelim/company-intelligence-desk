@@ -54,7 +54,8 @@ write first and trust least.
 - [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) — the framework at step-level-reasoning-library position; `Model` as the portability contract; `WrapperToolset.call_tool` as the decision point. ADR-0002 pins 2.45.0.
 - `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**. The first of those limits in particular narrows the quarantine guarantee's *scope*; it does not license leaving the guarantee unverified, which is why this spec adds criteria for it.
 - `worker-runtime.md` r5 — see § DR dispositions below. The amendments it once asked of its parent are folded into r8; see § Amendments the worker runtime asked of its parent.
-- **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
+- **Hard dependency:** `walking-skeleton-foundation` ships both append paths, the privilege split and the pool.
+- **Designed by:** [`role-configuration-seams`](../../architecture/role-configuration-seams/role-configuration-seams.md). Its § 5 gives the migration, § 2 the seams, § 6 the operator surfaces. This plan builds that delta and invents nothing beyond it.
 - **Placement and re-cut rules:** [`docs/specs/README.md`](../README.md) § Cutting one outcome into several specs.
 - **Out of scope:** the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`, which follows this spec; the provider call, suspension and persistence, owned by `walking-skeleton-step-lifecycle`, which follows that one; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
@@ -158,8 +159,12 @@ directly by its own suite. Traces to: AC-0201, AC-0220.
 
 ### Data & schema
 
-No schema change. This spec reads `agent_role`, `integration_registry` and
-`entitlements`, all created by the foundation spec. It writes no payload object;
+One expand-only migration, specified in [`role-configuration-seams`](../../architecture/role-configuration-seams/role-configuration-seams.md) § 5: `agent_role` gains
+`model_settings`, `output_schema_ref` and `display_name`; `integration_registry`
+gains the r5 fields plus `tools` and `pool_classes`, with its key widened to
+`(integration_name, version)`. Both tables already carry the `SELECT` grants
+migration 0001 gives `app_api` and `app_worker`, so the revision adds none. It
+reads `entitlements` unchanged. It writes no payload object;
 the first one is `walking-skeleton-step-lifecycle`'s, which is where object keys
 become scope-qualified.
 
@@ -202,11 +207,16 @@ fixture. No task here reaches a provider.
 
 **Depends on:** none
 
-**Touches:** pyproject.toml, src/**/adapters/framework_contract.py, tests/contract/**
+**Touches:** src/**/adapters/framework_contract.py, tests/contract/**
+
+`pyproject.toml` is untouched: `pydantic-ai-slim[bedrock]` 2.45.0 is already pinned there under ADR-0002 D1.
 
 **Tests:**
 - The contract suite asserts every check in § Grounding probe, including the package-root import path for the deferred-requests type. A re-export moving is additive-minor drift the vendor does not class as breaking, so it must red here rather than in a runtime.
-- A deliberate downgrade of the pin reds the suite. Without this the suite proves the current version behaves as documented and nothing about its ability to notice a change, which is the only thing it exists for.
+- **`no stub (goal-based)`.** This task carries no acceptance criterion; its verification is the `Done when` gate plus the recorded downgrade transcript.
+- A deliberate downgrade of the pin reds the suite. **Mode: manual verification** — no test can install a different version of its own dependency. The artifact is a transcript in `notes/verification-ledger.md` showing the pin moved, the suite run, the failure, and the pin restored.
+- Two probe rows this task pins, both load-bearing and neither covered before: the toolset surfaces AC-0202 must not root on, and the token-counting and cost-derivation behaviour AC-0246 must not rest on.
+- The original second check, restated: Without this the suite proves the current version behaves as documented and nothing about its ability to notice a change, which is the only thing it exists for.
 
 **Approach:**
 - Add the framework dependencies to the manifest the foundation spec created.
@@ -217,10 +227,36 @@ fixture. No task here reaches a provider.
 
 **Depends on:** T1
 
-**Touches:** src/**/agents/compiler.py, src/**/agents/toolsets/**, tests/compiler/**
+**Touches:** migrations/versions/**, src/**/adapters/postgres/roles.py, src/**/agents/compiler.py, src/**/agents/models.py, src/**/agents/toolsets/**, src/**/worker/pool.py, AGENTS.md, deploy/compose.yaml, tests/compiler/**, tests/fixtures/registry_seed.py, tests/schema/**, tests/worker/test_pool_paths.py
 
 **Tests:**
-- AC-0201 has two cases, each a compile error rather than a call-time denial.
+- **Stub** (`stub: true`) — the compiler seam is `compile_role(role, integrations, pool) -> CompiledRole`, named in the design's § 2:
+
+  ```python
+  # STUB: AC-0202
+  # tests/compiler/test_stack_composition.py
+  from ced.agents.compiler import compile_role
+
+
+  def test_the_compiled_stack_is_exactly_four_layers_in_order() -> None:
+      compiled = compile_role(role=analysis_role(), integrations=(), pool=pool_defaults())
+
+      chain: list[str] = []
+      node = compiled.stack
+      while node is not None:
+          chain.append(type(node).__name__)
+          node = getattr(node, "wrapped", None)
+
+      assert chain == [
+          "PolicyDecisionPoint",
+          "StepEventToolset",
+          "TrustClassToolset",
+          "FunctionToolset",
+      ]
+  ```
+
+  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.agents.compiler'` — an import-time failure is a collection error, not a test failure. The walk roots at `CompiledRole.stack` and traverses `.wrapped`, both pinned in § Grounding probe. The task's other criteria grow from this surface.
+- AC-0201 has two cases, each a compile error rather than a call-time denial: a `ceiling` entry naming an integration the compiler was not given, and a `tool_name` absent from that integration's `tools`.
 - AC-0202 walks the constructed chain and asserts the type order; the checker is separately unit-tested against hand-built wrong chains, which is what lets the ordering be asserted without the compiler accepting a layer list.
 - AC-0203, AC-0204, AC-0205, AC-0219 and AC-0251 are each a role record the compiler must reject or constrain. AC-0203's case set covers every non-quarantined role the skeleton carries, not just the planning one, because that is the scope r5's R2 states. AC-0205 asserts the compiled budgets are zero rather than that the role record requested zero — the record is the input, the compiled agent is the fact.
 - AC-0246 uses a stub model that records whether its request method ran, with a ceiling below the counted tokens. A settings read would pass on a flag that is set and never consulted; the stub is what makes "before the request" observable. AC-0206 cannot see this either way.
@@ -234,15 +270,31 @@ fixture. No task here reaches a provider.
 - The usage-limit narrowing is applied where the pool default is known, so the compiled agent carries the resolved value and the role record keeps the requested one. Resolving it at call time would make AC-0206's widening case unobservable on the compiled agent.
 - The decision point is installed as the outermost layer with no predicate bound to it. It holds a reference to a resolver that has no entries, which is what makes the interval refuse by construction rather than by a branch someone can delete.
 
-**Done when:** AC-0201 through AC-0206, AC-0219, AC-0233, AC-0234, AC-0246 and AC-0251 are green.
+**Done when:** AC-0201 through AC-0206, AC-0219, AC-0234, AC-0246, AC-0251, AC-0258 and AC-0259 are green under `pytest -m 'not substrate'`; AC-0233 and the `tests/schema/` migration check are green under the full `pytest` run against the Compose substrate.
 
-### T3: Free text does not cross the boundary
+### T3: The parser admits only what the boundary allows
 
 **Depends on:** T2
 
 **Touches:** src/**/domain/quarantine/**, src/**/agents/toolsets/trust_class.py, tests/quarantine/**
 
 **Tests:**
+- **Stub** (`stub: true`) — the parser seam is `ced.domain.quarantine.parser.admit(value)`:
+
+  ```python
+  # STUB: AC-0220
+  # tests/quarantine/test_parser_admits.py
+  import pytest
+
+  from ced.domain.quarantine.parser import AdmittedTypeRefused, admit
+
+
+  def test_free_text_is_refused() -> None:
+      with pytest.raises(AdmittedTypeRefused):
+          admit("Apple reported record revenue this quarter.")
+  ```
+
+  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.domain.quarantine'` — the missing package, not the module. The mint interface AC-0238 and AC-0250 read is **`no stub (implementation-discovered)`**: the candidate set is per-step in-process state by the owner's ruling of 2026-09-20, so its holder is chosen while building the step path T2 does not define. Proof obligation: write the red assertion against the mint interface as discovered, prove the red, and record the seam in `notes/verification-ledger.md` before production code.
 - AC-0220 feeds the parser output that is neither a closed-vocabulary label nor a typed scalar and asserts the step fails. The parser is the runtime's, outside the agent — a test that drives the agent's structured output instead is testing the layer, not the boundary.
 - AC-0221 is the criterion to write first and trust least: a well-formed reference that resolves in *another* step's set must still fail. Shape validity is not provenance, and a parser that checks only shape admits an attacker-chosen value inside a well-formed reference.
 - AC-0238 asserts an ordering and an equality, not a value: the recorded mint precedes the agent's first model turn, and the before and after snapshots match. AC-0250 is separate because a set nothing tries to mutate satisfies AC-0238 with no enforcement built at all. A post-run probe alone cannot see a resolver that consults a second source while the agent runs, which is the "agent emits, resolver accommodates" shape this criterion exists to catch.
@@ -254,7 +306,7 @@ fixture. No task here reaches a provider.
 - The quarantine spine reaches no registered tool. The quarantined role resolves no integrations (AC-0219) and the planning step in AC-0222 is asserted on its assembled context, not on a tool call, so the spine and AC-0233's blanket refusal are satisfiable together.
 - The deterministic pipeline mints the candidate reference set *before* the quarantined agent runs. The agent selects and labels among candidates that already resolve and cannot mint an identifier. Building the weaker construction — agent emits, parser rejects — is the failure mode here, and it is the one spike 4 measured and the design explicitly moved away from.
 
-**Done when:** AC-0220, AC-0221, AC-0222, AC-0238, AC-0242 and AC-0250 are green.
+**Done when:** AC-0220, AC-0221, AC-0238 and AC-0250 are green under `pytest -m 'not substrate'`. AC-0222 and AC-0242 moved to `walking-skeleton-step-lifecycle`, which owns the step path they fail through.
 
 ### T4: The record says what this spec established and what it did not
 
@@ -264,6 +316,7 @@ fixture. No task here reaches a provider.
 
 **Tests:**
 - `python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green.
+- **`no stub (goal-based)`.** This task carries no acceptance criterion; its verification is the lint above plus a reader check that the record separates what was established from what was not.
 
 **Approach:**
 - State plainly that the quarantine criteria establish the boundary holds against the cases written, and establish nothing about an adaptive adversary — r8 records that no structural defence has been tested under an unlimited budget, and that gap stays open.
