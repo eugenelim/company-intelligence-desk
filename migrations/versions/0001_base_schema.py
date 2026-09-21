@@ -160,8 +160,9 @@ def upgrade() -> None:
             version      integer NOT NULL,
             -- The decidable fragment: closed enumerations, string prefixes,
             -- numeric ranges, set membership, as a conjunction of independent
-            -- per-argument predicates. The compiler owns its shape;
-            -- walking-skeleton-role-compilation owns the compiler.
+            -- per-argument predicates. An entry's binding fields are settled
+            -- by revision 0003; the `predicates` encoding is
+            -- walking-skeleton-authority-containment's, which evaluates it.
             ceiling      jsonb NOT NULL,
             pool_class   text,
             instructions text NOT NULL,

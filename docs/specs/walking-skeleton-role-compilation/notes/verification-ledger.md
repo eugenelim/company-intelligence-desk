@@ -105,3 +105,72 @@ state, both found by reading the installed package rather than inferred:
   the only parameter without a default. The region is a deployment input, not
   a second constructor argument, and `walking-skeleton-step-lifecycle` owns
   where it comes from. No network call is made either way.
+
+## T2a — the migration and the loader
+
+T2 is MIXED and was split at dependency-ordered layers. Layer (a) is revision
+0003, `ced.adapters.postgres.roles`, the `tests/schema/` delta check, the
+offline loader suite and the substrate round-trip. The compiler, the toolsets,
+the pool configuration and the parser are later layers.
+
+**`trust_class`'s closed set is `{"admitted-types", "free-text"}`, and that is
+a reading of r5 § 4 rather than a transcription of its table.** That table's
+Declared column has four rows: `admitted-types`, `admitted-types` + reference
+output, `free-text`, and `absent → Not registrable`. Only two are values a
+`text NOT NULL` column holds. The second row is r5's split of the admitted set
+by whether a minting authority exists — a rule that applies when
+admitted-types output carries references — and not a third string anyone would
+write into the column; the fourth is the table's own name for not being
+registrable. The set is declared as a module-level frozenset with that reading
+recorded beside it, and `tests/compiler/test_role_loader.py` pins the set
+itself so widening it is a reviewable diff. One AC-0266 case feeds the second
+row verbatim as a string, because a loader that admitted it would widen a set
+the migration adds no CHECK on. (Controller ruling, implemented as given.)
+
+**Revision 0001's `ceiling` column comment was edited, by controller ruling.**
+The ratified design § 8 assigns this spec the job of amending it to name
+`walking-skeleton-authority-containment`, because the predicate half moved
+there. The implementer carried the correction as a superseding comment in
+revision 0003 instead, on the ground that rewriting an applied revision makes
+the file disagree with every database it ran against. The controller overruled
+that and made the one-line edit as well, for two reasons. The text is a SQL
+comment inside a `CREATE TABLE` string, discarded by Postgres and read by no
+test, so editing it changes nothing about what ran. And leaving the corrected
+statement in 0003 beside the superseded one in 0001 is the precise failure this
+spec's review found five times: a literal search for the new wording does not
+find the old claim in different words. 0003's paragraph was rewritten in the
+same edit so the two files do not now disagree about which was amended.
+
+**Observed against the migrated database, not inferred from the DDL.**
+`alembic upgrade head` from 0002 produced exactly the § 5 delta:
+`information_schema.columns` reports `integration_registry.tools` as
+`jsonb / YES / NULL` — nullable with no default, which is the choice nothing
+else pinned — and `pg_get_constraintdef` reports
+`PRIMARY KEY (integration_name, version)` under the name
+`integration_registry_pkey`, which Postgres reuses after the drop.
+`information_schema.table_privileges` reports exactly four rows for the two
+tables and the two reading roles, all `SELECT`, confirming 0001's grants
+survive and that revision 0003 needs none: a column inherits its table's grant.
+`config` is still present as `jsonb`, unread.
+
+**`load_role` reads the registry rows before the ceiling has been judged**, so
+pin extraction is deliberately tolerant — a malformed ceiling yields no pins
+and the refusal still comes from `decode_role_record` with its own message.
+Raising during extraction would move the refusal off the seam the offline
+criteria are decided against, and would make the substrate delegation check
+pass for the wrong reason.
+
+**The three seams open their own connections as `app_worker`.** The pinned
+signatures take no connection — `load_role(role_name, version)`,
+`list_roles()`, `list_integration_tools()` — and compilation happens at step
+start in the worker, which is the narrower of the two roles holding `SELECT`.
+This differs from `event_log.py`, whose functions take a connection because
+they participate in the caller's transaction; these are plain reads that do
+not.
+
+**Gate counts.** Offline went from 62 passed / 1 failed to 85 passed / 1
+failed; the failure is the pre-existing `.github` case in
+`tests/architecture/test_recorded_layout.py`. `ruff format --check .` still
+exits 1 on `plan.md:250` alone, also pre-existing. Substrate: 167 passed, 4
+skipped in 28 s, the skips being `tests/fault_injection` with no worker
+containers started.
