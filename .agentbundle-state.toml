@@ -10,7 +10,6 @@ target-file = "~/.claude/settings.json"
 primitives = ["skill", "agent", "hook-body", "hook-wiring", "command"]
 
 [pack.core.adapters.claude-code.files]
-".agents/rules/cognitive-load.md" = { from-pack-version = "2.25.9", sha = "506244247d8d56b627c46e2d69c5f5f0ca0f8ca729f78f6c6ca8f46c71250b38" }
 ".claude/agents/adversarial-reviewer.md" = { from-pack-version = "2.26.24", sha = "89a91ec094a304e0d17fe1a93f1988150a2f5806754586060882a7fc490f7f1b" }
 ".claude/agents/finding-adjudicator.md" = { from-pack-version = "2.26.24", sha = "934758077656f0e51c4fb9b56eecd3c825a5b54335ea3e67cfe02dd8c9fb3db2" }
 ".claude/agents/implementer.md" = { from-pack-version = "2.26.24", sha = "c52d8ea1cf1235af5ccd9ca22428dbf7d176c441c0c00e95fe7e67303be898dc" }
@@ -238,7 +237,6 @@ user-root = "~/.agentbundle"
 primitives = ["skill", "agent", "hook-body", "hook-wiring", "command"]
 
 [pack.core.adapters.codex.files]
-".agents/rules/cognitive-load.md" = { from-pack-version = "2.25.9", sha = "506244247d8d56b627c46e2d69c5f5f0ca0f8ca729f78f6c6ca8f46c71250b38" }
 ".agents/skills/adapt-to-project/SKILL.md" = { from-pack-version = "2.26.24", sha = "eadb2ba3ef0bd162fbbfc212f44836cefe727c60d335be6460be53b78618bc07" }
 ".agents/skills/adapt-to-project/assets/reference.md" = { from-pack-version = "2.26.24", sha = "1f5cfdc0b25f4dccf3cde85a203fcbb8ffc17f716b9f9734539d21afad25ca9f" }
 ".agents/skills/adapt-to-project/evals/eval_queries.json" = { from-pack-version = "2.26.24", sha = "564f2805928fd7bec2dbc2822633fccc0c40e52aef375410a5d262f78749f588" }
