@@ -156,16 +156,20 @@ suspension free to lift early.
 ## Confirmation
 
 - **Mode:** test for D1 and D2; design change for D3; none for D4
-- **Signal:** D1 and D2 each **become** a criterion in
+- **Signal:** D1 and D2 each **became** a criterion in
   [`walking-skeleton-step-lifecycle`](../specs/walking-skeleton-step-lifecycle/spec.md)
-  through the amendment this record obliges — neither exists there today. One
-  asserts a per-request token bound refuses a request under production wiring;
-  one asserts an instruction hash resolves from the event log alone. Either
-  going green lifts its row; either staying absent when that spec ships is the
-  failure signal. D1's deployment half — `count_tokens_before_request` staying
-  `false` wherever `BedrockConverseModel` is wired — is asserted where the pool
-  configuration is validated, in `walking-skeleton-role-compilation`'s
-  `verify_boot` check, so the mitigation is checked rather than remembered.
+  on 2026-09-21, through the amendment this record obliges. **AC-0271** asserts
+  a per-request token bound refuses a request under production wiring;
+  **AC-0272** asserts an instruction hash resolves from the event log alone.
+  Either going green lifts its row; either staying absent when that spec ships
+  is the failure signal. Both are recorded there as return-condition criteria
+  excluded from that spec's ship gate, because neither can be green while its
+  deviation stands. D1's deployment half — `count_tokens_before_request`
+  staying `false` wherever `BedrockConverseModel` is wired — is a separate
+  obligation and is asserted where the pool configuration is validated, as
+  [`walking-skeleton-role-compilation`](../specs/walking-skeleton-role-compilation/spec.md)'s
+  **AC-0270** on its `verify_boot` check, so the mitigation is checked rather
+  than remembered.
   D3 is lifted by a design change rather than a criterion, and
   its own signal is the trust-class parser's free-text branch gaining a test.
   D4 has no return condition and no signal; it stands until reversed.
