@@ -61,7 +61,7 @@ restates another's rows.
 | --- | --- | --- |
 | DR1 | Publication is an executor transition, suspended by a contentless tool | **Partly here** — the contentless `request_approval()` tool, its suspension and its lease release land in T2; the publication transition is the evidence spec's |
 | DR3 | The credential seam is the model/provider layer | **Lands**, T1 — `BedrockConverseModel` resolves the ambient chain and no `CredentialProvider` indirection is built |
-| DR8 | Thinking off, and reasoning parts stripped before persisting | **Lands here** — AC-0228 is the storage backstop and lands in T3. `walking-skeleton-role-compilation`'s AC-0204 compiles the disable, and its own security review found the compiled value does not reach the provider; AC-0275, AC-0276 and AC-0277 carry that obligation and land in T6, so the thinking half of DR8 is enforced in this spec rather than asserted in the one that cannot observe it |
+| DR8 | Thinking off, and reasoning parts stripped before persisting | **Lands here** — AC-0228 is the storage backstop and lands in T3. `walking-skeleton-role-compilation`'s AC-0204 compiles the disable, and its own security review found the compiled value does not reach the provider; AC-0275 carries the compile-time half in T6 and AC-0276 the run-path half in T7, so the thinking half of DR8 is enforced in this spec rather than asserted in the one that cannot observe it. **Enforced at those two seams and no earlier:** a boot-time refusal was drafted, found to have no sound seam in Phase 1 and withdrawn to the spec's § Follow-ons |
 | DR12 | Per-integration credential scoping is blast radius, not isolation | **Deferred** to the commissioned broker, recorded in the spec's Follow-ons. MVP has one integration, so the union this would bound is a single scope |
 
 ## Amendments the worker runtime asked of its parent
@@ -168,7 +168,7 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 
 ### T1: A real step runs under a scoped role
 
-**Depends on:** T6 — the reasoning-disable refusals ship before the repository's first live provider call.
+**Depends on:** T6 — merged, not merely authored, before the repository's first live provider call.
 
 **Touches:** src/**/adapters/bedrock/**, src/**/worker/executor.py, tests/provider/**
 
@@ -181,7 +181,7 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 **Approach:**
 - The IAM shape carries over from spike 1 unchanged and is **not** re-derived: inference-profile ARN pinned to the calling region, foundation-model ARN region-wildcarded, no requested-region condition. Both plausible tightenings deny the call outright.
 
-**Done when:** AC-0223, AC-0224 and AC-0225 are green against a real Bedrock call under the scoped role, **and T6 is complete before the first live call is issued.** T6's criteria are named here as a gate, not as ownership — T6 and T7 own them, and this sentence avoids repeating their identifiers because the alignment lint cannot tell a gate from an owner. T1 is the first live call in the repository and T6 is what stops it reasoning: on the pin the disable reaches the wire only for the Claude families T6's compile-time refusal admits, and this spec's model id must be one of them. AC-0228's storage backstop does not land until T3, so between these points the durable record is protected by the request-side control alone — stated because that is a real uncovered interval, not a covered one.
+**Done when:** AC-0223, AC-0224 and AC-0225 are green against a real Bedrock call under the scoped role, **and T6's PR is merged before this PR opens.** T6's criteria are named here as a gate, not as ownership — T6 and T7 own them, and this sentence avoids repeating their identifiers because the alignment lint cannot tell a gate from an owner. T1 is the first live call in the repository and T6 is what stops it reasoning: on the pin the disable reaches the wire only for the Claude families T6's compile-time refusal admits, and this spec's model id must be one of them. AC-0228's storage backstop does not land until T3, so between these points the durable record is protected by the request-side control alone — stated because that is a real uncovered interval, not a covered one.
 
 ### T2: A step suspends for approval and releases its lease
 
@@ -262,26 +262,25 @@ context assembler, and no task there could host the module they fail through.
 
 **Done when:** AC-0255 and AC-0256 are green under `pytest -m 'not substrate'`, and AC-0222 and AC-0242 are green under the full `pytest` run against the Compose substrate.
 
-### T6: The reasoning disable is enforced before a call is issued
+### T6: A role cannot compile against a model that would reason
 
-**Depends on:** none. `compile_role` and `verify_boot` are both public today and
-the adapter's request-building code needs only a resolved profile, so neither
-criterion here waits on the model seam. **T6 ships first and T1 depends on it**,
-which is what keeps the repository's first live provider call from reasoning.
+**Depends on:** none. `compile_role` is public today and the check runs against
+an adapter instance the caller supplies, so nothing here waits on the model
+seam. **T6 ships first and T1 depends on it**, which is what keeps the
+repository's first live provider call from reasoning.
 
-**Touches:** src/**/agents/compiler.py, src/**/agents/models.py, src/**/worker/pool.py, tests/thinking_reaches_the_model/**
+**Touches:** src/**/agents/compiler.py, tests/thinking_reaches_the_model/**
 
 `walking-skeleton-role-compilation` ships the compiler this task adds a refusal
-to and `walking-skeleton-foundation` ships `verify_boot`. Both specs' contracts
-are frozen, so the **criteria** are this spec's while the **code** lands in the
-modules they built; nothing here reopens AC-0204, whose carve-out stays as
-written. AC-0275 and AC-0277 are a superset of it.
+to. That spec is `Shipped` and its contract frozen, so the **criterion** is this
+spec's while the **code** lands in the module it built. Nothing here reopens
+AC-0204, whose carve-out stays as written; AC-0275 is a superset of it.
 
 **Tests:**
-- AC-0275 compiles once per outcome against the adapter's own rendering: an id whose adapter returns a disable is admitted, and one whose adapter returns nothing is refused naming the id. Both cases are required — a refusal-only suite cannot show the guard discriminates. It must call the adapter's request-building code rather than restate its rule, which drifts at the next pin.
-- AC-0277 drives `verify_boot` with a complete, otherwise-valid environment and asserts the refusal names the offending model id. **The environment must be complete:** `validate_pool_config` refuses a missing `CED_POOL_DEFAULT_LIMITS` before it reaches any model-id logic, so a stub omitting it goes green on the wrong `ValueError` and the guard is never exercised. The admit case carries `@pytest.mark.substrate`, `verify_boot` having no return before it opens its two connections.
-- AC-0276 asserts the executor refuses unless the **rendered** request carries a disable, driven three ways — per-run settings, an attached thinking capability, and a caller-supplied adapter-native carrier. Reading `ModelRequestParameters.thinking` is refused as the observable: it is assigned at one site gated on the unified key, and `False` there still renders nothing on an adaptive profile, so that read is green on the third route and on every profile declaring neither flag.
-- **Mutation proof is the task's own obligation, not a review's.** Disable each guard in turn and record in `notes/verification-ledger.md` which checks red and which stay green. **Two cases are mandatory in that set**, both being shapes that already shipped green here: the unwired-factory case, which belongs to AC-0276 because `model_factory` defaults to `None` and AC-0275 admits that compile by design; and a case proving each check fails for *its own* reason rather than on a missing fixture or an import error.
+- AC-0275 compiles once per outcome and all four are required, a refusal-only suite being unable to show the guard discriminates: an adapter whose resolved request carries a disable is admitted; one whose request carries none is refused naming the model id; a pool with no adapter wired is admitted, that case belonging to T7's criterion; and a model id resolving to no profile is **refused**, not treated as a fixture, since an unrecognised real id resolves to no profile too.
+- A declared non-provider model is admitted, and the declaration is what admits it. The test asserts the deployment's own `stub:counting` compiles, and that removing the declaration while leaving the id makes the same compile fail — otherwise the carve-out is indistinguishable from the unrecognised-prefix drop it must not become.
+- The probe begins at `ModelSettings(thinking=False)` and runs the model's full settings-to-request resolution, not the renderer alone. A test that hands a hand-built parameters object to the renderer skips the always-thinking discard and the neither-flag case, and is green today only because no Bedrock Anthropic profile sets `thinking_always_enabled` on this pin — which is a property of the pin, not of the guard.
+- **Mutation proof is the task's own obligation, not a review's.** Disable the guard and record in `notes/verification-ledger.md` which checks red and which stay green. **One case is mandatory:** prove each check reds for the guard's own reason and not on a missing fixture or an import error — the shape that shipped green twice in this task's own stubs.
 - **Stub** (`stub: true`) for AC-0275:
 
   ```python
@@ -291,8 +290,6 @@ written. AC-0275 and AC-0277 are a superset of it.
 
   from ced.agents.compiler import ThinkingDisableUnreachable, compile_role
 
-  from tests.fixtures.registry_seed import a_role
-
 
   def test_compiling_against_an_adapter_that_renders_no_disable_is_refused() -> None:
       pool = {"allowed_model_ids": ("adaptive:model",)}
@@ -300,55 +297,34 @@ written. AC-0275 and AC-0277 are a superset of it.
           compile_role(a_role(), (), pool, adapter=_renders_nothing())
   ```
 
-  Validation: fails at collection with `ImportError: cannot import name 'ThinkingDisableUnreachable' from 'ced.agents.compiler'`. **That is collection-time red only, and it is not sufficient on its own** — `a_role()` and `_renders_nothing()` are the implementer's to supply, so until they exist the stub cannot show its assertion reaches the guard. Proof obligation, discharged before production code: once the symbol exists, prove the assertion reds for the guard's own reason and not on a missing helper. **The earlier version of this stub was wrong twice** and is recorded so the correction is auditable: it passed `{}` as the role, which raises `KeyError` on `role["role_name"]` before any guard, and it asserted a refusal for `adapter=None`, a case AC-0275 explicitly admits. A stub that cannot reach its guard is the shape this task exists to stop shipping.
-- **Stub** (`stub: true`) for AC-0277:
-
-  ```python
-  # STUB: AC-0277
-  # tests/thinking_reaches_the_model/test_boot_refuses_an_unreachable_model_id.py
-  import pytest
-
-  from ced.agents.models import (
-      ThinkingDisableUnreachable,
-      adapter_renders_thinking_disable,
-  )
-  from ced.worker.pool import validate_pool_config
-
-  ADMITTED = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-  REFUSED = "us.anthropic.claude-sonnet-5-20260101-v1:0"
-
-
-  def test_boot_refuses_an_admitted_id_whose_adapter_renders_no_disable() -> None:
-      assert adapter_renders_thinking_disable(ADMITTED) is True
-      with pytest.raises(ThinkingDisableUnreachable):
-          validate_pool_config(_complete_env(allowed=f'["{REFUSED}"]'))
-  ```
-
-  Validation: fails at collection with `ImportError: cannot import name 'ThinkingDisableUnreachable' from 'ced.agents.models'`, which is collection-time red only and carries the same proof obligation as AC-0275's: `_complete_env` is the implementer's, and a stub that reds on a missing helper proves nothing about the guard. It asserts against `validate_pool_config`, which `verify_boot` calls before either connection, so the refusal half needs no substrate; `_complete_env` supplies every required variable so the refusal cannot be the one for a missing `CED_POOL_DEFAULT_LIMITS`.
+  Validation: fails at collection with `ImportError: cannot import name 'ThinkingDisableUnreachable' from 'ced.agents.compiler'`. **That is collection-time red only and is not sufficient on its own** — `a_role()` and `_renders_nothing()` are the implementer's, so until they exist the stub cannot show its assertion reaches the guard. Proof obligation, discharged before production code: once the symbol exists, prove the assertion reds for the guard's own reason, not on a missing helper. **The first version of this stub was wrong twice** and is recorded so the correction is auditable: it passed `{}` as the role, which raises `KeyError` on `role["role_name"]` before any guard, and it asserted a refusal for `adapter=None`, a case AC-0275 admits.
 
 **Approach:**
 - The obligation is a property, not a mechanism list, because several layers defeat the compiled value independently and a guard scoped to any one leaves the rest open. **The canonical account of those layers is the spec's § Assumptions and nowhere else** — this plan, the register entry and the predecessor spec's Follow-ons point at it rather than restating it, because the first draft carried four copies and they had drifted apart by the first review.
-- AC-0276's recording construction is the shape AC-0263 already uses for usage limits. That is a precedent for the shape only: AC-0263 is owned by no task in this plan, a separate pre-existing gap not closed here. The identifier is cited in this field rather than in `Tests:` because naming it there would report it as verified by T6, which would be false.
-- **Residual harm before this task lands is bounded, not absent:** no provider call ships in `walking-skeleton-role-compilation`, and the deployed pool admits only `stub:counting`. The exposure is configuration rather than code, which is why AC-0277 reads the admitted set at boot and AC-0275 reads the resolved model at compile.
-- **AC-0277 creates the first `worker/` → `agents/` import**, and `ced.agents.models` imports `pydantic_ai` at module scope, so the worker process's import graph gains a `pydantic_ai` edge. `tests/architecture/dependency_direction.py` walks direct imports per file and stays green, but `walking-skeleton-foundation` § Boundaries' intent reaches further than the gate does. **Stated rather than left to the gate's silence:** the owner confirms the transitive edge at the plan gate, or AC-0277 moves its decision behind a protocol the way `PoolConfig.model_factory` already is.
+- **Residual harm before this task lands is bounded, not absent:** no provider call ships in `walking-skeleton-role-compilation`, and the deployed pool admits only `stub:counting`. The exposure is configuration rather than code, which is why the refusal reads the resolved model rather than the deployment's id list.
 
-**Done when:** AC-0275 and AC-0277's refusal half are green under `pytest -m 'not substrate'`, AC-0277's admit case is green under the full run, and the verification ledger records, per guard, which checks red when it is disabled and which stay green.
+**Done when:** AC-0275 is green under `pytest -m 'not substrate'`, the deployment's own `stub:counting` configuration still compiles and both worker services still boot, and the verification ledger records which checks red when the guard is disabled and which stay green.
 
-### T7: The run path cannot re-enable reasoning
+### T7: No path to the provider can re-enable reasoning
 
-**Depends on:** T1, T2 — the executor and its call site.
+**Depends on:** T1, T2 — the step path and the model seam it installs.
 
-**Touches:** src/**/worker/executor.py, tests/thinking_reaches_the_model/**
+**Touches:** src/**/agents/models.py, src/**/worker/executor.py, tests/thinking_reaches_the_model/**
 
 **Tests:**
-- AC-0276, as its `Tests:` bullets in T6 describe, sited on the executor once it exists.
-- **`no stub (implementation-discovered)`** for AC-0276. Discovery predicate: its seam is the executor's call site and `src/ced/worker/executor.py` does not exist. Proof obligation: one compilable red assertion against the seam as discovered, proved red for its own reason, with the seam recorded in `notes/verification-ledger.md` before production code.
+- AC-0276 asserts no call reaches a provider unless the **rendered** request carries a disable, driven three ways: per-run settings, an attached thinking capability, and a caller-supplied adapter-native carrier. One predicate over the rendered request decides all three; reading `ModelRequestParameters.thinking` is refused as the observable, being green on the third route and on every profile declaring neither flag.
+- The guard is asserted at the **model seam**, not the executor's call site. The framework resolves the agent's settings, a capability's and the per-run mapping into one mapping before calling the model, so a test proving the guard from the executor's call site proves it above two of the three routes. The test drives a real agent run so the layering actually happens.
+- **Both provider paths are asserted**, streaming and non-streaming. The adapter builds its request at two sites, and a guard on one leaves the other open for `walking-skeleton-evidence`'s browser stream.
+- The unwired-factory case is asserted here rather than in T6: `model_factory` defaults to `None`, T6's criterion admits that compile by design, and this is where the resulting call is refused.
+- **`no stub (implementation-discovered)`** for AC-0276. Discovery predicate: its seam is the model-seam guard the step path installs, and neither `src/ced/worker/executor.py` nor that guard exists. Proof obligation: one compilable red assertion against the seam as discovered, proved red for its own reason, with the seam recorded in `notes/verification-ledger.md` before production code.
+- **Mutation proof:** disable the guard and record which of the three routes red and which stay green, per route rather than in aggregate.
 
 **Approach:**
-- Split from T6 because T6 depends on nothing and gates T1, while this needs the executor T1 and T2 build. Keeping them one task declared a cycle: T1 would depend on T6 and T6 on T1.
-- T1's live call runs before this task. That is acceptable and not free: AC-0275 and AC-0277 have already refused every model whose adapter renders no disable, so the call cannot reason through the compiled path; what remains uncovered until here is a caller re-enabling it at the call site, which in T1 is this spec's own code and not a third party's.
+- Split from T6 because T6 depends on nothing and gates T1, while this needs the seam T1 and T2 build. One task declared a cycle: T1 would depend on T6 and T6 on T1.
+- AC-0276's recording construction is the shape AC-0263 already uses for usage limits. That is a precedent for the shape only: AC-0263 is owned by no task in this plan, a separate pre-existing gap not closed here. The identifier is cited in this field rather than in `Tests:` because naming it there would report it as verified by T7, which would be false.
+- T1's live call runs before this task. Not free, and stated rather than implied: AC-0275 has already refused every model whose request would carry no disable, so the call cannot reason through the compiled path; what remains uncovered until here is a caller re-enabling it at the seam, which in T1 is this spec's own code and not a third party's.
 
-**Done when:** AC-0276 is green under `pytest -m 'not substrate'` with all three adversarial routes driven, and the ledger records the mutation result per route.
+**Done when:** AC-0276 is green under `pytest -m 'not substrate'` with all three routes driven on both provider paths, and the ledger records the mutation result per route.
 
 ### T4: The record says what this spec established and what it did not
 
@@ -367,8 +343,8 @@ written. AC-0275 and AC-0277 are a superset of it.
 
 ## Rollout
 
-- **Delivery:** five stacked PRs — T6, T1+T2+T7, T3, T5, T4. T6 leads because T1 is the repository's first provider call and T6 is what stops it reasoning; T7 rides with the executor it guards. The task graph is acyclic: T6 depends on nothing, T1 on T6, T7 on T1 and T2. Each leaves the repository working and is independently reviewable.
-- **Review shape:** T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite. T6 is **DEEP** and is sized as its own review even though it ships inside T1's PR. It carries a mandatory security review, and its failure mode is the one this row cites for T5 — tests pass while the guarantee is weaker than the criteria read — which has already happened once on this exact obligation. Three criteria over three seams — the compiler, `verify_boot`, and the executor's call site — split across T6 and T7, each independently reviewable. Every other task here is **MIXED** or smaller.
+- **Delivery:** five stacked PRs — T6, T1+T2+T7, T3, T5, T4. **T6 is its own PR and merges before the PR carrying T1**, stated once and in one way: intra-PR ordering is enforced by no gate, so "T6 ships inside T1's PR, earlier in the branch" would rest the repository's first live provider call on a reviewer reading commits in order. A separate merged PR is a condition a gate can check. The task graph is acyclic: T6 depends on nothing, T1 on T6, T7 on T1 and T2. Each leaves the repository working and is independently reviewable.
+- **Review shape:** T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite. T6 is **DEEP** and is sized as its own review even though it ships inside T1's PR. It carries a mandatory security review, and its failure mode is the one this row cites for T5 — tests pass while the guarantee is weaker than the criteria read — which has already happened once on this exact obligation. Two criteria over two seams — the compiler and the model seam — split across T6 and T7, each independently reviewable. Every other task here is **MIXED** or smaller.
 
 ## Risks
 
@@ -384,5 +360,6 @@ written. AC-0275 and AC-0277 are a superset of it.
 - 2026-09-20: plan approved by eugenelim
 - 2026-09-22: spec and plan returned to `Draft`/`Drafting` to carry an inherited obligation as contract **before this spec's baseline seals**. `walking-skeleton-role-compilation`'s AC-0204 compiles `thinking=False`; its mandatory security review found the value does not reach the provider, and its § Follow-ons routed the new controls to the spec that first issues a provider call. AC-0275 and AC-0276 and task T6 carry it. **Two criteria rather than one**, because the compile-time refusal and the run-path property have different seams and different mutation proofs, and one criterion goes green on whichever half holds. **Both here rather than an amendment to `walking-skeleton-role-compilation`'s compiler**, on three grounds: that spec is `Shipped` and its controlled-amendment transition is unavailable, as the closed `tools-array-elements-unchecked` register entry already records for the same compiler; its own § Follow-ons routes the controls here; and the adapter-rendering half cannot be decided without an adapter, which that spec does not ship. The refusal's code still lands in the compiler it built — the contract moves, not the module. **AC-0204 is not reworded**: its carve-out describes a `prepare_request` drop that is genuinely unreachable on a `supports_thinking`-only profile, and the widened obligation is a superset of it. No engine run was initialised. **The first recorded reason for that was wrong and is corrected here:** the `engine-state.json` guard is per spec directory, this directory has none, so `loop-engine init --mode spec-plan` would have succeeded. The actual reason is what that run would leave behind — a spec-plan run ends at `DONE`, and `init` then refuses the code-mode implementation run until someone performs the destructive `loop-cohort reset` / `loop-engine reset` pair, which needs human authorization. One engine run per spec is the pattern `walking-skeleton-role-compilation` follows, whose single run is `mode: code`. **Re-approval of both gates is owed to eugenelim.**
 - 2026-09-22: round 2 of both reviews. **The round-1 text repeated the defect it was written to fix.** AC-0276 pinned its read to `ModelRequestParameters.thinking`, which is assigned at one site gated on the unified key surviving the merge — and a `False` there still renders nothing on an adaptive profile, so the criterion could have gone green while the provider reasoned, exactly as AC-0204 does. The observable is now the rendered request, which also makes all three adversarial routes decidable by one predicate and closes the wrapper-forwarding hole. **A second read-one-branch error was caught and corrected:** "the current Claude families take the adaptive branch" is false for `claude-sonnet-4-5` and earlier, which do render the disable. **Owner decision of 2026-09-22 restricts Phase 1 to the families where the unified setting reaches the wire**, which removes the compiler-supplied carrier the round-1 text introduced and with it the conflict with r5 § 2 R3; Sonnet 5 and Opus 5 are out of Phase 1 on Bedrock and the § Follow-ons entry records the return condition. **The task graph declared a T1 ↔ T6 cycle**, now split: T6 depends on nothing and gates T1, T7 carries AC-0276 behind the executor. **Both stubs were broken and are rewritten** — one asserted a refusal AC-0275 admits and passed a role record that raises `KeyError` before any guard, the other went green on the `ValueError` for a missing `CED_POOL_DEFAULT_LIMITS`; each is recorded in place so the correction is auditable, and the validation sentences now say collection-time red is not sufficient.
+- 2026-09-22: round 3 of both reviews, which converged and settled the shape at **two criteria**. **AC-0277 is withdrawn and its identifier is not reallocated.** A boot-time refusal was undecidable everywhere it could sit: `verify_boot` is in `worker/`, the rendering decision needs a constructed adapter and so a region or a client, and resolving it in `agents/` would put Bedrock knowledge and a boto3 edge where r5 § 2 R3 forbids them — the ground the owner had just rejected the compiler-supplied carrier on. It also refused `stub:counting`, the only id the deployment admits, which would have taken down both workers and the fault-injection suite. Nothing is lost: AC-0275 refuses such an id at the first role compilation, so boot would only have been earlier. **AC-0276's guard moved from the executor's call site to the model seam**, and the round-2 clause calling a wrapper seam insufficient was inverted and is corrected: the framework resolves agent, capability and per-run settings into one mapping *before* calling the model, so the model seam sees all three routes and the executor's call site sees one. The predicate now binds to **both** provider paths, the adapter building its request at two sites. AC-0275 gained the declared-non-provider carve-out `stub:counting` needs, with an explicit-declaration requirement so an unresolved profile is refused rather than read as a fixture — treating it as one would install a recorded defeat layer as policy — and its probe must run the model's full settings-to-request resolution rather than the renderer alone. The delivery order is stated once: T6 is its own PR and merges before T1's.
 - 2026-09-22: **recorded conflict, not resolved here.** No documented route fits this edit, and the one taken is the closest available rather than a sanctioned one. `spec-and-plan-contract.md` says that from approval onward a correction takes the controlled-amendment path, not an in-flight edit; `delivery-contract-lifecycle.md` says that transition is unavailable outside `CODE-IMPLEMENTATION`, which a spec with no engine run cannot be in; and the hand reset of `Approved` to `Draft` used here is the rejected-gate recovery, while no gate was rejected. So the lifecycle has no route for widening an approved but unsealed contract, which is exactly the state this spec is in and the state the change was made early to exploit. Per root `AGENTS.md` § Coding conventions this is surfaced rather than worked around: the owner decides whether to accept the reset as the route, and whichever source owns the rule is the one that should gain the missing transition.
 - 2026-09-22: revised on the spec-stage security review, before re-approval. A **fifth** defeat layer was found that the first draft missed: the framework ships a thinking capability whose settings mapping is layered between the agent's and the per-run one and defaults to on, so § Assumptions now states the layers as those found rather than as a closed set, and AC-0276 drives three adversarial routes instead of one. AC-0277 was added because `CED_POOL_ALLOWED_MODEL_IDS` is deployment-time and `verify_boot` already validates it, so the operator's mistake can fail at boot instead of per-role at the first claim. AC-0275 now refuses a model id whose adapter cannot be resolved, since `model_factory` is unwired by default and a skip-when-absent guard would be green on every compile that ships. AC-0276 became a refusal rather than an observation and its read is pinned to `ModelRequestParameters.thinking` after `prepare_request`, which strips the key either way. **Delivery was resequenced:** T1 is the repository's first live provider call and T6 now ships in its PR ahead of it, because a current Claude model on Bedrock takes the adaptive branch that emits nothing for `False`, so the first call would otherwise reason at the provider with AC-0223 reading the result back.
