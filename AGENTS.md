@@ -237,10 +237,10 @@ which is why the earlier pair is not comparable — at 156 s and 160 s, all on
 the same machine with nothing wrong. **A third composition change landed on
 2026-09-22**, so the 156/160 pair is not comparable either: new
 `substrate` checks over the migration lock timeout were added, most of which
-create and drop a database and hold a reader for a deliberate wait. Runs
-since have fallen between about 170 s and 230 s on the same machine with
-nothing wrong — which is the paragraph's point, and why no figure here is
-extended run by run. Every range published here so far excluded
+create and drop a database and hold a reader for a deliberate wait. They
+spend real time on purpose — a lock budget cannot be observed faster than it
+elapses — so the suite is slower again, by a margin this paragraph
+deliberately does not quote. Every range published here so far excluded
 one of those measurements. Expect minutes, expect the spread, and read the
 number `pytest` prints rather than one written down here. Compressed timings would
 demonstrate the mechanism and not the 150-second number the criterion states.

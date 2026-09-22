@@ -366,24 +366,25 @@ def test_every_refusal_site_in_the_module_is_driven_by_the_no_echo_check() -> No
 
     The no-echo rule is only as good as the paths exercised, and a list of
     crafted inputs cannot notice a refusal added somewhere it does not
-    reach. This counts the module's `raise UnmintableFactIdentity` sites, so
-    adding one is a red with an instruction rather than a silent gap.
+    reach. This counts where the module *builds* the refusal rather than
+    where it raises one, so binding it to a name first — `refusal = ...;
+    raise refusal` — is counted too. Adding one is then a red carrying an
+    instruction rather than a silent gap.
 
     A count is the right instrument here only because a gate reads it. It
     says nothing about which sites are covered — the list above does that —
-    but it does make "a new refusal appeared" impossible to miss.
+    but it does make a new refusal impossible to add unnoticed.
     """
     sites = [
         node
         for node in ast.walk(ast.parse(inspect.getsource(mint)))
-        if isinstance(node, ast.Raise)
-        and isinstance(node.exc, ast.Call)
-        and isinstance(node.exc.func, ast.Name)
-        and node.exc.func.id == UnmintableFactIdentity.__name__
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == UnmintableFactIdentity.__name__
     ]
 
     assert len(sites) == _REFUSAL_SITES, (
-        f"mint.py now raises {UnmintableFactIdentity.__name__} from "
+        f"mint.py now builds {UnmintableFactIdentity.__name__} in "
         f"{len(sites)} places, not {_REFUSAL_SITES}. Drive the new one from "
         f"test_no_refusal_in_this_module_reproduces_a_filer_authored_value "
         f"and update _REFUSAL_SITES, so the no-echo rule still covers every "
@@ -558,6 +559,12 @@ def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
     read `args.args` alone, and a single trailing `/` on a new hook's signature
     was the whole of the evasion.
 
+    **Two scans, because one of them can be spelled around.** Module-level
+    functions are found by their annotation, which a type alias defeats;
+    every method on `_NumericFactReader` is therefore inspected on where it
+    lives instead, whatever its parameters are annotated as. `HTMLParser`
+    hands filer input to those hooks and nowhere else.
+
     **Its limit, stated rather than left to be found:** `_read_once` itself
     is exempt, because it is the one place that must iterate the list. A
     collapse written inside it is caught by the `dict()` ban but a loop
@@ -630,6 +637,55 @@ def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
         f"this check inspected only {sorted(inspected)}; if a function stopped "
         f"annotating the attribute list, its reads are no longer being judged"
     )
+
+    # The scan above reads how a parameter is *spelled*, so an alias —
+    # `_Attrs = list[tuple[str, str | None]]` — slips past it. Every method on
+    # the parser class is therefore inspected on where it lives instead,
+    # whatever its parameters say. `HTMLParser` hands filer input to these
+    # hooks and nowhere else, so this is the surface that matters.
+    reader_class = next(
+        node
+        for node in ast.walk(module)
+        if isinstance(node, ast.ClassDef) and node.name == "_NumericFactReader"
+    )
+    hooks = [
+        node
+        for node in reader_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name != "__init__"
+    ]
+    assert hooks, (
+        "_NumericFactReader defines no hook; this check can no longer tell "
+        "whether filer input is read outside the declare-at-most-once rule"
+    )
+
+    for hook in hooks:
+        taken = {argument.arg for argument in _every_parameter(hook)} - {"self"}
+
+        # Comparing a parameter against a constant is harmless — that is what
+        # `tag != _NUMERIC_FACT_TAG` is. Reading a *collection* is not, and
+        # there are only three ways to do it: iterate it, index it, or call a
+        # method on it. Each is a route to a fourth attribute resolved
+        # last-wins, and each is caught here whatever the parameter is
+        # annotated as.
+        for node in ast.walk(hook):
+            read = None
+            if isinstance(node, ast.For):
+                read = node.iter
+            elif isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                read = node.generators[0].iter if node.generators else None
+            elif isinstance(node, ast.Subscript):
+                read = node.value
+            elif isinstance(node, ast.Attribute):
+                read = node.value
+
+            if isinstance(read, ast.Name) and read.id in taken:
+                pytest.fail(
+                    f"_NumericFactReader.{hook.name} reads its parameter "
+                    f"{read.id!r} directly. Filer input reaches this class "
+                    f"through its hooks, and every read of it goes through "
+                    f"_read_once so the declare-at-most-once rule can count "
+                    f"occurrences before anything uses one."
+                )
 
 
 def test_read_once_refuses_an_attribute_outside_the_declared_set() -> None:

@@ -827,9 +827,11 @@ def _probe_database(stem: str) -> Iterator[str]:
     runs must not name the same database, and neither may reclaim the
     other's.
 
-    **A leftover is reclaimed only when its owner is provably gone** — the
-    pid in its name is not a live process *and* no session is connected to
-    it. Matching on the stem alone is not enough: an earlier version did
+    **A leftover carrying our own pid is ours**, so it is dropped outright:
+    no other live process can own this pid. **Any other leftover is
+    reclaimed only when its owner is provably gone** — the pid in its name is
+    not a live process *and* no session is connected to it. Matching on the
+    stem alone is not enough: an earlier version did
     that, to reclaim a database orphaned by a hard kill, and reintroduced
     exactly the mid-check drop the pid was added to prevent. A concurrent
     run's probe now survives, and so does one whose pid has been recycled
@@ -845,6 +847,14 @@ def _probe_database(stem: str) -> Iterator[str]:
     name = f"{stem}_{os.getpid()}"
     _require_local_substrate()
     with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+        # Our own name first, and forced. No other live process can own this
+        # pid, so a leftover carrying it is ours from a run that died — and
+        # `_abandoned_probes` will not return it precisely because the pid is
+        # live, which without this line makes the one database that is
+        # provably safe to drop the one nothing drops.
+        admin.execute(
+            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
+        )
         for orphan in _abandoned_probes(admin, stem):
             # Not forced: nothing is connected, and a session that arrived in
             # the meantime is a run staking a claim, so the refusal is right.
