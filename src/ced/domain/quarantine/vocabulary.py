@@ -14,7 +14,10 @@ enumeration: a membership test written as an inline literal at a call site is
 not reviewable, and widening it would not show up as a diff over a declared
 set. None of these sets is derived from a role record, a registry row or model
 output — nothing here reads any of the three, and `frozenset` leaves no
-runtime widening affordance either.
+runtime widening affordance either. **The mint's closed sets live here on the
+same terms**: what a minted reference's identity components may contain is as
+much a declared admission rule as what the parser matches, because the token
+the mint builds is a value the parser later admits.
 
 **r5 § 4 admits labels because for a label the shape *is* membership** in a
 finite fixed alphabet. A parser whose label test is a token-shape regex
@@ -36,6 +39,7 @@ __all__ = [
     "ADMITTED_UNITS",
     "CONTENT_ADDRESSING_REFUSAL",
     "CONTENT_KEY_PATTERN",
+    "FACT_IDENTITY_PATTERN",
     "LABEL_VOCABULARY",
     "REFERENCE_PREFIX",
     "UNMINTED_SCALAR_TYPES",
@@ -87,6 +91,31 @@ ADMITTED_UNITS: Final = frozenset(
 #: prefix routes a string to the provenance test, and membership in the step's
 #: candidate set is the whole of that test. Shape validity is not provenance.
 REFERENCE_PREFIX: Final = "ref/"
+
+#: What each of a minted reference's two identity components may contain —
+#: the concept name and the `contextRef` the mint reads off the filing.
+#:
+#: Declared here and under the same rule as the label vocabulary and the
+#: scalar set, because it is the same rule: a minted token is a value the
+#: parser admits, and without a declared alphabet the filer chooses what it
+#: contains. § Boundaries — Never do refuses free text crossing *indirectly
+#: through stored state or a resolved value*; interpolating an attribute the
+#: filer authored into a token the boundary then declares clean is exactly
+#: that crossing, and it is not the accepted reference-selection channel,
+#: which is signal carried by **which** token the agent picks.
+#:
+#: The alphabet is XML's `NCName` characters restricted to ASCII, plus the
+#: colon that separates a QName's prefix from its local part. No whitespace,
+#: no control character, no quote, no punctuation prose needs. **The token's
+#: own `/` separator is excluded, and that is what makes the token injective
+#: over `(concept, context)`**: without it `name="a/b" contextRef="c"` and
+#: `name="a" contextRef="b/c"` mint one token for two distinct facts, letting
+#: the filer choose which fact an admitted reference resolves to.
+#:
+#: The length bound sits above the longest component in the recorded corpus
+#: with room to spare, and exists so no single token's size is the filer's to
+#: choose. Widening either half is a diff over this constant.
+FACT_IDENTITY_PATTERN: Final = re.compile(r"\A[A-Za-z0-9_.:-]{1,256}\Z")
 
 #: r8 § 4's `key = <owner_scope>/<content_hash>`, with `public` as an explicit
 #: named scope. Declared so a suite can establish that the locator it refuses

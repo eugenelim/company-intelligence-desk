@@ -23,6 +23,12 @@ evidence-acquisition path, which no task in this spec builds. It deliberately
 mints nothing from `ix:nonNumeric` elements: those carry filer-authored text,
 which is the thing the boundary exists to keep out.
 
+**A numeric fact's identity is filer-authored too**, so the two attributes
+this module does interpolate are admitted only against a declared alphabet
+and length — `FACT_IDENTITY_PATTERN` in `vocabulary.py`, beside the closed
+sets the parser admits by and under the same rule. A filing carrying an
+identity outside it mints nothing and raises.
+
 **The set is per-step in-process state**, by the owner's ruling of
 2026-09-20, and it is sealed before it leaves this module. Sealing is the
 enforcement AC-0250 reads: a mutation attempted while the agent runs raises
@@ -35,9 +41,14 @@ from html.parser import HTMLParser
 from typing import Any, Final
 from uuid import UUID
 
-from ced.domain.quarantine.vocabulary import REFERENCE_PREFIX
+from ced.domain.quarantine.vocabulary import FACT_IDENTITY_PATTERN, REFERENCE_PREFIX
 
-__all__ = ["CandidateSet", "CandidateSetSealed", "mint_candidate_set"]
+__all__ = [
+    "CandidateSet",
+    "CandidateSetSealed",
+    "UnmintableFactIdentity",
+    "mint_candidate_set",
+]
 
 #: The inline-XBRL element carrying a numeric fact. Lower-cased because
 #: `html.parser` normalises tag and attribute names.
@@ -46,6 +57,29 @@ _NUMERIC_FACT_TAG: Final = "ix:nonfraction"
 #: A fact reported as nil has no value, so it can never resolve. A candidate
 #: that resolves to nothing is not a candidate.
 _NIL_ATTRIBUTE: Final = "xsi:nil"
+
+#: `xsi:nil` is an XML Schema boolean, whose true lexical space is exactly
+#: these two spellings. **Value, not presence**: reading presence alone made a
+#: perfectly legal `xsi:nil="false"` fact unmintable and therefore uncitable,
+#: which hands the filer a say in which evidence can be referenced at all.
+#:
+#: The `whiteSpace` facet on that type is `collapse`, so the read strips
+#: first. Any other spelling is *not* nil and the fact is minted: a candidate
+#: that turns out not to resolve is inert, where a silently dropped fact is
+#: the steering channel this guard exists to close.
+_NIL_TRUE_VALUES: Final = frozenset({"true", "1"})
+
+
+class UnmintableFactIdentity(Exception):
+    """A fact identity the declared alphabet does not permit, so the mint fails.
+
+    Loud rather than skipped, and the direction matters. Dropping the fact
+    would hide the exclusion: the candidate set would still look complete
+    while a fact the filer chose had quietly become uncitable, which is the
+    same steering channel a presence-only nil guard opens. Refusing the mint
+    fails the step instead, and § Boundaries forbids a live fetch, so in
+    Phase 1 only the recorded corpus reaches here.
+    """
 
 
 class CandidateSetSealed(Exception):
@@ -127,7 +161,8 @@ class _NumericFactReader(HTMLParser):
         if tag != _NUMERIC_FACT_TAG:
             return
         attributes = dict(attrs)
-        if attributes.get(_NIL_ATTRIBUTE) is not None:
+        nil = attributes.get(_NIL_ATTRIBUTE)
+        if nil is not None and nil.strip() in _NIL_TRUE_VALUES:
             return
         concept = attributes.get("name")
         context = attributes.get("contextref")
@@ -147,17 +182,35 @@ def _reference(step_id: UUID, concept: str, context: str) -> str:
     the quarantined agent is handed the candidate set, so it already knows
     every token — and a readable token makes the committed baseline a
     reviewable diff.
+
+    **Both components must conform to `FACT_IDENTITY_PATTERN`**, or no token
+    is minted for this filing at all. Readable is only safe while the filer
+    cannot choose what is read: interpolating an unconstrained attribute would
+    carry its author's prose inside a value the parser admits on membership
+    alone. Excluding the `/` separator from that alphabet is also what makes
+    this function injective over `(concept, context)`.
     """
+    for component in (concept, context):
+        if FACT_IDENTITY_PATTERN.fullmatch(component) is None:
+            raise UnmintableFactIdentity(
+                f"fact identity component {component!r} is not permitted by the "
+                f"declared pattern {FACT_IDENTITY_PATTERN.pattern}; no reference "
+                f"is minted for step {step_id}"
+            )
     return f"{REFERENCE_PREFIX}{step_id}/xbrl/{concept}/{context}"
 
 
 def mint_candidate_set(step_id: UUID, filing_html: str) -> CandidateSet:
     """Derive one step's candidate references from a recorded filing, sealed.
 
-    Deterministic and total over the input: the same filing and step id give
-    the same set, and the set is complete and sealed before this returns, so
-    no unsealed set escapes the pipeline and nothing can be minted lazily
-    once the agent is running.
+    Deterministic: the same filing and step id give the same set, and the set
+    is complete and sealed before this returns, so no unsealed set escapes the
+    pipeline and nothing can be minted lazily once the agent is running.
+
+    **Not total.** A filing carrying a fact identity outside the declared
+    alphabet raises `UnmintableFactIdentity` and yields no set, because the
+    alternative — returning a set that silently omits it — would report a
+    complete candidate set that is not one.
     """
     reader = _NumericFactReader()
     reader.feed(filing_html)
