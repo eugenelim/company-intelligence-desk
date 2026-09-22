@@ -196,9 +196,9 @@ every later query on that table. Read the error before changing anything:
   `CED_MIGRATION_LOCK_TIMEOUT` to a longer interval, for example
   `CED_MIGRATION_LOCK_TIMEOUT=30min ./.venv/bin/alembic upgrade head`.
   **Always write the unit.** Postgres reads a bare number as milliseconds, so
-  `30` means `30ms`, which is far *shorter* than the `5s` default rather than
-  longer — an operator who meant `30s` gets a window about 167 times smaller
-  than the one they were trying to leave. A value
+  a bare `30` means `30ms`. That is *shorter* than the `5s` default, not
+  longer: about 167 times smaller than the default it was meant to replace,
+  and a thousand times smaller than the `30s` intended. A value
   it cannot parse at all is refused before any revision runs, and so is one
   that resolves to `0`, because `0` means the bound is switched off rather
   than set to no wait. Setting the value in `PGOPTIONS` or with `ALTER ROLE`
@@ -237,9 +237,10 @@ which is why the earlier pair is not comparable — at 156 s and 160 s, all on
 the same machine with nothing wrong. **A third composition change landed on
 2026-09-22**, so the 156/160 pair is not comparable either: new
 `substrate` checks over the migration lock timeout were added, most of which
-create and drop a database and hold a reader for a deliberate wait, and the
-measurements after them were 201.57 s, 168.61 s, 195.65 s and 227.88 s — a spread that
-makes the paragraph's own point, since the larger is the earlier. Every range published here so far excluded
+create and drop a database and hold a reader for a deliberate wait. Runs
+since have fallen between about 170 s and 230 s on the same machine with
+nothing wrong — which is the paragraph's point, and why no figure here is
+extended run by run. Every range published here so far excluded
 one of those measurements. Expect minutes, expect the spread, and read the
 number `pytest` prints rather than one written down here. Compressed timings would
 demonstrate the mechanism and not the 150-second number the criterion states.

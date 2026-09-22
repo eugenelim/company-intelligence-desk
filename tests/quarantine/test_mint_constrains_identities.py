@@ -59,6 +59,11 @@ from ced.domain.quarantine.vocabulary import FACT_IDENTITY_PATTERN, REFERENCE_PR
 #: refactor away from the check silently inspecting nothing.
 _ATTRIBUTE_LIST_ELEMENT = "tuple[str, str | None]"
 
+#: How many places `mint.py` raises `UnmintableFactIdentity`. Read by a
+#: gate, which is the only kind of count worth writing down: it is what
+#: makes the no-echo check notice a refusal path nobody drove.
+_REFUSAL_SITES = 3
+
 _STEP = UUID("5c1a0b7e-9d3f-4a62-8e10-2b4c6d8f0a1e")
 
 #: Attacker-authored prose in the one attribute the mint interpolates. The
@@ -335,8 +340,10 @@ def test_no_refusal_in_this_module_reproduces_a_filer_authored_value() -> None:
     it was; what the message will not do is carry the filer's prose into
     wherever it is read back.
 
-    Every refusal path in the module is driven, so a new one cannot be added
-    on the echoing side without this reding.
+    This drives the refusal paths listed below — a lower bound, not a proof
+    of closure. What stops a new refusal being added quietly on the echoing
+    side is the companion check, which counts the module's `raise` sites and
+    reds when one appears that nothing here drives.
     """
     long_prose = _PROSE * 8
     refusals = [
@@ -352,6 +359,36 @@ def test_no_refusal_in_this_module_reproduces_a_filer_authored_value() -> None:
         message = str(caught.value)
         assert _PROSE not in message, f"{attributes[:40]!r} leaked its value: {message}"
         assert long_prose not in message
+
+
+def test_every_refusal_site_in_the_module_is_driven_by_the_no_echo_check() -> None:
+    """The anchor that turns the list above from a sample into a gate.
+
+    The no-echo rule is only as good as the paths exercised, and a list of
+    crafted inputs cannot notice a refusal added somewhere it does not
+    reach. This counts the module's `raise UnmintableFactIdentity` sites, so
+    adding one is a red with an instruction rather than a silent gap.
+
+    A count is the right instrument here only because a gate reads it. It
+    says nothing about which sites are covered — the list above does that —
+    but it does make "a new refusal appeared" impossible to miss.
+    """
+    sites = [
+        node
+        for node in ast.walk(ast.parse(inspect.getsource(mint)))
+        if isinstance(node, ast.Raise)
+        and isinstance(node.exc, ast.Call)
+        and isinstance(node.exc.func, ast.Name)
+        and node.exc.func.id == UnmintableFactIdentity.__name__
+    ]
+
+    assert len(sites) == _REFUSAL_SITES, (
+        f"mint.py now raises {UnmintableFactIdentity.__name__} from "
+        f"{len(sites)} places, not {_REFUSAL_SITES}. Drive the new one from "
+        f"test_no_refusal_in_this_module_reproduces_a_filer_authored_value "
+        f"and update _REFUSAL_SITES, so the no-echo rule still covers every "
+        f"refusal the module can raise."
+    )
 
 
 def test_the_duplicate_refusal_names_the_attribute_and_echoes_no_value() -> None:
@@ -474,6 +511,24 @@ def test_every_declared_interpreted_attribute_refuses_a_duplicate() -> None:
     assert len(minted) == 1
 
 
+def _every_parameter(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.arg]:
+    """Every parameter a function declares, in any position kind.
+
+    `args.args` alone misses positional-only, keyword-only, `*args` and
+    `**kwargs`. `HTMLParser` calls its hooks positionally, so a `/` on a new
+    hook's signature is an ordinary thing to write and was enough to make the
+    inspection below skip it entirely.
+    """
+    declared = function.args
+    optional = [declared.vararg, declared.kwarg]
+    return [
+        *declared.posonlyargs,
+        *declared.args,
+        *declared.kwonlyargs,
+        *(argument for argument in optional if argument is not None),
+    ]
+
+
 def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
     """The structural half, and the one that makes the set closed.
 
@@ -498,6 +553,11 @@ def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
     invisible, and unlike anything phrased in terms of a parameter it does
     not stop holding when an identifier changes.
 
+    Every parameter position is read — positional-only, ordinary, keyword-only,
+    `*args` and `**kwargs` — and both `def` and `async def`. An earlier version
+    read `args.args` alone, and a single trailing `/` on a new hook's signature
+    was the whole of the evasion.
+
     **Its limit, stated rather than left to be found:** `_read_once` itself
     is exempt, because it is the one place that must iterate the list. A
     collapse written inside it is caught by the `dict()` ban but a loop
@@ -506,7 +566,9 @@ def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
     """
     module = ast.parse(inspect.getsource(mint))
     functions = {
-        node.name: node for node in ast.walk(module) if isinstance(node, ast.FunctionDef)
+        node.name: node
+        for node in ast.walk(module)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
 
     for required in ("handle_starttag", "_read_once", "_identity"):
@@ -541,7 +603,7 @@ def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
 
         carried = [
             argument.arg
-            for argument in function.args.args
+            for argument in _every_parameter(function)
             if argument.annotation is not None
             and _ATTRIBUTE_LIST_ELEMENT in ast.unparse(argument.annotation)
         ]

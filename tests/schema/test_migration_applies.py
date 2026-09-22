@@ -22,6 +22,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
+from psycopg import sql
 
 from ced.adapters.postgres.dsn import database_url
 
@@ -627,10 +628,12 @@ def test_the_lock_timeout_override_reaches_the_migration_session(
                 timer.cancel()
             waited = time.monotonic() - started
 
-            # Positive evidence that contention was live when this run asked
-            # for the lock. Without it, a run that happened to start after the
-            # reader retired would pass while proving nothing — the round-3
-            # defect narrowed to a race rather than removed.
+            # What this witnesses is that the run outlasted half the hold
+            # window, which the round-3 race could not: a run starting after
+            # the reader retired returned in about a second. It is not proof
+            # that the migration session blocked on the lock — a boot slow
+            # enough to overrun the window would satisfy it too — and the
+            # margin is wide enough today that the difference is theoretical.
             assert waited >= _RELEASE_AFTER * 0.5, (
                 f"the widening run returned in {waited:.1f} s, well inside the "
                 f"{_RELEASE_AFTER:.0f} s the reader was held, so it never "
@@ -774,43 +777,92 @@ _SCHEMA_SCOPED_PREFIXES = (
 )
 
 
+def _abandoned_probes(admin: psycopg.Connection, stem: str) -> list[str]:
+    """Probe databases for `stem` whose owning run is provably gone.
+
+    Two conditions, and both are needed. No backend may be connected — a
+    connected one is a run using it. And the pid encoded in the name must not
+    be a live process, which is decidable because the substrate is loopback
+    only and every run is on this machine; without it, a run that has created
+    its database but not yet connected would be reclaimed out from under
+    itself.
+
+    A pid recycled onto an unrelated live process leaves the database behind
+    rather than risking a stranger's, which is the safe direction: the volume
+    teardown in `AGENTS.md` § The local substrate reclaims it.
+    """
+    pattern = stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    rows = admin.execute(
+        """
+        SELECT d.datname
+          FROM pg_database d
+         WHERE d.datname LIKE %s ESCAPE '\\'
+           AND NOT EXISTS (
+                   SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname
+               )
+        """,
+        (f"{pattern}\\_%",),
+    ).fetchall()
+
+    abandoned = []
+    for (candidate,) in rows:
+        suffix = candidate.rsplit("_", 1)[-1]
+        if not suffix.isdigit():
+            continue
+        try:
+            os.kill(int(suffix), 0)
+        except ProcessLookupError:
+            abandoned.append(candidate)
+        except PermissionError:  # pragma: no cover - a live process we cannot signal
+            continue
+    return abandoned
+
+
 @contextlib.contextmanager
 def _probe_database(stem: str) -> Iterator[str]:
     """Create a throwaway database for one check, and reclaim it afterwards.
 
-    **The name carries the process id**, because every check here opens by
-    dropping the name it is about to use: a second `pytest` session against
-    the same substrate would otherwise drop the first's database mid-check
-    and red it with an unrelated message.
+    **The name carries the process id**, because several worktrees share one
+    local Postgres and two `pytest` sessions on it is an ordinary state. Two
+    runs must not name the same database, and neither may reclaim the
+    other's.
 
-    **The drop is forced**, because `DROP DATABASE` is refused while any
-    session is connected and these checks hold readers on purpose. Without
-    it a reader that outlives its join turns teardown into an `ObjectInUse`
-    raised from a `finally`, which replaces whatever actually failed —
-    losing the diagnosis and leaking the database for the next run.
+    **A leftover is reclaimed only when its owner is provably gone** — the
+    pid in its name is not a live process *and* no session is connected to
+    it. Matching on the stem alone is not enough: an earlier version did
+    that, to reclaim a database orphaned by a hard kill, and reintroduced
+    exactly the mid-check drop the pid was added to prevent. A concurrent
+    run's probe now survives, and so does one whose pid has been recycled
+    onto an unrelated live process — that leftover waits for the volume
+    teardown rather than being taken from a stranger.
+
+    **Our own teardown drop is forced**, because `DROP DATABASE` is refused
+    while any session is connected and these checks hold readers on purpose.
+    Without it a reader that outlives its join turns teardown into an
+    `ObjectInUse` raised from a `finally`, which replaces whatever actually
+    failed — losing the diagnosis and leaking the database for the next run.
     """
     name = f"{stem}_{os.getpid()}"
     _require_local_substrate()
     with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-        # Reclaim this stem's leftovers from *any* run, not only this one. The
-        # pid in the name stops two concurrent sessions dropping each other's
-        # database mid-check, but it also means a plain drop of `name` can
-        # only ever reach a leftover from this same pid — which cannot exist.
-        # A run killed hard, or one that took the warn-not-raise teardown
-        # below, would otherwise leave a database nothing ever removes.
-        orphans = admin.execute(
-            "SELECT datname FROM pg_database WHERE datname LIKE %s",
-            (f"{stem}\\_%",),
-        ).fetchall()
-        for (orphan,) in orphans:
-            admin.execute(f"DROP DATABASE IF EXISTS {orphan} WITH (FORCE)")
-        admin.execute(f"CREATE DATABASE {name}")
+        for orphan in _abandoned_probes(admin, stem):
+            # Not forced: nothing is connected, and a session that arrived in
+            # the meantime is a run staking a claim, so the refusal is right.
+            with contextlib.suppress(psycopg.Error):
+                admin.execute(
+                    sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(orphan))
+                )
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     try:
         yield database_url("migration").rsplit("/", 1)[0] + "/" + name
     finally:
         try:
             with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-                admin.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+                admin.execute(
+                    sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+                        sql.Identifier(name)
+                    )
+                )
         except psycopg.Error as exc:  # pragma: no cover - teardown only
             # Never from a bare `finally`: an exception here would mask the
             # assertion that brought us to it.
