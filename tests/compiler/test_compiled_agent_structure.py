@@ -24,7 +24,8 @@ import pytest
 from ced.adapters.framework_contract import Agent, FunctionToolset
 from ced.agents import compiler
 from ced.agents.compiler import SoleToolsetError, check_sole_toolset, compile_role
-from ced.agents.toolsets import PolicyDecisionPoint
+from ced.agents.toolsets import PolicyDecisionPoint, TrustClassToolset
+from ced.domain.quarantine.parser import parse_integration_result
 
 from .role_records import a_planning_role, a_pool, an_integration
 
@@ -53,6 +54,23 @@ def test_the_roles_tool_is_reachable_only_inside_the_stack() -> None:
     while not isinstance(node, FunctionToolset):
         node = node.wrapped
     assert sorted(node.tools) == ["fetch_filing"]
+
+
+def test_the_trust_class_layer_holds_the_real_parser() -> None:
+    """The compiler wires the quarantine boundary itself into `parse_result`.
+
+    An identity assertion, not a behavioural one. `TrustClassToolset.call_tool`
+    is unentered by contract in this spec, so nothing else here would notice
+    the compiler passing a pass-through in place of the boundary; the seam is
+    live in `walking-skeleton-authority-containment`, which inherits this
+    suite.
+    """
+    compiled = a_compiled_agent()
+
+    node = compiled.stack
+    while not isinstance(node, TrustClassToolset):
+        node = node.wrapped
+    assert node.parse_result is parse_integration_result
 
 
 def test_a_decorator_registered_tool_fails_the_build() -> None:

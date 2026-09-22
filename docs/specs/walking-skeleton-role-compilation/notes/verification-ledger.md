@@ -1606,3 +1606,153 @@ on `.github`, pre-existing and open in `workspace.toml [backlog].open`. Offline
 did not move from its 244 / 1 baseline, as expected for a `substrate` check.
 Full rose by exactly one, from 426 / 1 to 427 / 1. The deselected count moved
 from 182 to 183 for the same one check.
+
+## Closing the post-gates quality findings
+
+Three items the post-gates quality review left owed before the merge gate,
+adjudicated in
+`.context/reviews/a1c0c9b1-f313-4017-b161-baa82d931548/15-post-gates-quality-engineer-adjudication.md`.
+Four raw findings were routed to follow-ons and one was refuted; none of those
+five is implemented here. No criterion is added.
+
+### Item 1 — the wired parse seam is now asserted
+
+`parse_integration_result` was named by no test, so the compiler could have
+wired anything into `TrustClassToolset.parse_result` and the boundary's own
+adapter could have been a pass-through, with nothing in the repository
+reddening. Two assertions at seams that already existed:
+
+* `tests/compiler/test_compiled_agent_structure.py::test_the_trust_class_layer_holds_the_real_parser`
+  — walks the compiled stack to the trust-class layer and holds
+  `node.parse_result is parse_integration_result`. An identity assertion, not
+  a behavioural one, because `call_tool` is unentered by contract here.
+* `tests/quarantine/test_parser_is_the_boundary.py` — two checks on the
+  adapter itself: free prose raises `AdmittedTypeRefused` with the tool name
+  in the message, and a label and a `Decimal` come back unchanged.
+
+Both mutations the controller recorded were re-run against the new checks.
+
+| Mutation | Offline suite | Which new check reds |
+| --- | --- | --- |
+| `parse_integration_result` body → `return result` | 2 failed, 246 passed | `test_the_wired_adapter_refuses_free_prose` |
+| `compiler.py:496` argument → `lambda name, result: result` | 2 failed, 246 passed | `test_the_trust_class_layer_holds_the_real_parser` |
+
+The second failure in each row is the pre-existing `.github` layout failure.
+Each mutation reds exactly the check aimed at it and no other: a body edit
+leaves the wired identity intact, and a wiring edit leaves the function's
+behaviour intact, so both assertions are needed. Both production files were
+restored from byte copies taken before the edits, and `git diff` on
+`src/ced/domain/quarantine/parser.py` and `src/ced/agents/compiler.py` is
+empty.
+
+### Item 2 — the quarantine spine's admitted direction, walked as one sequence
+
+`plan.md:129` names exactly one quarantine integration test and `Tests` is
+pinned. Each leg was green alone and the join was exercised nowhere: the three
+runs driving a compiled quarantined agent all answered through
+`returns_an_empty_selection`, `test_reference_provenance.py` admitted a minted
+reference with no agent in the loop, and `test_label_vocabulary.py` ran an
+agent only in the refused direction.
+
+`tests/quarantine/test_the_admitted_spine.py` walks it once: mint for step A
+from the recorded filing, a stub model that is handed the minted set and picks
+a member **at its own request boundary**, then the parser admits what the run
+returned. Four checks — the run yields exactly the token the mint produced,
+the parser admits it against that step's set, it is admitted again against a
+set minted independently after the run, and it is refused against step B's
+set. The last keeps the admission from passing for a provenance-free parser.
+It stops short of the planning-step leg, which the plan assigns to
+`walking-skeleton-step-lifecycle`.
+
+What it catches that nothing did: a mismatch between the token the mint
+produces and the value the run yields. Falsified by adding a
+`field_validator` on `ReferenceSelection` that lower-cases each reference —
+one plausible way the framework layer could alter a value in flight.
+
+| Run under the value-altering mutation | Result |
+| --- | --- |
+| The new file alone | **3 of 4 failed** |
+| Everything else offline, the new file ignored | 1 failed, 247 passed |
+
+The single failure in the second row is the pre-existing `.github` one, so
+**no other check in the repository saw the alteration**. `compiler.py` was
+restored from a byte copy and its `git diff` is empty.
+
+### Item 3 — the migration docstring named a hazard the statements do not take
+
+`migrations/versions/0003_role_configuration_records.py:28` sized the
+primary-key widening as "trivial on today's empty table and a rewrite on a
+populated one". `DROP CONSTRAINT` then `ADD PRIMARY KEY` over columns that
+already exist rewrites no heap: it takes an `ACCESS EXCLUSIVE` lock and builds
+a unique index under it. The paragraph now names the lock and the
+operator-facing cost — every read and write against the table waits for the
+index build — and records that `migrations/env.py` sets no `lock_timeout`, so
+the statement waits as long as acquiring the lock takes. **No `lock_timeout`
+is set here**: the adjudication rules that an owner decision and not owed
+before the merge gate. The inline comment at the widened key (`:166`) repeats
+no rewrite claim, so it needed no companion repair.
+
+### Statements walked backwards and repaired
+
+* `src/ced/agents/toolsets/trust_class.py` — "no test here observes a parse"
+  was made false in spirit by item 1. It now reads that no test observes a
+  parse made *through this layer*, and names what is asserted instead: the
+  wiring identity, and the adapter's two directions by direct call.
+* `src/ced/agents/compiler.py` and `src/ced/domain/quarantine/parser.py` —
+  their docstrings claim the seam is unreached by contract, which item 1 does
+  not change; `call_tool` is still entered nowhere. Left as they stand.
+* The ledger's "Paths this layer ships unexercised" section stays true for the
+  same reason.
+
+### Declined, with its `Cut before adding` rung
+
+* **A new test module for item 1's adapter checks.** **Rung 2**: a search of
+  `tests/quarantine/` found `test_parser_is_the_boundary.py`, whose subject is
+  exactly "the refusal is the parser's, by direct call and no framework
+  object". The two adapter checks belong there, and its structural
+  import-audit check still passes because the adapter is imported from the
+  same module as `admit`.
+* **A behavioural check driving a result through `TrustClassToolset.call_tool`.**
+  **Rung 1**: the adjudication scopes item 1 to an identity assertion, and
+  entering `call_tool` would need the predicate that arrives in
+  `walking-skeleton-authority-containment`.
+* **A `lock_timeout` in `migrations/env.py`.** **Rung 1**: an owner decision
+  the adjudication explicitly does not owe here.
+
+### Gates, run unfiltered from the worktree root
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| `ruff format --check .` | 0 | 163 files already formatted |
+| `ruff check .` | 0 | All checks passed |
+| `mypy` | 0 | no issues in 27 source files |
+| `pytest -m 'not substrate'` | 1 | 251 passed, 1 failed, 183 deselected, 12.22 s |
+| `pytest` | 1 | 434 passed, 1 failed, 201.57 s |
+
+The single failure in both is
+`tests/architecture/test_recorded_layout.py::test_no_top_level_directory_is_unrecorded`
+on `.github`, pre-existing and open in `workspace.toml [backlog].open`. Both
+counts rose by exactly the seven checks added here: offline from 244 to 251,
+full from 427 to 434. No deselected count moved, because every new check runs
+offline.
+
+## Stale statements in ratified documents, observed and not corrected
+
+Three statements this delivery falsified are left standing, because each lives
+in a ratified architecture record outside every task's pinned `Touches`:
+
+- `role-configuration-seams.md` line 3 — "nothing here is built.
+  `src/ced/agents/` is empty". Both halves are false.
+- `runtime-architecture.md` lines 3–6 — "the agent layer, the authorization
+  boundary and the provider call do not ship". The first clause is false; the
+  other two hold.
+- `runtime-architecture.md` § 8 — `src/ced/agents/` filed as "the package is
+  empty", and the integration registry filed as designed. `worker-runtime.md`
+  carries the corrected form of both rows, so two projections of one fact now
+  disagree.
+
+An earlier version of this ledger named only the first § 8 row, and
+`docs/architecture/README.md` asserted `role-configuration-seams.md` was the
+single exception. Both were incomplete and are corrected: the current map now
+names both documents, so a reader of what is built is not misled by either.
+Correcting the records themselves needs whoever can amend a ratified header.

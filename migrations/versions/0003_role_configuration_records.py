@@ -25,11 +25,16 @@ nothing to the tool surface AC-0233 enumerates through
 `list_integration_tools()`. Nullable-with-no-default makes the omission visible
 where it happens.
 
-**The primary-key widening is not a plain `ADD COLUMN`.** It is trivial on
-today's empty table and a rewrite on a populated one. `migrations/env.py` runs
-the whole upgrade inside one transaction it commits explicitly, so a failure
-here leaves the old single-column key in place and the revision unapplied —
-never a table with no key at all.
+**The primary-key widening is not a plain `ADD COLUMN`.** `DROP CONSTRAINT`
+then `ADD PRIMARY KEY` over columns that already exist rewrites no heap: it
+takes an `ACCESS EXCLUSIVE` lock on `integration_registry` and builds a unique
+index under it. On today's empty table that is instant. On a populated one the
+operator-facing cost is the lock, not a rewrite — every read and every write
+against the table waits for the index build, and `migrations/env.py` sets no
+`lock_timeout`, so the statement itself waits as long as it takes to acquire
+the lock. `migrations/env.py` runs the whole upgrade inside one transaction it
+commits explicitly, so a failure here leaves the old single-column key in place
+and the revision unapplied — never a table with no key at all.
 
 **No grants.** Revision 0001 already carries
 `GRANT SELECT ON agent_role, integration_registry, entitlements TO app_api,
