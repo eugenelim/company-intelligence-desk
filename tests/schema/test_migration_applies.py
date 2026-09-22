@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
@@ -34,6 +35,13 @@ _LOCK_TIMEOUT_ENV_VAR = "CED_MIGRATION_LOCK_TIMEOUT"
 #: How long a probe reader is held once the run that must outlast it starts.
 #: Above the 5 s default so that default gives up inside the window, and far
 #: below the override under test so the override does not.
+#:
+#: **The window is consumed from process start, not from first lock request.**
+#: `python -m alembic` spends roughly a second booting before it reaches the
+#: lock, so the effective margin over the 5 s default is nearer 2x than 2.4x,
+#: and it shrinks on a loaded machine. The elapsed-time assertion in the
+#: widening leg is what turns an exhausted margin into a red rather than a
+#: pass.
 _RELEASE_AFTER = 12.0
 
 #: A backstop on every probe reader, so a check that dies without releasing
@@ -572,13 +580,20 @@ def test_the_lock_timeout_override_reaches_the_migration_session(
             # Leg 1, the control: the shipped default against a reader that
             # outlives it must give up. Without this the second leg could be
             # succeeding because the contention was never real.
-            impatient = _alembic(
-                "upgrade",
-                "head",
-                env={"CED_DATABASE_URL": probe_url},
-                unset=(_LOCK_TIMEOUT_ENV_VAR,),
-                timeout=120,
-            )
+            try:
+                impatient = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url},
+                    unset=(_LOCK_TIMEOUT_ENV_VAR,),
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                pytest.fail(
+                    "the default run did not return while a reader held "
+                    "ACCESS SHARE — the bounded wait is gone, so the migration "
+                    "is queueing on the lock instead of giving up"
+                )
             assert not retired.is_set(), (
                 "the probe reader went away before the default run finished, "
                 "so this leg proved nothing about the default's window"
@@ -594,8 +609,13 @@ def test_the_lock_timeout_override_reaches_the_migration_session(
             # Leg 2: the same held reader, retired on a timer that starts now.
             # The default would abort inside that window; the override must
             # not, so the variable is the only difference between the legs.
+            assert not release.is_set(), (
+                "the reader was already retired before the widening run "
+                "started, so that run would succeed whatever the override did"
+            )
             timer = threading.Timer(_RELEASE_AFTER, release.set)
             timer.start()
+            started = time.monotonic()
             try:
                 patient = _alembic(
                     "upgrade",
@@ -605,7 +625,17 @@ def test_the_lock_timeout_override_reaches_the_migration_session(
                 )
             finally:
                 timer.cancel()
+            waited = time.monotonic() - started
 
+            # Positive evidence that contention was live when this run asked
+            # for the lock. Without it, a run that happened to start after the
+            # reader retired would pass while proving nothing — the round-3
+            # defect narrowed to a race rather than removed.
+            assert waited >= _RELEASE_AFTER * 0.5, (
+                f"the widening run returned in {waited:.1f} s, well inside the "
+                f"{_RELEASE_AFTER:.0f} s the reader was held, so it never "
+                f"waited on the lock and this leg proved nothing"
+            )
             assert patient.returncode == 0, (
                 "the override did not widen the window: this run met the same "
                 "reader the default gave up on, and gave up too, so the value "
@@ -762,7 +792,18 @@ def _probe_database(stem: str) -> Iterator[str]:
     name = f"{stem}_{os.getpid()}"
     _require_local_substrate()
     with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-        admin.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        # Reclaim this stem's leftovers from *any* run, not only this one. The
+        # pid in the name stops two concurrent sessions dropping each other's
+        # database mid-check, but it also means a plain drop of `name` can
+        # only ever reach a leftover from this same pid — which cannot exist.
+        # A run killed hard, or one that took the warn-not-raise teardown
+        # below, would otherwise leave a database nothing ever removes.
+        orphans = admin.execute(
+            "SELECT datname FROM pg_database WHERE datname LIKE %s",
+            (f"{stem}\\_%",),
+        ).fetchall()
+        for (orphan,) in orphans:
+            admin.execute(f"DROP DATABASE IF EXISTS {orphan} WITH (FORCE)")
         admin.execute(f"CREATE DATABASE {name}")
     try:
         yield database_url("migration").rsplit("/", 1)[0] + "/" + name

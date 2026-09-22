@@ -219,7 +219,9 @@ def _read_once(attrs: Sequence[tuple[str, str | None]], attribute: str) -> str |
     `xsi:nil`.
 
     The refusal names the attribute and the count and echoes neither value,
-    because everything on this element is filer-authored.
+    because everything on this element is filer-authored. `_reference` holds
+    the same rule for the same reason — one module, one answer to what a
+    refusal may quote.
     """
     if attribute not in _INTERPRETED_ATTRIBUTES:
         raise ValueError(
@@ -279,12 +281,14 @@ def _reference(step_id: UUID, concept: str, context: str) -> str:
     alone. Excluding the `/` separator from that alphabet is also what makes
     this function injective over `(concept, context)`.
     """
-    for component in (concept, context):
+    for role, component in ((_CONCEPT_ATTRIBUTE, concept), (_CONTEXT_ATTRIBUTE, context)):
         if FACT_IDENTITY_PATTERN.fullmatch(component) is None:
             raise UnmintableFactIdentity(
-                f"fact identity component {component!r} is not permitted by the "
-                f"declared pattern {FACT_IDENTITY_PATTERN.pattern}; no reference "
-                f"is minted for step {step_id}"
+                f"the {role!r} component of a fact identity is {len(component)} "
+                f"characters and is not permitted by the declared pattern "
+                f"{FACT_IDENTITY_PATTERN.pattern}; its content is filer-authored "
+                f"and is not reproduced here. No reference is minted for step "
+                f"{step_id}"
             )
     return f"{REFERENCE_PREFIX}{step_id}/xbrl/{concept}/{context}"
 

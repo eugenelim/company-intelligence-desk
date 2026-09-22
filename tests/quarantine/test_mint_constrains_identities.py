@@ -54,6 +54,11 @@ from ced.domain.quarantine.mint import (
 )
 from ced.domain.quarantine.vocabulary import FACT_IDENTITY_PATTERN, REFERENCE_PREFIX
 
+#: How the attribute list is spelled in an annotation. The check below
+#: finds the parameter by this rather than by name, because a name is one
+#: refactor away from the check silently inspecting nothing.
+_ATTRIBUTE_LIST_ELEMENT = "tuple[str, str | None]"
+
 _STEP = UUID("5c1a0b7e-9d3f-4a62-8e10-2b4c6d8f0a1e")
 
 #: Attacker-authored prose in the one attribute the mint interpolates. The
@@ -320,6 +325,35 @@ def test_a_duplicated_identity_attribute_refuses_the_whole_mint(
         mint_candidate_set(_STEP, _filing(attributes))
 
 
+def test_no_refusal_in_this_module_reproduces_a_filer_authored_value() -> None:
+    """One rule across every refusal here, so the two cannot drift apart.
+
+    The duplicate and unreadable refusals never had a value to quote. The
+    pattern refusal did, and rendered the whole of it with `!r` — unbounded
+    in length and arbitrary in content, one function from a rule pinned the
+    other way. An operator still learns which component failed and how long
+    it was; what the message will not do is carry the filer's prose into
+    wherever it is read back.
+
+    Every refusal path in the module is driven, so a new one cannot be added
+    on the echoing side without this reding.
+    """
+    long_prose = _PROSE * 8
+    refusals = [
+        f'name="{long_prose}" contextRef="c-1"',
+        f'name="us-gaap:Revenues" contextRef="{long_prose}"',
+        f'name="{long_prose}" name="us-gaap:Revenues" contextRef="c-1"',
+        f'name="us-gaap:Revenues" contextRef="c-1" xsi:nil="{long_prose}" xsi:nil="true"',
+        'name="us-gaap:Revenues" contextRef=""',
+    ]
+    for attributes in refusals:
+        with pytest.raises(UnmintableFactIdentity) as caught:
+            mint_candidate_set(_STEP, _filing(attributes))
+        message = str(caught.value)
+        assert _PROSE not in message, f"{attributes[:40]!r} leaked its value: {message}"
+        assert long_prose not in message
+
+
 def test_the_duplicate_refusal_names_the_attribute_and_echoes_no_value() -> None:
     """The operator learns which attribute repeated, not what it said.
 
@@ -447,32 +481,34 @@ def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
     `_read_once` refuses at run time to read an attribute outside
     `_INTERPRETED_ATTRIBUTES`, which covers every read that goes through it.
     What that cannot see is a read that does not — so this asserts from the
-    module's source that there is no such read.
+    module's source that no such read exists.
 
-    **The thing asserted is that the module never calls `dict()`.** That is
-    blunt on purpose. Collapsing the attribute list to a mapping is how a
-    duplicate becomes invisible, it is the shape of every regression this
-    rule has actually had, and unlike a rule phrased in terms of `attrs` it
-    does not stop holding when somebody renames a parameter. Two earlier
-    versions of this check were phrased that way and both were silently
-    vacuous under `handle_starttag(self, tag, given)`.
+    **Every function that receives the attribute list is inspected, found by
+    its annotation rather than by a parameter name.** Three earlier versions
+    of this check each missed a route: one keyed on the literal `attrs` and
+    went vacuous under a rename; one scanned only `handle_starttag`, so a
+    second `HTMLParser` hook — `handle_startendtag`, which fires for a
+    self-closing `<ix:nonFraction … />` — could read a fourth attribute
+    last-wins with nothing to catch it; and the same narrowing left
+    `_identity`, which legitimately receives the list, free to do the same
+    one call frame away.
 
-    **Its limit, stated rather than left to be discovered:** a collapse
-    written some other way — a loop that overwrites, `groupby`, a
-    comprehension keyed by name — is not caught here, only by the runtime
-    guard if it goes through `_read_once`, and not at all if it does not.
-    What the pair gives is that the obvious route is closed and the declared
-    route is checked; it is not a proof that no collapse can be written.
+    The module-wide `dict()` ban is the second assertion, and it is blunt on
+    purpose: collapsing the list to a mapping is how a duplicate becomes
+    invisible, and unlike anything phrased in terms of a parameter it does
+    not stop holding when an identifier changes.
 
-    The anchors below are why this cannot pass by inspecting nothing.
+    **Its limit, stated rather than left to be found:** `_read_once` itself
+    is exempt, because it is the one place that must iterate the list. A
+    collapse written inside it is caught by the `dict()` ban but a loop
+    written there is not. The anchors below are why this cannot pass by
+    inspecting nothing.
     """
     module = ast.parse(inspect.getsource(mint))
     functions = {
         node.name: node for node in ast.walk(module) if isinstance(node, ast.FunctionDef)
     }
 
-    # Anchors. A check that silently found nothing to judge is the failure
-    # mode both earlier versions of this had, so absence is a red.
     for required in ("handle_starttag", "_read_once", "_identity"):
         assert required in functions, (
             f"{required} is not in mint.py under that name; this check can no "
@@ -481,45 +517,57 @@ def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
 
     for name, function in functions.items():
         for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            callee = node.func
+            if isinstance(callee, ast.Name) and callee.id == "dict":
+                pytest.fail(
+                    f"{name} calls dict(). If it is collapsing the attribute "
+                    f"list, that discards every occurrence but the last, which "
+                    f"is what the declare-at-most-once rule exists to stop — "
+                    f"read through _read_once instead. If it is unrelated, this "
+                    f"ban is module-wide on purpose and the check needs "
+                    f"narrowing deliberately rather than an exception here."
+                )
+
+    # Any parameter annotated as the attribute list, in any function, must
+    # reach nothing but the guarded readers. The annotation is the handle,
+    # because a parameter name is a refactor away from silence.
+    guarded = {"_read_once", "_identity"}
+    inspected = []
+    for name, function in functions.items():
+        if name == "_read_once":
+            continue  # The one place that is allowed to read the list itself.
+
+        carried = [
+            argument.arg
+            for argument in function.args.args
+            if argument.annotation is not None
+            and _ATTRIBUTE_LIST_ELEMENT in ast.unparse(argument.annotation)
+        ]
+        if not carried:
+            continue
+        inspected.append(name)
+
+        handed_off: set[int] = set()
+        for node in ast.walk(function):
             if isinstance(node, ast.Call):
                 callee = node.func
-                if isinstance(callee, ast.Name) and callee.id == "dict":
-                    pytest.fail(
-                        f"{name} calls dict(); collapsing the attribute list to "
-                        f"a mapping discards every occurrence but the last, "
-                        f"which is what the declare-at-most-once rule exists to "
-                        f"stop. Read through _read_once instead."
-                    )
+                if isinstance(callee, ast.Name) and callee.id in guarded:
+                    handed_off.update(id(argument) for argument in node.args)
 
-    # And the reader hands its attribute list to the guarded readers rather
-    # than to anything else. The parameter is taken from the signature, not
-    # assumed to be called `attrs`.
-    reader = functions["handle_starttag"]
-    attribute_list = reader.args.args[-1].arg
-    guarded = {"_read_once", "_identity"}
+        for node in ast.walk(function):
+            if isinstance(node, ast.Name) and node.id in carried and id(node) not in handed_off:
+                pytest.fail(
+                    f"{name} uses the attribute list {node.id!r} outside a call "
+                    f"to _read_once or _identity, so a read of it escapes the "
+                    f"declare-at-most-once rule"
+                )
 
-    handed_off: set[int] = set()
-    for node in ast.walk(reader):
-        if isinstance(node, ast.Call):
-            callee = node.func
-            if isinstance(callee, ast.Name) and callee.id in guarded:
-                handed_off.update(id(argument) for argument in node.args)
-    assert handed_off, (
-        f"handle_starttag passes {attribute_list!r} to neither _read_once nor "
-        f"_identity; if the reads moved, this check is judging the wrong thing"
+    assert {"handle_starttag", "_identity"} <= set(inspected), (
+        f"this check inspected only {sorted(inspected)}; if a function stopped "
+        f"annotating the attribute list, its reads are no longer being judged"
     )
-
-    for node in ast.walk(reader):
-        if (
-            isinstance(node, ast.Name)
-            and node.id == attribute_list
-            and id(node) not in handed_off
-        ):
-            pytest.fail(
-                f"handle_starttag uses {attribute_list!r} outside a call to "
-                f"_read_once or _identity, so a read of it escapes the "
-                f"declare-at-most-once rule"
-            )
 
 
 def test_read_once_refuses_an_attribute_outside_the_declared_set() -> None:
