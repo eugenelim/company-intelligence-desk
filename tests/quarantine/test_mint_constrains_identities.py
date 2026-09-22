@@ -21,10 +21,14 @@ collides.
 
 A third property joins them, on crafted input for the same reason: a numeric
 fact element yields **exactly one** readable identity or the mint refuses.
-An element declaring no `name` or no `contextRef`, or declaring either empty,
-used to be passed over silently — a fact the filer chose vanishing from a
-candidate set that still reported itself complete, which is the steering
-channel `UnmintableFactIdentity` exists to close on the non-conforming side.
+Both halves of that used to be silent. An element declaring no `name` or no
+`contextRef`, or declaring either empty, was passed over — a fact the filer
+chose vanishing from a candidate set that still reported itself complete,
+which is the steering channel `UnmintableFactIdentity` exists to close on the
+non-conforming side. An element declaring either attribute *twice* resolved
+last-wins through `dict()`, so the mint read a document a conformant XBRL
+processor rejects, and read it differently from whatever strict resolver a
+successor writes.
 """
 
 from __future__ import annotations
@@ -261,3 +265,88 @@ def test_a_nil_fact_with_no_identity_is_still_not_minted() -> None:
     minted = mint_candidate_set(_STEP, _filing('xsi:nil="true"'))
 
     assert not minted.references
+
+
+# ── An element declaring an identity attribute more than once ───────────────
+
+
+@pytest.mark.parametrize(
+    ("description", "attributes"),
+    [
+        ("the concept twice", 'name="us-gaap:Revenues" name="us-gaap:Assets" contextRef="c-1"'),
+        ("the context twice", 'name="us-gaap:Revenues" contextRef="c-1" contextRef="c-2"'),
+        ("both twice", 'name="a" name="b" contextRef="c" contextRef="d"'),
+        (
+            "the same value twice",
+            'name="us-gaap:Revenues" name="us-gaap:Revenues" contextRef="c-1"',
+        ),
+        ("a duplicate that is empty", 'name="us-gaap:Revenues" name="" contextRef="c-1"'),
+        ("three times", 'name="a" name="b" name="c" contextRef="c-1"'),
+    ],
+)
+def test_a_duplicated_identity_attribute_refuses_the_whole_mint(
+    description: str, attributes: str
+) -> None:
+    """No arbitrary pick, and no precedence rule invented here.
+
+    `html.parser` hands over every occurrence and `dict()` kept the last, so
+    `name="A" name="B"` minted `B` — resolving a document a conformant XBRL
+    processor rejects. A lenient minting authority that resolves what a
+    strict resolver refuses disagrees with every successor built on the
+    strict reading, on input the filer controls.
+
+    The repeated-identical case is refused too: admitting it would need the
+    reader to compare values, which is a precedence rule by another name, and
+    the collapse is what hides the duplicate in the first place.
+    """
+    with pytest.raises(UnmintableFactIdentity):
+        mint_candidate_set(_STEP, _filing(attributes))
+
+
+def test_the_duplicate_refusal_names_the_attribute_and_echoes_no_value() -> None:
+    """The operator learns which attribute repeated, not what it said.
+
+    Every value on this element is filer-authored, so the message names the
+    attribute and the count and renders neither occurrence.
+    """
+    with pytest.raises(UnmintableFactIdentity) as caught:
+        mint_candidate_set(
+            _STEP, _filing(f'name="{_PROSE}" name="us-gaap:Revenues" contextRef="c-1"')
+        )
+
+    message = str(caught.value)
+    assert "name" in message
+    assert _PROSE not in message
+
+
+def test_a_duplicate_beside_conforming_facts_still_refuses() -> None:
+    """One bad element costs the whole filing, as every other refusal does.
+
+    A reader that returned the facts it could read would hand back a short
+    set reporting itself complete, which is what the whole guard is against.
+    """
+    with pytest.raises(UnmintableFactIdentity):
+        mint_candidate_set(
+            _STEP,
+            _filing(
+                'name="us-gaap:Revenues" contextRef="c-1"',
+                'name="a" name="b" contextRef="c-1"',
+            ),
+        )
+
+
+def test_a_repeated_non_identity_attribute_is_not_the_mints_business() -> None:
+    """The rule is scoped to the two attributes this module interpolates.
+
+    A repeated `unitRef` is not read here and mints normally, so the guard
+    is a rule about identity rather than a general XML-conformance check the
+    mint is not the place for.
+    """
+    minted = mint_candidate_set(
+        _STEP,
+        _filing('name="us-gaap:Revenues" contextRef="c-1" unitRef="usd" unitRef="eur"'),
+    )
+
+    assert minted.references == frozenset(
+        {f"{REFERENCE_PREFIX}{_STEP}/xbrl/us-gaap:Revenues/c-1"}
+    )

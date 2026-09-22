@@ -29,12 +29,22 @@ and length — `FACT_IDENTITY_PATTERN` in `vocabulary.py`, beside the closed
 sets the parser admits by and under the same rule. A filing carrying an
 identity outside it mints nothing and raises.
 
-**An identity the reader cannot read raises for the same reason.** A numeric
-fact element that declares no `name` or no `contextRef`, or declares either
-empty, has no identity to admit or refuse, and skipping it would drop a fact
-the filer chose while the candidate set still reported itself complete. One
-rule covers both: a numeric fact element yields exactly one conforming
-identity, or the mint fails.
+**An identity the reader cannot read raises for the same reason**, and so
+does one the reader cannot read *singly*. A numeric fact element that
+declares no `name` or no `contextRef`, or declares either empty, has no
+identity to admit or refuse; an element that declares either of them twice
+has two, and nothing here ranks them. One rule covers all of it: a numeric
+fact element yields **exactly one** conforming identity, or the mint fails.
+
+**Reading a duplicate last-wins would make this module an authority it must
+not be.** `html.parser` hands over every occurrence, and collapsing them with
+`dict()` silently kept the final one — so `name="A" name="B"` minted `B`
+where an XML-conformant XBRL processor rejects the document outright. A
+lenient reader that resolves what a strict resolver refuses disagrees with
+every successor built on the strict reading, on input the filer chooses.
+Refusing is what keeps the two from diverging; picking a precedence rule
+instead would settle by fiat, here, a question no ratified document has
+asked.
 
 **The set is per-step in-process state**, by the owner's ruling of
 2026-09-20, and it is sealed before it leaves this module. Sealing is the
@@ -44,7 +54,7 @@ enforcement AC-0250 reads: a mutation attempted while the agent runs raises
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Sequence
 from html.parser import HTMLParser
 from typing import Any, Final
 from uuid import UUID
@@ -87,9 +97,10 @@ _NIL_TRUE_VALUES: Final = frozenset({"true", "1"})
 class UnmintableFactIdentity(Exception):
     """A numeric fact element yields no single conforming identity.
 
-    Two causes, one rule. The element carries an identity the declared
-    alphabet does not permit, or it carries no readable identity at all —
-    `name` or `contextRef` absent, valueless, or empty.
+    Three causes, one rule. The element carries an identity the declared
+    alphabet does not permit; or it carries no readable identity at all —
+    `name` or `contextRef` absent, valueless, or empty; or it declares one of
+    them more than once, leaving two identities and no rule that ranks them.
 
     Loud rather than skipped, and the direction matters. Dropping the fact
     would hide the exclusion: the candidate set would still look complete
@@ -180,29 +191,42 @@ class _NumericFactReader(HTMLParser):
         """Record `(concept, context)` for one numeric fact element."""
         if tag != _NUMERIC_FACT_TAG:
             return
-        attributes = dict(attrs)
-        nil = attributes.get(_NIL_ATTRIBUTE)
+        nil = dict(attrs).get(_NIL_ATTRIBUTE)
         if nil is not None and nil.strip() in _NIL_TRUE_VALUES:
             return
-        self.identities.add(_identity(attributes))
+        self.identities.add(_identity(attrs))
 
 
-def _identity(attributes: Mapping[str, str | None]) -> tuple[str, str]:
-    """Read one numeric fact element's identity, or refuse the mint.
+def _identity(attrs: Sequence[tuple[str, str | None]]) -> tuple[str, str]:
+    """Read one numeric fact element's single identity, or refuse the mint.
 
-    Both attributes are required of `ix:nonFraction`, so an element without
-    them is not a conforming fact element. That is a reason to refuse it and
-    not a reason to pass over it: the filer chooses what the filing declares,
-    and a silent skip hands them a fact that vanishes from the candidate set
-    with nothing recording that it did.
+    Takes the attribute list rather than a mapping, because collapsing it to
+    a mapping is what hides a duplicate. `html.parser` hands over every
+    occurrence, and `dict()` keeps the last — a choice no ratified document
+    makes, made silently, on input the filer controls.
 
-    The refusal names which attribute could not be read and echoes no other
-    attribute, because everything on this element is filer-authored and an
-    absent value has nothing worth rendering.
+    Both attributes are required of `ix:nonFraction` and neither is
+    repeatable, so an element missing one, or declaring one twice, is not a
+    conforming fact element. That is a reason to refuse it and not a reason
+    to pass over it: the filer chooses what the filing declares, and a silent
+    skip hands them a fact that vanishes from the candidate set with nothing
+    recording that it did.
+
+    The refusal names which attribute failed and how, and echoes no attribute
+    value, because everything on this element is filer-authored.
     """
     identity: list[str] = []
     for attribute in (_CONCEPT_ATTRIBUTE, _CONTEXT_ATTRIBUTE):
-        value = attributes.get(attribute)
+        declared = [value for name, value in attrs if name == attribute]
+        if len(declared) > 1:
+            raise UnmintableFactIdentity(
+                f"a {_NUMERIC_FACT_TAG} element declares {attribute!r} "
+                f"{len(declared)} times; nothing ranks the occurrences, and a "
+                f"reader that picked one would resolve a document a conformant "
+                f"XBRL processor rejects. No candidate set is minted for this "
+                f"filing"
+            )
+        value = declared[0] if declared else None
         if not value:
             raise UnmintableFactIdentity(
                 f"a {_NUMERIC_FACT_TAG} element declares no readable "
@@ -252,10 +276,11 @@ def mint_candidate_set(step_id: UUID, filing_html: str) -> CandidateSet:
     pipeline and nothing can be minted lazily once the agent is running.
 
     **Not total.** A filing carrying a fact identity outside the declared
-    alphabet, or a numeric fact element carrying no readable identity at all,
-    raises `UnmintableFactIdentity` and yields no set, because the
-    alternative — returning a set that silently omits it — would report a
-    complete candidate set that is not one.
+    alphabet, or a numeric fact element that carries no readable identity at
+    all or more than one, raises `UnmintableFactIdentity` and yields no set,
+    because the alternative — returning a set that silently omits it, or one
+    built on an arbitrary pick — would report a complete candidate set that
+    is not one.
     """
     reader = _NumericFactReader()
     reader.feed(filing_html)
