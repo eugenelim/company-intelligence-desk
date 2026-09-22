@@ -973,8 +973,20 @@ but no home for an event-type constant or an append path.
 `src/ced/domain/events.py` was edited for the two constants and is **outside
 `Touches`**. The alternative was a second vocabulary home, which that file's
 own docstring and revision 0002's `RUN_LIFECYCLE_TYPES` history argue against.
-Reported rather than resolved silently. No other file outside `Touches` was
-touched; `tests/compiler/**` and `tests/fixtures/registry_seed.py` are named.
+Reported rather than resolved silently.
+
+**This section used to close by asserting no other file outside `Touches` was
+touched. That was false, and a post-gates adversarial review found it.** Three
+more fall outside T2's `Touches` and are filed here rather than left for a
+reader to discover: `tests/worker/test_pool_configuration.py`, created by
+layer (b) to hold the offline pool-configuration criteria, for which `Touches`
+names no home; `src/ced/adapters/framework_contract.py`, whose docstring
+layer (c) corrected because its claim to bind every framework name the agent
+layer depends on had become false — that path is in T1's `Touches`, not
+T2's; and `tests/fixtures/__init__.py`, the package marker
+`tests/fixtures/registry_seed.py` needs. `tests/compiler/**` and
+`tests/fixtures/registry_seed.py` are named in `Touches` and are not
+deviations.
 
 ### Declined under `Cut before adding`
 
