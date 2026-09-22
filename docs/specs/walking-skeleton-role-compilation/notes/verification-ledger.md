@@ -1528,3 +1528,81 @@ no longer crosses. What remains is the **attacker-influenced signal** r8 names
 explicitly as the thing the split does not remove, and it is bounded further
 by § Boundaries forbidding a live fetch, so in Phase 1 the only filing the
 mint reads is the recorded one.
+
+## AC-0273 — the unbound-row case
+
+A post-gates adversarial review found that AC-0273's unbound-row case shipped
+with no check. `spec.md` § Testing Strategy names it twice as the one registry
+refusal that is `substrate`, and `plan.md` T2 pins it under both `Tests` and
+`Done when`, but the only `tools=None` in the suite was in the **offline**
+decode-seam file — a record handed to `decode_role_record`, which by
+construction never sees a row no ceiling binds.
+
+### Where it landed, and why there
+
+`tests/compiler/test_role_round_trip.py::test_an_unbound_registry_row_with_null_tools_is_refused`.
+
+The reuse search ran once over `tests/` for an existing substrate seam that
+already drives `list_integration_tools()` against seeded rows. **It found one
+and it was reused**: that file is already the substrate loader file, already
+`pytestmark = pytest.mark.substrate`, and its
+`test_the_two_enumerations_read_the_tables` already opens
+`list_integration_tools()` over `seeded(owner_conn)` rows. A sibling file would
+have copied the fixture import block, the prefix constants and the marker for
+one check. Stopped at **rung 2** — no new file, no new helper.
+`tests/fixtures/registry_seed.py`'s `insert_integration(..., tools=None)` was
+built for this case and was called by nothing; it is now called.
+
+### What the check asserts
+
+1. Two registry rows are seeded. `t2a-sec-filings` v2 carries real tools;
+   `t2a-market-data` v3 carries `tools` **null**, which the column admits
+   because revision 0003 makes it nullable with no default.
+2. One role is seeded whose ceiling pins **only** `t2a-sec-filings` v2.
+3. `load_role(ROLE, 1)` succeeds and its integrations are exactly
+   `['t2a-sec-filings']`. **This assertion is what makes the row unbound**
+   rather than merely broken: the null-tools row reaches no bound-row path, so
+   the check cannot be satisfied by one.
+4. `list_integration_tools()` raises `RoleLoadError`, and the message contains
+   the integration name, the version `3`, and the word `tools` — the row named,
+   not a bare failure.
+
+Cleanup is `seeded`'s, unchanged: prefixed rows are deleted and committed on
+the failure path too. The read happens inside the context and the connection
+is not written after its `commit()`, so the `read_events` transaction trap
+recorded above is not reintroduced.
+
+### Falsification
+
+`_check_integration_record`'s call in `list_integration_tools` was scoped to
+bound-shaped rows — guarded by `if record["tools"] is not None:`, with the tool
+loop reading `record["tools"] or []` so the null row simply contributed nothing
+and raised nowhere. That is precisely the bound-only guard the criterion exists
+to refuse.
+
+| Run under the broken guard | Result |
+| --- | --- |
+| The new check alone | **failed** at the `pytest.raises` line |
+| Everything else, full suite, new check deselected | 426 passed, 1 deselected, 1 failed in 151.83 s |
+
+The one failure there is the pre-existing `.github` layout failure, so **no
+other check moved**. The unbound-row case was covered nowhere else, which is
+what the review claimed. The production file was restored from a byte copy and
+`git diff` on `src/ced/adapters/postgres/roles.py` is empty.
+
+### Gates, run unfiltered from the worktree root
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| `ruff format --check .` | 0 | 162 files already formatted |
+| `ruff check .` | 0 | All checks passed |
+| `mypy` | 0 | no issues in 27 source files |
+| `pytest -m 'not substrate'` | 1 | 244 passed, 1 failed, 183 deselected, 10.82 s |
+| `pytest` | 1 | 427 passed, 1 failed, 167.44 s |
+
+The single failure in both is
+`tests/architecture/test_recorded_layout.py::test_no_top_level_directory_is_unrecorded`
+on `.github`, pre-existing and open in `workspace.toml [backlog].open`. Offline
+did not move from its 244 / 1 baseline, as expected for a `substrate` check.
+Full rose by exactly one, from 426 / 1 to 427 / 1. The deselected count moved
+from 182 to 183 for the same one check.
