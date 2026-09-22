@@ -208,6 +208,13 @@ def _check_integration_record(record: Mapping[str, Any]) -> None:
     # silently, which is the defect AC-0273 exists to close one level up.
     # The position is in the message because a row may carry many entries and
     # the operator has to find the one that failed.
+    #
+    # **Type only.** An empty or whitespace-only name is a string and still
+    # loads, reaching AC-0233's enumeration as a tool by the same route the
+    # closed defect describes. That is a second rule about what a tool name
+    # *is*, and it belongs with the criterion this check already ships
+    # without, not ahead of it — recorded in `workspace.toml` rather than
+    # decided here.
     for position, tool_name in enumerate(tools):
         if not isinstance(tool_name, str):
             raise RoleLoadError(
