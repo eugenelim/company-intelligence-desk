@@ -22,10 +22,10 @@ experience/presentation. The worker and pool are specified in
 [`docs/architecture/pydantic-ai-worker-runtime/`](docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md).
 
 **Part of it is now built.** The walking skeleton's foundation ships the event
-log, the privilege split, the HTTP surface and the worker pool;
+log, the privilege split, the HTTP surface and the worker pool, and
+`walking-skeleton-role-compilation` adds the agent layer;
 [`docs/architecture/README.md`](docs/architecture/README.md) § What is built is
-the current map, and everything else in those folders is still designed rather
-than built, which is why they keep their `STATUS: PLANNED` markers.
+the current map.
 
 ## Rule lookups
 

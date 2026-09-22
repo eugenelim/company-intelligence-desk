@@ -46,22 +46,20 @@ refuses every call. That is deliberate, and it means the stack above is
 asserted by walking the constructed chain rather than demonstrated by a call
 that got through.
 
-The design subtrees keep their `STATUS: PLANNED` markers because what they
-specify is still mostly unbuilt.
-**Two of them carry statements this delivery falsified, and neither is
-corrected in place.**
-[`role-configuration-seams.md`](role-configuration-seams/role-configuration-seams.md)'s
-marker still reads "nothing here is built. `src/ced/agents/` is empty", and
-both halves are now false — the compiler, the model seam and the toolset stack
-are in that package.
-[`runtime-architecture.md`](inspectable-multi-agent-diligence/runtime-architecture.md)
-still says the agent layer does not ship, and its § 8 rows still file
-`src/ced/agents/` as "the package is empty" and the integration registry as
-designed; `worker-runtime.md` carries the corrected form of that same header
-clause and those same rows, so the two projections of one fact now disagree.
-Correcting either needs the change that owns it — both are ratified records
-outside this delivery's pinned scope — and until then this section is the
-accurate statement.
+The design subtrees keep their markers, and a document that carries a
+build-state split states it in its own header rather than as a second copy of
+this section. This section stays the current map: where a marker and this map
+could drift apart, read this one.
+
+`walking-skeleton-role-compilation`'s verification ledger reports statements
+in ratified records that it observed falsified and could not correct:
+`role-configuration-seams.md`'s marker, `runtime-architecture.md`'s header
+clause and its § 8 rows, and the
+[`inspectable-multi-agent-diligence/`](inspectable-multi-agent-diligence/README.md)
+index's "Nothing described in this folder is built". **Each of those was
+corrected on 2026-09-22.** That ledger keeps its text as written, because a
+shipped spec's ledger records what one delivery observed on its own date;
+this paragraph is the successor its pointers land on.
 [`spikes/README.md`](../../spikes/README.md) § Phase 1 records, per delivery,
 which of their claims now have evidence and which do not.
 
