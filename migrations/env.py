@@ -29,13 +29,25 @@ operator retries when the table is quiet. Postgres raises `55P03
 lock_not_available`, which names contention rather than a schema fault, so the
 failure says which of the two it is.
 
-The value is fixed rather than configurable, under the rule the closed sets in
-`vocabulary.py` and `roles.py` already follow: one place a reviewer can see it
-change. It bounds lock *acquisition* only — a slow index build under a lock
-already held is a different problem, and no `statement_timeout` is set here.
+**The default is short and the operator can raise it**, because those are two
+different jobs. A routine deploy wants to fail while somebody is still
+watching; a planned maintenance migration on a populated table wants a window
+longer than any reader it expects to meet. Setting the value here rather than
+before connecting is what makes it *mandatory* — it overrides `PGOPTIONS`,
+`ALTER ROLE … SET` and `ALTER DATABASE … SET` alike — so closing those
+channels without opening one would leave editing this file as the only route
+to a longer window. `CED_MIGRATION_LOCK_TIMEOUT` is that route. Postgres
+validates the value and refuses an unusable one before any revision runs, so
+no check here re-does that.
+
+It bounds lock *acquisition* only, per statement rather than per run — a slow
+index build under a lock already held is a different problem, and no
+`statement_timeout` is set here.
 """
 
 from __future__ import annotations
+
+import os
 
 from alembic import context
 from sqlalchemy import create_engine, text
@@ -46,11 +58,12 @@ from ced.adapters.postgres.dsn import database_url
 #: the migration path uses the same one rather than a second client library.
 _DRIVER_SCHEME = "postgresql+psycopg://"
 
-#: How long a migration waits to acquire a lock before Postgres aborts the
-#: statement with `55P03 lock_not_available`. Five seconds is long enough to
-#: pass through ordinary short reads and short enough that a deploy blocked by
-#: a long-lived one fails while an operator is still watching it.
-_LOCK_TIMEOUT = "5s"
+#: The default lock-acquisition budget: long enough to pass through ordinary
+#: short reads, short enough that a blocked deploy fails while an operator is
+#: still watching. `CED_MIGRATION_LOCK_TIMEOUT` overrides it for a planned
+#: maintenance window; § the module docstring records why that override exists.
+_LOCK_TIMEOUT_ENV_VAR = "CED_MIGRATION_LOCK_TIMEOUT"
+_DEFAULT_LOCK_TIMEOUT = "5s"
 
 
 def _engine_url() -> str:
@@ -65,13 +78,16 @@ def run_migrations_online() -> None:
     engine = create_engine(_engine_url(), future=True)
     with engine.connect() as connection:
         connection.execute(text("SET ROLE ced_owner"))
-        # `set_config` rather than `SET`, because `SET` takes no bind
-        # parameter for its value and this keeps the timeout out of the SQL
-        # text. `false` for the third argument makes it session-scoped, so it
-        # covers every revision and not only the statement after it.
+        # `set_config` rather than `SET`, because `SET` takes no bind parameter
+        # for its value and this keeps an operator-supplied timeout out of the
+        # SQL text. `false` for the third argument means "not LOCAL" — but the
+        # `SET ROLE` above has already autobegun a transaction, so in this path
+        # the value reverts on rollback rather than outliving it. It covers
+        # every revision because the whole upgrade is that one transaction, not
+        # because the setting escapes it.
         connection.execute(
             text("SELECT set_config('lock_timeout', :timeout, false)"),
-            {"timeout": _LOCK_TIMEOUT},
+            {"timeout": os.environ.get(_LOCK_TIMEOUT_ENV_VAR, _DEFAULT_LOCK_TIMEOUT)},
         )
         context.configure(connection=connection, target_metadata=None)
         with context.begin_transaction():

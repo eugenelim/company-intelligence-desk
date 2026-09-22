@@ -123,14 +123,22 @@ def test_each_reading_role_can_open_a_connection_and_read(
     assert conn.execute("SELECT current_setting('deadlock_timeout')").fetchone() == ("200ms",)
 
 
-def _alembic(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    """Run the real `alembic` console script from the project's environment."""
+def _alembic(
+    *args: str, env: dict[str, str] | None = None, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run the real `alembic` console script from the project's environment.
+
+    `timeout` is what lets a check assert that a migration *stops*. Without
+    one, a revision waiting on a lock it will never get hangs the suite
+    instead of failing it.
+    """
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         env=None if env is None else {**os.environ, **env},
+        timeout=timeout,
     )
 
 
@@ -394,22 +402,7 @@ def test_the_migration_applies_to_a_database_at_no_revision(
         admin.execute(f"CREATE DATABASE {name}")
     try:
         probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
-        # The roles are cluster-wide, but the schema owner's grants are not:
-        # replay the provisioning file so the migration has an owner to
-        # SET ROLE to, exactly as the container init hook does.
-        init_sql = (REPO_ROOT / "deploy" / "postgres-init" / "01-roles.sql").read_text()
-        # Strip comment lines *before* splitting. Splitting first leaves each
-        # comment attached to the statement that follows it, which Postgres
-        # then tries to parse as SQL.
-        bare = "\n".join(
-            line
-            for line in init_sql.splitlines()
-            if line.strip() and not line.strip().startswith("--")
-        )
-        statements = [s.strip() for s in bare.split(";") if s.strip()]
-        with psycopg.connect(probe_url, autocommit=True) as probe:
-            for statement in statements:
-                probe.execute(_classify_provisioning(statement))
+        _replay_provisioning(probe_url)
 
         before = _table_names(probe_url)
         assert before == set(), f"the probe database was not empty: {before}"
@@ -425,6 +418,95 @@ def test_the_migration_applies_to_a_database_at_no_revision(
     finally:
         with psycopg.connect(database_url("migration"), autocommit=True) as admin:
             admin.execute(f"DROP DATABASE IF EXISTS {name}")
+
+
+def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
+    require_substrate: None,
+) -> None:
+    """The bounded lock wait `migrations/env.py` sets, observed end to end.
+
+    Revision 0003 takes `ACCESS EXCLUSIVE` on `integration_registry`. With no
+    `lock_timeout` that statement queues behind any open reader for as long
+    as the reader lives, and because a pending `ACCESS EXCLUSIVE` request
+    blocks everything behind it, the whole table stalls with it. The
+    behaviour that replaces it has three parts and each is asserted: the
+    migration stops, it says contention rather than a schema fault, and it
+    leaves the database exactly where it started.
+
+    **The subprocess timeout is the assertion, not a safety net.** Remove the
+    bounded wait and this check does not fail on a wrong value — it hangs on
+    a reader the check itself is holding, which is precisely the production
+    symptom, so the timeout is what turns that symptom into a red.
+    """
+    name = "ced_lock_timeout_probe"
+    _require_local_substrate()
+    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+        admin.execute(f"DROP DATABASE IF EXISTS {name}")
+        admin.execute(f"CREATE DATABASE {name}")
+    try:
+        probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
+        _replay_provisioning(probe_url)
+
+        at_0002 = _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url})
+        assert at_0002.returncode == 0, at_0002.stderr
+        assert "tools" not in _column_names(probe_url, "integration_registry")
+
+        with psycopg.connect(probe_url) as reader:
+            # An ordinary read. `ACCESS SHARE` is the weakest table lock there
+            # is and conflicts with nothing except `ACCESS EXCLUSIVE`, so this
+            # is the cheapest thing a live system could be doing that revision
+            # 0003 has to wait for.
+            reader.execute("BEGIN")
+            reader.execute("SELECT count(*) FROM integration_registry")
+
+            try:
+                blocked = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url},
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                pytest.fail(
+                    "alembic upgrade head did not return while a reader held "
+                    "ACCESS SHARE — the migration is queueing on the lock "
+                    "instead of giving up, which is the stalled deploy "
+                    "migrations/env.py's lock_timeout exists to prevent"
+                )
+
+            assert blocked.returncode != 0, (
+                "the migration succeeded while a reader held ACCESS SHARE, "
+                "which revision 0003's ADD COLUMN cannot do"
+            )
+            # Named, because an operator has to tell this apart from a schema
+            # fault: the two need opposite responses, a retry and a fix.
+            assert "lock timeout" in blocked.stderr.lower(), blocked.stderr
+
+            # Nothing half-applied. `env.py` runs the whole upgrade in one
+            # transaction it commits explicitly, so the abort takes every
+            # revision in flight with it.
+            assert "tools" not in _column_names(probe_url, "integration_registry")
+
+        retried = _alembic("upgrade", "head", env={"CED_DATABASE_URL": probe_url})
+        assert retried.returncode == 0, retried.stderr
+        assert "tools" in _column_names(probe_url, "integration_registry"), (
+            "the retry exited 0 without applying 0003 — a bounded wait that "
+            "makes the migration unrunnable rather than retryable is not the "
+            "bargain env.py records"
+        )
+    finally:
+        with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+            admin.execute(f"DROP DATABASE IF EXISTS {name}")
+
+
+def _column_names(url: str, table: str) -> set[str]:
+    """Every column on one table, for asserting a revision did or did not land."""
+    with psycopg.connect(url) as conn:
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            (table,),
+        ).fetchall()
+    return {row[0] for row in rows}
 
 
 def _table_names(url: str) -> set[str]:
@@ -452,6 +534,29 @@ _SCHEMA_SCOPED_PREFIXES = (
     "GRANT USAGE ON SCHEMA",
     "GRANT CED_OWNER TO",
 )
+
+
+def _replay_provisioning(url: str) -> None:
+    """Give a throwaway database the owner and grants the migration expects.
+
+    The roles are cluster-wide, but the schema owner's grants are not, so a
+    fresh database has no `ced_owner` to `SET ROLE` to until the provisioning
+    file the container init hook runs is replayed into it.
+
+    Comment lines are stripped *before* splitting on `;`. Splitting first
+    leaves each comment attached to the statement that follows it, which
+    Postgres then tries to parse as SQL.
+    """
+    init_sql = (REPO_ROOT / "deploy" / "postgres-init" / "01-roles.sql").read_text()
+    bare = "\n".join(
+        line
+        for line in init_sql.splitlines()
+        if line.strip() and not line.strip().startswith("--")
+    )
+    with psycopg.connect(url, autocommit=True) as probe:
+        for statement in (s.strip() for s in bare.split(";")):
+            if statement:
+                probe.execute(_classify_provisioning(statement))
 
 
 def _classify_provisioning(statement: str) -> str:

@@ -167,6 +167,7 @@ docker-compose -f deploy/compose.yaml up -d --build postgres minio
 until docker-compose -f deploy/compose.yaml exec -T postgres \
       pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 ./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
+                                       # exits 1 on lock contention — see below
 docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
 ./.venv/bin/python -m pytest           # minutes, not seconds; see below
 docker-compose -f deploy/compose.yaml down -v
@@ -178,6 +179,30 @@ The `until` line is not decoration. `up -d` returns when the containers have
 the healthcheck budgets up to 60 s for it. The worker step is gated by
 `depends_on: service_healthy`; the migration is not, so without the wait
 `alembic` races startup on exactly the clean clone this block is written for.
+
+**`alembic upgrade head` can exit 1 without anything being wrong with the
+schema.** Migrations wait a bounded time to acquire a lock — five seconds by
+default — and then give up, because revision 0003 takes `ACCESS EXCLUSIVE` on
+`integration_registry` and an unbounded wait behind one open reader stalls
+every later query on that table. Read the error before changing anything:
+
+- `canceling statement due to lock timeout` (`55P03`) is **contention**, not a
+  schema fault. Nothing was applied — the whole upgrade is one transaction and
+  it rolled back — so the fix is to retry when the table is quiet. Locally
+  that usually means a `psql` session or a worker still holding a read.
+- For a planned maintenance migration against a populated table, set
+  `CED_MIGRATION_LOCK_TIMEOUT` to a longer interval, for example
+  `CED_MIGRATION_LOCK_TIMEOUT=30min ./.venv/bin/alembic upgrade head`. It
+  takes any value Postgres accepts for `lock_timeout` and is refused loudly
+  before any revision runs if it does not. Setting it in `PGOPTIONS` or with
+  `ALTER ROLE` will not work: `migrations/env.py` sets the value after
+  connecting and so overrides both.
+- Any other error is a schema fault and a retry will not help.
+
+**Do not carry on to the worker step after a failed migration.** The workers
+die on their first claim against a database without the schema, and
+`restart: "no"` keeps them dead — the same stalled state the paragraph below
+describes, reached from a transient cause instead of a skipped step.
 
 **The schema has to exist before the workers start, which is why this is three
 commands and not two.** A single `up -d --build` starts the workers against an
