@@ -20,7 +20,11 @@ reference arriving through one was minted by nobody and is refused.
 **What this does not establish.** No tool body executes anywhere in this spec
 — the decision point refuses every call until the successor's predicate
 arrives — so `call_tool` below is unreached by contract rather than by
-omission, and no test here observes a parse. Separately,
+omission, and no test observes a parse made *through this layer*. What is
+asserted is the wiring and the parser either side of it: one check walks the
+compiled stack and holds that `parse_result` **is**
+`parse_integration_result`, and the quarantine suite decides that function's
+refusing and admitting directions by calling it directly. Separately,
 [ADR-0006](../../../../docs/adr/0006-four-r5-deviations-for-phase-1.md) D3
 means no Phase 1 role can hold a `free-text` integration at all, so the
 free-text case this layer exists for stays unexercised even after the

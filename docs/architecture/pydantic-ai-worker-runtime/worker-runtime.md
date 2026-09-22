@@ -1,8 +1,13 @@
 # Subsystem Design — the reasoning worker and its pool
 
-**STATUS: PLANNED** — the pool, the lease protocol and the privilege split are
-built; the agent layer, the authorization boundary and the provider call are
-not. [`../README.md`](../README.md) § What is built is the current map.
+**STATUS: PLANNED** — the pool, the lease protocol, the privilege split and the
+agent layer are built; the authorization boundary and the provider call are
+not. The agent layer here means the role compiler, the four-layer toolset
+stack, the compile-time refusals, and the quarantined role with its
+deterministic parser. The decision point ships with its **position** and
+refuses every call: its predicate is the authorization boundary's, so no tool
+body executes anywhere in this repository yet.
+[`../README.md`](../README.md) § What is built is the current map.
 
 **Decision sought:** accept this as the specification of the inside of a leased
 step and the pool that leases them, binding on
@@ -1267,9 +1272,9 @@ Where does each element live in source, build, and deployment?
 | Model seam containment | `tests/architecture/dependency_direction.py` | `ced` | n/a | **Built** — AST walk refusing `pydantic_ai` outside `agents/` and `adapters/` |
 | Local substrate | `deploy/compose.yaml`, `deploy/Dockerfile`, `deploy/postgres-init/` | n/a | n/a | **Built** — two worker containers on their own pool class |
 | Step executor | `src/ced/worker/` | `ced` | `ced-worker` | Designed |
-| Agent compiler, toolset stack, quarantined role | `src/ced/agents/` | `ced` | `ced-worker` | Designed — the package is empty |
-| `Model` adapters | `src/ced/adapters/` | `ced` | `ced-worker` | Designed |
-| Integration registry | `migrations/`, `src/ced/domain/` | `ced` | both | Designed |
+| Agent compiler, toolset stack, quarantined role | `src/ced/agents/`, `src/ced/domain/quarantine/` | `ced` | `ced-worker` | **Built** — the compiler is the only constructor of the agent; the stack is policy decision point → step events → trust class → function tools. The decision point holds no predicate and refuses every call, so no tool body runs |
+| `Model` adapters | `src/ced/adapters/` | `ced` | `ced-worker` | Designed — `ced.agents.models.resolve_model` is the seam and the deployment wires the factory; no concrete provider adapter exists |
+| Integration registry | `migrations/versions/0003_*`, `src/ced/adapters/postgres/roles.py` | `ced` | both | **Built** — revision 0003 closes `agent_role` and `integration_registry` to r5's record shapes, and `load_role` / `decode_role_record` read them |
 | Application layer | `src/ced/domain/` | `ced` | both | Partly built — the run state machine's transitions are not |
 
 The mapping is not one-to-one in one place, deliberately. **The application layer

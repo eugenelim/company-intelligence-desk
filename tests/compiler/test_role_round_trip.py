@@ -20,6 +20,11 @@ with all four green. The malformed record is a ceiling that is a JSON object —
 a shape the query accepts and returns, so its refusal can only have come from
 the decode seam. A shape the query itself rejects would never reach the seam
 and would establish nothing.
+
+**And it carries AC-0273's unbound-row case**, which no offline check can
+reach. A registry row no ceiling binds is absent from every record the decode
+seam is handed, so the only seam that can see it is `list_integration_tools()`
+— the whole-registry read.
 """
 
 from __future__ import annotations
@@ -46,6 +51,7 @@ pytestmark = pytest.mark.substrate
 
 ROLE = SEED_PREFIX + "analysis"
 INTEGRATION = SEED_PREFIX + "sec-filings"
+UNBOUND = SEED_PREFIX + "market-data"
 TOOLS = ["fetch_filing", "list_filings"]
 
 
@@ -164,3 +170,43 @@ def test_the_two_enumerations_read_the_tables(owner_conn: psycopg.Connection) ->
             (2, "fetch_filing"),
             (2, "list_filings"),
         ]
+
+
+def test_an_unbound_registry_row_with_null_tools_is_refused(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0273's unbound-row case, which only the whole-registry read can see.
+
+    The row seeded here is bound by no role's ceiling, so it is absent from
+    every `load_role` result and from every record the offline decode seam is
+    ever handed. That is the point: a guard scoped to bound rows passes on it,
+    and the row then contributes nothing to the tool surface while AC-0233's
+    enumeration reports itself complete over a universe one row smaller.
+
+    Both halves are asserted. The bound role still loads, which is what makes
+    the row unbound rather than merely broken, and `list_integration_tools()`
+    — the whole-registry read the ratified design states must read the tables
+    — refuses, naming the row so an operator knows which one to fix.
+    """
+    with seeded(owner_conn) as conn:
+        insert_integration(conn, integration_name=INTEGRATION, version=2, tools=TOOLS)
+        insert_integration(conn, integration_name=UNBOUND, version=3, tools=None)
+        insert_role(
+            conn,
+            role_name=ROLE,
+            ceiling=[ceiling_entry(INTEGRATION, 2, "fetch_filing")],
+        )
+        conn.commit()
+
+        # Unbound: the only ceiling in the table names the other integration,
+        # so the null-tools row reaches no bound-row guard.
+        loaded = load_role(ROLE, 1)
+        assert [r["integration_name"] for r in loaded.integrations] == [INTEGRATION]
+
+        with pytest.raises(RoleLoadError) as caught:
+            list_integration_tools()
+
+    message = str(caught.value)
+    assert UNBOUND in message
+    assert "3" in message
+    assert "tools" in message
