@@ -9,11 +9,14 @@ the exit code is only one of the things it asserts.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
 import sys
 import threading
+import warnings
+from collections.abc import Iterator
 from pathlib import Path
 
 import psycopg
@@ -21,9 +24,21 @@ import pytest
 
 from ced.adapters.postgres.dsn import database_url
 
-#: Kept in step with `migrations/env.py`; the checks below read it by name
-#: rather than spelling the variable, so a rename breaks them loudly.
+#: An unjoined copy of the name `migrations/env.py` reads. That module runs
+#: the migration at import time, so it cannot be imported to share a constant.
+#: `test_an_override_that_disables_the_bound_is_refused` is the check that
+#: reds on a rename — the override check cannot, because a renamed variable
+#: simply leaves the default in force, which is a value it has to tolerate.
 _LOCK_TIMEOUT_ENV_VAR = "CED_MIGRATION_LOCK_TIMEOUT"
+
+#: How long a probe reader is held once the run that must outlast it starts.
+#: Above the 5 s default so that default gives up inside the window, and far
+#: below the override under test so the override does not.
+_RELEASE_AFTER = 12.0
+
+#: A backstop on every probe reader, so a check that dies without releasing
+#: cannot leave a session holding a lock on the substrate.
+_HOLD_CEILING = 300.0
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -409,14 +424,7 @@ def test_the_migration_applies_to_a_database_at_no_revision(
     creates a throwaway database, migrates it from nothing, and asserts the
     tables are there — so a revision that commits nothing reds.
     """
-    name = "ced_migration_probe"
-    _require_local_substrate()
-    # CREATE DATABASE cannot run inside a transaction block.
-    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-        admin.execute(f"DROP DATABASE IF EXISTS {name}")
-        admin.execute(f"CREATE DATABASE {name}")
-    try:
-        probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
+    with _probe_database("ced_migration_probe") as probe_url:
         _replay_provisioning(probe_url)
 
         before = _table_names(probe_url)
@@ -430,9 +438,6 @@ def test_the_migration_applies_to_a_database_at_no_revision(
             f"upgrade head exited 0 but left {sorted(after)} — the "
             "commit-nothing defect this check exists for"
         )
-    finally:
-        with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-            admin.execute(f"DROP DATABASE IF EXISTS {name}")
 
 
 def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
@@ -453,13 +458,7 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
     a reader the check itself is holding, which is precisely the production
     symptom, so the timeout is what turns that symptom into a red.
     """
-    name = "ced_lock_timeout_probe"
-    _require_local_substrate()
-    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-        admin.execute(f"DROP DATABASE IF EXISTS {name}")
-        admin.execute(f"CREATE DATABASE {name}")
-    try:
-        probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
+    with _probe_database("ced_lock_timeout_probe") as probe_url:
         _replay_provisioning(probe_url)
 
         at_0002 = _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url})
@@ -524,9 +523,6 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
             "makes the migration unrunnable rather than retryable is not the "
             "bargain env.py records"
         )
-    finally:
-        with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-            admin.execute(f"DROP DATABASE IF EXISTS {name}")
 
 
 def test_the_lock_timeout_override_reaches_the_migration_session(
@@ -536,66 +532,89 @@ def test_the_lock_timeout_override_reaches_the_migration_session(
 
     `AGENTS.md` § The local substrate tells an operator to reach for this
     variable when a maintenance migration needs a longer window than the
-    default. A misspelt name, a misread of `os.environ`, or a value that
-    never reaches the session would leave that guidance pointing at nothing
+    default. A misspelt name, a misread of `os.environ`, or a value clamped
+    on the way to the session would leave that guidance pointing at nothing
     while every other gate stayed green.
 
-    Both directions are asserted against the *same* held reader, so the pair
-    isolates the variable as the only difference: a window shorter than the
-    reader's life aborts, and one longer than it waits the reader out and
-    applies.
+    **The reader is retired on a clock that starts when the widening run
+    does**, and that is what isolates the variable. Both runs meet a reader
+    already holding the lock; the reader then goes away after
+    `_RELEASE_AFTER`, which is longer than the 5 s default and far shorter
+    than the override. So the default must give up and the override must
+    wait it out, and a build that ignores the variable fails the second leg.
+
+    Two earlier versions of this check did not isolate anything. The first
+    retired the reader *before* the widening run, so that run succeeded
+    whatever the variable did. The second retired it on a fixed deadline
+    from the start of the check, so a slow first leg could consume the whole
+    window and hand the second leg an uncontended lock.
     """
-    name = "ced_lock_override_probe"
-    _require_local_substrate()
-    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-        admin.execute(f"DROP DATABASE IF EXISTS {name}")
-        admin.execute(f"CREATE DATABASE {name}")
-    try:
-        probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
+    with _probe_database("ced_lock_override_probe") as probe_url:
         _replay_provisioning(probe_url)
         assert _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url}).returncode == 0
 
-        holder = threading.Event()
-        released = threading.Event()
+        holding = threading.Event()
+        release = threading.Event()
+        retired = threading.Event()
 
-        def hold_briefly() -> None:
+        def hold() -> None:
             with psycopg.connect(probe_url) as reader:
                 reader.execute("SELECT count(*) FROM integration_registry")
-                holder.set()
-                released.wait(timeout=60)
+                holding.set()
+                release.wait(timeout=_HOLD_CEILING)
+            retired.set()
 
-        keeper = threading.Thread(target=hold_briefly, daemon=True)
+        keeper = threading.Thread(target=hold, daemon=True)
         keeper.start()
         try:
-            assert holder.wait(timeout=30), "the probe reader never took its lock"
+            assert holding.wait(timeout=30), "the probe reader never took its lock"
 
-            # Far below the reader's life: the override must shorten the wait.
+            # Leg 1, the control: the shipped default against a reader that
+            # outlives it must give up. Without this the second leg could be
+            # succeeding because the contention was never real.
             impatient = _alembic(
                 "upgrade",
                 "head",
-                env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "250ms"},
+                env={"CED_DATABASE_URL": probe_url},
+                unset=(_LOCK_TIMEOUT_ENV_VAR,),
                 timeout=120,
             )
-            assert impatient.returncode != 0
+            assert not retired.is_set(), (
+                "the probe reader went away before the default run finished, "
+                "so this leg proved nothing about the default's window"
+            )
+            assert impatient.returncode != 0, (
+                "the shipped default applied the migration through a reader "
+                "held longer than it — the contention this check needs is not "
+                "happening"
+            )
             assert "lock timeout" in impatient.stderr.lower(), impatient.stderr
             assert _current_revision(probe_url) == "0002"
-        finally:
-            released.set()
-            keeper.join(timeout=30)
 
-        # Well above it, with the reader now gone: the override must not have
-        # broken the ordinary path.
-        patient = _alembic(
-            "upgrade",
-            "head",
-            env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "30min"},
-            timeout=120,
-        )
-        assert patient.returncode == 0, patient.stderr
-        assert _current_revision(probe_url) == "0003"
-    finally:
-        with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-            admin.execute(f"DROP DATABASE IF EXISTS {name}")
+            # Leg 2: the same held reader, retired on a timer that starts now.
+            # The default would abort inside that window; the override must
+            # not, so the variable is the only difference between the legs.
+            timer = threading.Timer(_RELEASE_AFTER, release.set)
+            timer.start()
+            try:
+                patient = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "30min"},
+                    timeout=120,
+                )
+            finally:
+                timer.cancel()
+
+            assert patient.returncode == 0, (
+                "the override did not widen the window: this run met the same "
+                "reader the default gave up on, and gave up too, so the value "
+                f"is not reaching the migration session.\n{patient.stderr}"
+            )
+            assert _current_revision(probe_url) == "0003"
+        finally:
+            release.set()
+            keeper.join(timeout=30)
 
 
 @pytest.mark.parametrize("disabling", ["0", "0s", "0ms"])
@@ -623,6 +642,62 @@ def test_an_override_that_disables_the_bound_is_refused(
     assert refused.returncode != 0
     assert _LOCK_TIMEOUT_ENV_VAR in refused.stderr, refused.stderr
     assert "disabled lock timeout" in refused.stderr, refused.stderr
+
+
+def test_the_disabling_refusal_fires_before_the_migration_takes_a_lock(
+    require_substrate: None,
+) -> None:
+    """Ordering, observed rather than inferred.
+
+    "Refused before any revision runs" is the whole value of the guard: a
+    refusal that arrives *after* the upgrade has queued on `ACCESS EXCLUSIVE`
+    has already taken the unbounded wait the setting exists to remove, and on
+    a populated database that is the stalled deploy, refusal or no refusal.
+
+    Exit code and message cannot see the difference — a guard moved below
+    `run_migrations()` still exits non-zero with the same text, because the
+    transaction rolls back. What separates them is whether the run *returns*
+    while a reader holds the lock. So this holds one and gives the subprocess
+    a budget far below any wait it could otherwise sit in.
+    """
+    with _probe_database("ced_lock_ordering_probe") as probe_url:
+        _replay_provisioning(probe_url)
+        assert _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url}).returncode == 0
+
+        holding = threading.Event()
+        release = threading.Event()
+
+        def hold() -> None:
+            with psycopg.connect(probe_url) as reader:
+                reader.execute("SELECT count(*) FROM integration_registry")
+                holding.set()
+                release.wait(timeout=_HOLD_CEILING)
+
+        keeper = threading.Thread(target=hold, daemon=True)
+        keeper.start()
+        try:
+            assert holding.wait(timeout=30), "the probe reader never took its lock"
+            try:
+                refused = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "0"},
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired:
+                pytest.fail(
+                    "the disabling refusal did not return while a reader held "
+                    "the lock: the upgrade reached a revision and queued on "
+                    "ACCESS EXCLUSIVE before refusing, which is the unbounded "
+                    "wait the refusal exists to prevent"
+                )
+
+            assert refused.returncode != 0
+            assert "disabled lock timeout" in refused.stderr, refused.stderr
+            assert _current_revision(probe_url) == "0002"
+        finally:
+            release.set()
+            keeper.join(timeout=30)
 
 
 def _current_revision(url: str) -> str | None:
@@ -667,6 +742,38 @@ _SCHEMA_SCOPED_PREFIXES = (
     "GRANT USAGE ON SCHEMA",
     "GRANT CED_OWNER TO",
 )
+
+
+@contextlib.contextmanager
+def _probe_database(stem: str) -> Iterator[str]:
+    """Create a throwaway database for one check, and reclaim it afterwards.
+
+    **The name carries the process id**, because every check here opens by
+    dropping the name it is about to use: a second `pytest` session against
+    the same substrate would otherwise drop the first's database mid-check
+    and red it with an unrelated message.
+
+    **The drop is forced**, because `DROP DATABASE` is refused while any
+    session is connected and these checks hold readers on purpose. Without
+    it a reader that outlives its join turns teardown into an `ObjectInUse`
+    raised from a `finally`, which replaces whatever actually failed —
+    losing the diagnosis and leaking the database for the next run.
+    """
+    name = f"{stem}_{os.getpid()}"
+    _require_local_substrate()
+    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+        admin.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        admin.execute(f"CREATE DATABASE {name}")
+    try:
+        yield database_url("migration").rsplit("/", 1)[0] + "/" + name
+    finally:
+        try:
+            with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+                admin.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        except psycopg.Error as exc:  # pragma: no cover - teardown only
+            # Never from a bare `finally`: an exception here would mask the
+            # assertion that brought us to it.
+            warnings.warn(f"probe database {name} was left behind: {exc}", stacklevel=2)
 
 
 def _replay_provisioning(url: str) -> None:

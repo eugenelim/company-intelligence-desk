@@ -167,8 +167,8 @@ docker-compose -f deploy/compose.yaml up -d --build postgres minio
 until docker-compose -f deploy/compose.yaml exec -T postgres \
       pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 ./.venv/bin/alembic upgrade head \
-  && docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
-./.venv/bin/python -m pytest           # minutes, not seconds; see below
+  && docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b \
+  && ./.venv/bin/python -m pytest      # minutes, not seconds; see below
 docker-compose -f deploy/compose.yaml down -v
 ```
 
@@ -196,7 +196,9 @@ every later query on that table. Read the error before changing anything:
   `CED_MIGRATION_LOCK_TIMEOUT` to a longer interval, for example
   `CED_MIGRATION_LOCK_TIMEOUT=30min ./.venv/bin/alembic upgrade head`.
   **Always write the unit.** Postgres reads a bare number as milliseconds, so
-  `30` is `30ms` — six times *shorter* than the default, not longer. A value
+  `30` means `30ms`, which is far *shorter* than the `5s` default rather than
+  longer — an operator who meant `30s` gets a window about 167 times smaller
+  than the one they were trying to leave. A value
   it cannot parse at all is refused before any revision runs, and so is one
   that resolves to `0`, because `0` means the bound is switched off rather
   than set to no wait. Setting the value in `PGOPTIONS` or with `ALTER ROLE`
@@ -204,14 +206,15 @@ every later query on that table. Read the error before changing anything:
   overrides both.
 - Any other error is a schema fault and a retry will not help.
 
-**The `&&` before the worker step is load-bearing**, and it is why that line
-is chained rather than listed. This block is meant to be pasted in one go, so
-an unchained worker step would start against a database the migration just
-failed to touch: the workers die on their first claim, `restart: "no"` keeps
-them dead, and the stack looks healthy while every `tests/fault_injection`
-check fails its two-worker precondition — the same stalled state the paragraph
-below describes, now reachable from a transient cause rather than a skipped
-step.
+**The `&&` chain from the migration onwards is load-bearing**, and it is why
+those three lines are joined rather than listed. This block is meant to be
+pasted in one go, so unchained steps after a failed migration would start the
+workers against a database without the schema — they die on their first
+claim, `restart: "no"` keeps them dead — and then run the suite, where every
+`tests/fault_injection` check fails its two-worker precondition. That is the
+same stalled state the paragraph below describes, now reachable from a
+transient cause rather than a skipped step. Chaining the worker step alone
+would stop the stack looking healthy but still let the suite run and fail.
 
 **The schema has to exist before the workers start, which is why this is three
 commands and not two.** A single `up -d --build` starts the workers against an
@@ -233,10 +236,10 @@ poll offset is uniform on [0, 30 s), so the whole suite has been measured at
 which is why the earlier pair is not comparable — at 156 s and 160 s, all on
 the same machine with nothing wrong. **A third composition change landed on
 2026-09-22**, so the 156/160 pair is not comparable either: three
-`substrate` checks over the migration lock timeout were added, each creating
-and dropping a database and spending a deliberate lock wait, and the two
-measurements after them were 201.57 s and 168.61 s — a spread that makes the
-paragraph's own point, since the larger is the earlier. Every range published here so far excluded
+`substrate` checks over the migration lock timeout were added, three of them
+creating and dropping a database and holding a reader for a deliberate wait,
+and the measurements after them were 201.57 s, 168.61 s and 195.65 s — a spread that
+makes the paragraph's own point, since the larger is the earlier. Every range published here so far excluded
 one of those measurements. Expect minutes, expect the spread, and read the
 number `pytest` prints rather than one written down here. Compressed timings would
 demonstrate the mechanism and not the 150-second number the criterion states.

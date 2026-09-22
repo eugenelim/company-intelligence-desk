@@ -443,48 +443,83 @@ def test_every_declared_interpreted_attribute_refuses_a_duplicate() -> None:
 def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
     """The structural half, and the one that makes the set closed.
 
-    Two invariants close this between them, and only one of them can be a
-    behavioural check. `_read_once` refuses at run time to read an attribute
-    that is not in `_INTERPRETED_ATTRIBUTES`, which covers every call that
-    goes through it. What that cannot see is a read that does not — so this
-    asserts the other half from the module's source: **`_read_once` is the
-    only place the raw attribute list is looked at.** Everywhere else `attrs`
-    may only be handed to `_read_once` or `_identity`.
+    Two invariants close this between them, and only one can be behavioural.
+    `_read_once` refuses at run time to read an attribute outside
+    `_INTERPRETED_ATTRIBUTES`, which covers every read that goes through it.
+    What that cannot see is a read that does not — so this asserts from the
+    module's source that there is no such read.
 
-    The mutation this exists for is `dict(attrs).get("scale")` — a fourth
-    interpreted attribute resolving last-wins, which is the defect the
-    declare-at-most-once rule closed for the other three, and which every
-    behavioural check in this module passes. Scoped to the module rather
-    than to one function, so moving the read into a new helper does not hide
-    it.
+    **The thing asserted is that the module never calls `dict()`.** That is
+    blunt on purpose. Collapsing the attribute list to a mapping is how a
+    duplicate becomes invisible, it is the shape of every regression this
+    rule has actually had, and unlike a rule phrased in terms of `attrs` it
+    does not stop holding when somebody renames a parameter. Two earlier
+    versions of this check were phrased that way and both were silently
+    vacuous under `handle_starttag(self, tag, given)`.
 
-    This pins a structure, so a refactor can red it with the behaviour
-    intact. That is the intended cost: the structure *is* the guarantee here,
-    because the rule can only count occurrences it is given, and a refactor
-    that takes the attribute list somewhere else has changed what the rule
-    can see even when today's inputs behave the same.
+    **Its limit, stated rather than left to be discovered:** a collapse
+    written some other way — a loop that overwrites, `groupby`, a
+    comprehension keyed by name — is not caught here, only by the runtime
+    guard if it goes through `_read_once`, and not at all if it does not.
+    What the pair gives is that the obvious route is closed and the declared
+    route is checked; it is not a proof that no collapse can be written.
+
+    The anchors below are why this cannot pass by inspecting nothing.
     """
     module = ast.parse(inspect.getsource(mint))
-    readers = {"_read_once", "_identity"}
+    functions = {
+        node.name: node for node in ast.walk(module) if isinstance(node, ast.FunctionDef)
+    }
 
-    for function in (n for n in ast.walk(module) if isinstance(n, ast.FunctionDef)):
-        if function.name == "_read_once":
-            continue  # The one place that is allowed to read the list itself.
+    # Anchors. A check that silently found nothing to judge is the failure
+    # mode both earlier versions of this had, so absence is a red.
+    for required in ("handle_starttag", "_read_once", "_identity"):
+        assert required in functions, (
+            f"{required} is not in mint.py under that name; this check can no "
+            f"longer tell whether the attribute list is read anywhere else"
+        )
 
-        handed_off: set[int] = set()
+    for name, function in functions.items():
         for node in ast.walk(function):
             if isinstance(node, ast.Call):
                 callee = node.func
-                if isinstance(callee, ast.Name) and callee.id in readers:
-                    handed_off.update(id(argument) for argument in node.args)
+                if isinstance(callee, ast.Name) and callee.id == "dict":
+                    pytest.fail(
+                        f"{name} calls dict(); collapsing the attribute list to "
+                        f"a mapping discards every occurrence but the last, "
+                        f"which is what the declare-at-most-once rule exists to "
+                        f"stop. Read through _read_once instead."
+                    )
 
-        for node in ast.walk(function):
-            if isinstance(node, ast.Name) and node.id == "attrs" and id(node) not in handed_off:
-                pytest.fail(
-                    f"{function.name} reaches the raw attribute list itself; "
-                    "only _read_once may, so that every occurrence of an "
-                    "interpreted attribute is counted before it is used"
-                )
+    # And the reader hands its attribute list to the guarded readers rather
+    # than to anything else. The parameter is taken from the signature, not
+    # assumed to be called `attrs`.
+    reader = functions["handle_starttag"]
+    attribute_list = reader.args.args[-1].arg
+    guarded = {"_read_once", "_identity"}
+
+    handed_off: set[int] = set()
+    for node in ast.walk(reader):
+        if isinstance(node, ast.Call):
+            callee = node.func
+            if isinstance(callee, ast.Name) and callee.id in guarded:
+                handed_off.update(id(argument) for argument in node.args)
+    assert handed_off, (
+        f"handle_starttag passes {attribute_list!r} to neither _read_once nor "
+        f"_identity; if the reads moved, this check is judging the wrong thing"
+    )
+
+    for node in ast.walk(reader):
+        if (
+            isinstance(node, ast.Name)
+            and node.id == attribute_list
+            and id(node) not in handed_off
+        ):
+            pytest.fail(
+                f"handle_starttag uses {attribute_list!r} outside a call to "
+                f"_read_once or _identity, so a read of it escapes the "
+                f"declare-at-most-once rule"
+            )
 
 
 def test_read_once_refuses_an_attribute_outside_the_declared_set() -> None:
