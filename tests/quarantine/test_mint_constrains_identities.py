@@ -39,12 +39,16 @@ decides whether a fact enters the set at all.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import re
 from uuid import UUID
 
 import pytest
 
+from ced.domain.quarantine import mint
 from ced.domain.quarantine.mint import (
+    _INTERPRETED_ATTRIBUTES,
     UnmintableFactIdentity,
     mint_candidate_set,
 )
@@ -408,15 +412,15 @@ def test_a_single_nil_flag_still_decides_the_fact_either_way() -> None:
     ).references == frozenset({f"{REFERENCE_PREFIX}{_STEP}/xbrl/us-gaap:Revenues/c-1"})
 
 
-def test_the_read_exactly_once_rule_covers_every_attribute_the_mint_reads() -> None:
-    """The rule is stated as the closed set, so extending the reader is a diff.
+def test_every_declared_interpreted_attribute_refuses_a_duplicate() -> None:
+    """Behavioural cover for the declared set, read from the constant itself.
 
-    A later change that interprets a fourth attribute has to add it here, and
-    a repeated attribute the mint does *not* read stays out of scope — the
-    mint is not a general XML-conformance check.
+    This asserts the rule holds for every member — a lower bound. What stops
+    the reader growing a fourth member outside the set is the structural check
+    below, not this one; an earlier version of this check hardcoded the three
+    names and was green against exactly that mutation.
     """
-    interpreted = ("name", "contextref", "xsi:nil")
-    for attribute in interpreted:
+    for attribute in _INTERPRETED_ATTRIBUTES:
         others = {
             "name": "us-gaap:Revenues",
             "contextref": "c-1",
@@ -434,3 +438,64 @@ def test_the_read_exactly_once_rule_covers_every_attribute_the_mint_reads() -> N
         _filing('name="us-gaap:Revenues" contextRef="c-1" unitRef="usd" unitRef="eur"'),
     )
     assert len(minted) == 1
+
+
+def test_the_reader_interprets_no_attribute_outside_the_declared_set() -> None:
+    """The structural half, and the one that makes the set closed.
+
+    Two invariants close this between them, and only one of them can be a
+    behavioural check. `_read_once` refuses at run time to read an attribute
+    that is not in `_INTERPRETED_ATTRIBUTES`, which covers every call that
+    goes through it. What that cannot see is a read that does not — so this
+    asserts the other half from the module's source: **`_read_once` is the
+    only place the raw attribute list is looked at.** Everywhere else `attrs`
+    may only be handed to `_read_once` or `_identity`.
+
+    The mutation this exists for is `dict(attrs).get("scale")` — a fourth
+    interpreted attribute resolving last-wins, which is the defect the
+    declare-at-most-once rule closed for the other three, and which every
+    behavioural check in this module passes. Scoped to the module rather
+    than to one function, so moving the read into a new helper does not hide
+    it.
+
+    This pins a structure, so a refactor can red it with the behaviour
+    intact. That is the intended cost: the structure *is* the guarantee here,
+    because the rule can only count occurrences it is given, and a refactor
+    that takes the attribute list somewhere else has changed what the rule
+    can see even when today's inputs behave the same.
+    """
+    module = ast.parse(inspect.getsource(mint))
+    readers = {"_read_once", "_identity"}
+
+    for function in (n for n in ast.walk(module) if isinstance(n, ast.FunctionDef)):
+        if function.name == "_read_once":
+            continue  # The one place that is allowed to read the list itself.
+
+        handed_off: set[int] = set()
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call):
+                callee = node.func
+                if isinstance(callee, ast.Name) and callee.id in readers:
+                    handed_off.update(id(argument) for argument in node.args)
+
+        for node in ast.walk(function):
+            if isinstance(node, ast.Name) and node.id == "attrs" and id(node) not in handed_off:
+                pytest.fail(
+                    f"{function.name} reaches the raw attribute list itself; "
+                    "only _read_once may, so that every occurrence of an "
+                    "interpreted attribute is counted before it is used"
+                )
+
+
+def test_read_once_refuses_an_attribute_outside_the_declared_set() -> None:
+    """The runtime half of the same closure, asserted directly.
+
+    Reading an undeclared attribute through the helper would look correct and
+    silently sit outside the rule, because the rule is exactly the declared
+    set. This makes that a loud programming error at the first call.
+    """
+    attrs = [("scale", "3"), ("scale", "6")]
+
+    assert mint._read_once(attrs, "xsi:nil") is None
+    with pytest.raises(ValueError, match="_INTERPRETED_ATTRIBUTES"):
+        mint._read_once(attrs, "scale")

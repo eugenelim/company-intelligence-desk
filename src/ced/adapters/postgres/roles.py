@@ -214,7 +214,8 @@ def _check_integration_record(record: Mapping[str, Any]) -> None:
     # closed defect describes. That is a second rule about what a tool name
     # *is*, and it belongs with the criterion this check already ships
     # without, not ahead of it — recorded in `workspace.toml` rather than
-    # decided here.
+    # decided here. The sibling gap on `ceiling` — a non-mapping entry that
+    # loads and appends no refusal event — has its own open register entry.
     for position, tool_name in enumerate(tools):
         if not isinstance(tool_name, str):
             raise RoleLoadError(

@@ -36,9 +36,17 @@ longer than any reader it expects to meet. Setting the value here rather than
 before connecting is what makes it *mandatory* — it overrides `PGOPTIONS`,
 `ALTER ROLE … SET` and `ALTER DATABASE … SET` alike — so closing those
 channels without opening one would leave editing this file as the only route
-to a longer window. `CED_MIGRATION_LOCK_TIMEOUT` is that route. Postgres
-validates the value and refuses an unusable one before any revision runs, so
-no check here re-does that.
+to a longer window. `CED_MIGRATION_LOCK_TIMEOUT` is that route.
+
+**The one value the override may not take is the one that turns the bound
+off.** Postgres rejects an unparseable interval by itself, so nothing here
+re-does that — but it accepts `0`, and `0` means *disabled*, not *no wait*.
+An operator reaching for the usual "0 is unlimited" convention, or a deploy
+template that fills an empty variable with a zero, would restore the exact
+unbounded wait this setting exists to remove, and would do it silently. So
+the value is read back after it is set and a disabled bound is refused,
+naming the variable. Widening the window is the override's purpose; removing
+it is not, and the two must not be one keystroke apart.
 
 It bounds lock *acquisition* only, per statement rather than per run — a slow
 index build under a lock already held is a different problem, and no
@@ -89,6 +97,18 @@ def run_migrations_online() -> None:
             text("SELECT set_config('lock_timeout', :timeout, false)"),
             {"timeout": os.environ.get(_LOCK_TIMEOUT_ENV_VAR, _DEFAULT_LOCK_TIMEOUT)},
         )
+        # Read back rather than parse. Postgres owns the interval grammar —
+        # `5s`, `5000`, `5000ms` and `0.08min` are one value — so asking it
+        # what it stored is the only test that agrees with it on every
+        # spelling, and `0` is the one answer that means no bound at all.
+        in_force = connection.execute(text("SELECT current_setting('lock_timeout')")).scalar()
+        if in_force == "0":
+            raise SystemExit(
+                f"{_LOCK_TIMEOUT_ENV_VAR} resolves to a disabled lock timeout, "
+                f"which restores the unbounded wait migrations set one to avoid. "
+                f"Set an interval Postgres accepts as non-zero, such as "
+                f"{_DEFAULT_LOCK_TIMEOUT!r} or '30min'."
+            )
         context.configure(connection=connection, target_metadata=None)
         with context.begin_transaction():
             context.run_migrations()

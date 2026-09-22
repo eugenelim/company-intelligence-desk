@@ -166,9 +166,8 @@ environment, and the standalone binary is:
 docker-compose -f deploy/compose.yaml up -d --build postgres minio
 until docker-compose -f deploy/compose.yaml exec -T postgres \
       pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
-./.venv/bin/alembic upgrade head       # expand-only; no downgrade is offered
-                                       # exits 1 on lock contention — see below
-docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
+./.venv/bin/alembic upgrade head \
+  && docker-compose -f deploy/compose.yaml up -d --build worker-a worker-b
 ./.venv/bin/python -m pytest           # minutes, not seconds; see below
 docker-compose -f deploy/compose.yaml down -v
 ```
@@ -186,23 +185,33 @@ default — and then give up, because revision 0003 takes `ACCESS EXCLUSIVE` on
 `integration_registry` and an unbounded wait behind one open reader stalls
 every later query on that table. Read the error before changing anything:
 
-- `canceling statement due to lock timeout` (`55P03`) is **contention**, not a
-  schema fault. Nothing was applied — the whole upgrade is one transaction and
-  it rolled back — so the fix is to retry when the table is quiet. Locally
-  that usually means a `psql` session or a worker still holding a read.
+- `psycopg.errors.LockNotAvailable: canceling statement due to lock timeout`
+  is **contention**, not a schema fault. That text is what the output
+  actually contains; the SQLSTATE for it is `55P03`, which `alembic` does not
+  print, so grep for the message. Nothing was applied — the whole upgrade is
+  one transaction and it rolled back — so the fix is to retry when the table
+  is quiet. Locally that usually means a `psql` session or a worker still
+  holding a read.
 - For a planned maintenance migration against a populated table, set
   `CED_MIGRATION_LOCK_TIMEOUT` to a longer interval, for example
-  `CED_MIGRATION_LOCK_TIMEOUT=30min ./.venv/bin/alembic upgrade head`. It
-  takes any value Postgres accepts for `lock_timeout` and is refused loudly
-  before any revision runs if it does not. Setting it in `PGOPTIONS` or with
-  `ALTER ROLE` will not work: `migrations/env.py` sets the value after
-  connecting and so overrides both.
+  `CED_MIGRATION_LOCK_TIMEOUT=30min ./.venv/bin/alembic upgrade head`.
+  **Always write the unit.** Postgres reads a bare number as milliseconds, so
+  `30` is `30ms` — six times *shorter* than the default, not longer. A value
+  it cannot parse at all is refused before any revision runs, and so is one
+  that resolves to `0`, because `0` means the bound is switched off rather
+  than set to no wait. Setting the value in `PGOPTIONS` or with `ALTER ROLE`
+  will not work: `migrations/env.py` sets it after connecting and so
+  overrides both.
 - Any other error is a schema fault and a retry will not help.
 
-**Do not carry on to the worker step after a failed migration.** The workers
-die on their first claim against a database without the schema, and
-`restart: "no"` keeps them dead — the same stalled state the paragraph below
-describes, reached from a transient cause instead of a skipped step.
+**The `&&` before the worker step is load-bearing**, and it is why that line
+is chained rather than listed. This block is meant to be pasted in one go, so
+an unchained worker step would start against a database the migration just
+failed to touch: the workers die on their first claim, `restart: "no"` keeps
+them dead, and the stack looks healthy while every `tests/fault_injection`
+check fails its two-worker precondition — the same stalled state the paragraph
+below describes, now reachable from a transient cause rather than a skipped
+step.
 
 **The schema has to exist before the workers start, which is why this is three
 commands and not two.** A single `up -d --build` starts the workers against an
@@ -222,7 +231,12 @@ it dominates the wall clock almost entirely.
 poll offset is uniform on [0, 30 s), so the whole suite has been measured at
 186 s and 205 s, then — after a subsumed fault-injection check was removed,
 which is why the earlier pair is not comparable — at 156 s and 160 s, all on
-the same machine with nothing wrong. Every range published here so far excluded
+the same machine with nothing wrong. **A third composition change landed on
+2026-09-22**, so the 156/160 pair is not comparable either: three
+`substrate` checks over the migration lock timeout were added, each creating
+and dropping a database and spending a deliberate lock wait, and the two
+measurements after them were 201.57 s and 168.61 s — a spread that makes the
+paragraph's own point, since the larger is the earlier. Every range published here so far excluded
 one of those measurements. Expect minutes, expect the spread, and read the
 number `pytest` prints rather than one written down here. Compressed timings would
 demonstrate the mechanism and not the 150-second number the criterion states.

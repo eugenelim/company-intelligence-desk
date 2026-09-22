@@ -13,12 +13,17 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import psycopg
 import pytest
 
 from ced.adapters.postgres.dsn import database_url
+
+#: Kept in step with `migrations/env.py`; the checks below read it by name
+#: rather than spelling the variable, so a rename breaks them loudly.
+_LOCK_TIMEOUT_ENV_VAR = "CED_MIGRATION_LOCK_TIMEOUT"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -124,20 +129,30 @@ def test_each_reading_role_can_open_a_connection_and_read(
 
 
 def _alembic(
-    *args: str, env: dict[str, str] | None = None, timeout: float | None = None
+    *args: str,
+    env: dict[str, str] | None = None,
+    unset: tuple[str, ...] = (),
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the real `alembic` console script from the project's environment.
 
     `timeout` is what lets a check assert that a migration *stops*. Without
     one, a revision waiting on a lock it will never get hangs the suite
     instead of failing it.
+
+    `unset` removes a variable the runner may have exported. Merging over
+    `os.environ` cannot express absence, so a check asserting a *default*
+    would otherwise certify whatever the developer happened to have set.
     """
+    child = {**os.environ, **(env or {})}
+    for name in unset:
+        child.pop(name, None)
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        env=None if env is None else {**os.environ, **env},
+        env=None if env is None and not unset else child,
         timeout=timeout,
     )
 
@@ -456,7 +471,10 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
             # is and conflicts with nothing except `ACCESS EXCLUSIVE`, so this
             # is the cheapest thing a live system could be doing that revision
             # 0003 has to wait for.
-            reader.execute("BEGIN")
+            # The connection is not in autocommit, so the read below opens
+            # the transaction and holds ACCESS SHARE until this block exits.
+            # An explicit BEGIN here only draws "there is already a
+            # transaction in progress" from Postgres.
             reader.execute("SELECT count(*) FROM integration_registry")
 
             try:
@@ -464,6 +482,9 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
                     "upgrade",
                     "head",
                     env={"CED_DATABASE_URL": probe_url},
+                    # The shipped default is what this check certifies, so the
+                    # runner's own value must not stand in for it.
+                    unset=(_LOCK_TIMEOUT_ENV_VAR,),
                     timeout=120,
                 )
             except subprocess.TimeoutExpired:
@@ -484,11 +505,20 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
 
             # Nothing half-applied. `env.py` runs the whole upgrade in one
             # transaction it commits explicitly, so the abort takes every
-            # revision in flight with it.
+            # revision in flight with it. Both halves are read: the recorded
+            # revision, and a column 0003 adds — a stamp without the DDL and
+            # DDL without the stamp are different failures.
+            assert _current_revision(probe_url) == "0002"
             assert "tools" not in _column_names(probe_url, "integration_registry")
 
-        retried = _alembic("upgrade", "head", env={"CED_DATABASE_URL": probe_url})
+        retried = _alembic(
+            "upgrade",
+            "head",
+            env={"CED_DATABASE_URL": probe_url},
+            unset=(_LOCK_TIMEOUT_ENV_VAR,),
+        )
         assert retried.returncode == 0, retried.stderr
+        assert _current_revision(probe_url) == "0003"
         assert "tools" in _column_names(probe_url, "integration_registry"), (
             "the retry exited 0 without applying 0003 — a bounded wait that "
             "makes the migration unrunnable rather than retryable is not the "
@@ -497,6 +527,109 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
     finally:
         with psycopg.connect(database_url("migration"), autocommit=True) as admin:
             admin.execute(f"DROP DATABASE IF EXISTS {name}")
+
+
+def test_the_lock_timeout_override_reaches_the_migration_session(
+    require_substrate: None,
+) -> None:
+    """`CED_MIGRATION_LOCK_TIMEOUT` is documented to operators, so it is held.
+
+    `AGENTS.md` § The local substrate tells an operator to reach for this
+    variable when a maintenance migration needs a longer window than the
+    default. A misspelt name, a misread of `os.environ`, or a value that
+    never reaches the session would leave that guidance pointing at nothing
+    while every other gate stayed green.
+
+    Both directions are asserted against the *same* held reader, so the pair
+    isolates the variable as the only difference: a window shorter than the
+    reader's life aborts, and one longer than it waits the reader out and
+    applies.
+    """
+    name = "ced_lock_override_probe"
+    _require_local_substrate()
+    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+        admin.execute(f"DROP DATABASE IF EXISTS {name}")
+        admin.execute(f"CREATE DATABASE {name}")
+    try:
+        probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
+        _replay_provisioning(probe_url)
+        assert _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url}).returncode == 0
+
+        holder = threading.Event()
+        released = threading.Event()
+
+        def hold_briefly() -> None:
+            with psycopg.connect(probe_url) as reader:
+                reader.execute("SELECT count(*) FROM integration_registry")
+                holder.set()
+                released.wait(timeout=60)
+
+        keeper = threading.Thread(target=hold_briefly, daemon=True)
+        keeper.start()
+        try:
+            assert holder.wait(timeout=30), "the probe reader never took its lock"
+
+            # Far below the reader's life: the override must shorten the wait.
+            impatient = _alembic(
+                "upgrade",
+                "head",
+                env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "250ms"},
+                timeout=120,
+            )
+            assert impatient.returncode != 0
+            assert "lock timeout" in impatient.stderr.lower(), impatient.stderr
+            assert _current_revision(probe_url) == "0002"
+        finally:
+            released.set()
+            keeper.join(timeout=30)
+
+        # Well above it, with the reader now gone: the override must not have
+        # broken the ordinary path.
+        patient = _alembic(
+            "upgrade",
+            "head",
+            env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "30min"},
+            timeout=120,
+        )
+        assert patient.returncode == 0, patient.stderr
+        assert _current_revision(probe_url) == "0003"
+    finally:
+        with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+            admin.execute(f"DROP DATABASE IF EXISTS {name}")
+
+
+@pytest.mark.parametrize("disabling", ["0", "0s", "0ms"])
+def test_an_override_that_disables_the_bound_is_refused(
+    require_substrate: None, disabling: str
+) -> None:
+    """`0` means *disabled* to Postgres, not *no wait*, and that is the trap.
+
+    An operator reaching for the usual "0 is unlimited" convention, or a
+    deploy template filling an empty variable with a zero, would restore the
+    unbounded wait the timeout exists to remove — and Postgres would accept
+    it silently, because the syntax is valid. The refusal names the variable,
+    and it fires before any revision runs.
+
+    Every spelling Postgres normalises to zero is covered, because refusing
+    the literal `"0"` alone would be a string test wearing a rule's clothes.
+    """
+    refused = _alembic(
+        "upgrade",
+        "head",
+        env={_LOCK_TIMEOUT_ENV_VAR: disabling},
+        timeout=120,
+    )
+
+    assert refused.returncode != 0
+    assert _LOCK_TIMEOUT_ENV_VAR in refused.stderr, refused.stderr
+    assert "disabled lock timeout" in refused.stderr, refused.stderr
+
+
+def _current_revision(url: str) -> str | None:
+    """The revision Alembic records for a database, or `None` if it has none."""
+    with psycopg.connect(url) as conn:
+        row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+    return None if row is None else str(row[0])
 
 
 def _column_names(url: str, table: str) -> set[str]:

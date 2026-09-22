@@ -29,12 +29,20 @@ and length — `FACT_IDENTITY_PATTERN` in `vocabulary.py`, beside the closed
 sets the parser admits by and under the same rule. A filing carrying an
 identity outside it mints nothing and raises.
 
-**Every attribute this module reads must be readable exactly once**, and
-that is the rule the three refusals below share. It covers the two identity
-attributes and `xsi:nil`, which is the whole set the reader interprets. An
-element declaring one of them zero times, or empty, or more than once, does
-not yield a value this module may act on, and the mint fails rather than
-picks.
+**No attribute this module reads may be declared more than once.**
+`_INTERPRETED_ATTRIBUTES` is that set — the two identity attributes and
+`xsi:nil` — and a second occurrence of any of them fails the mint rather
+than resolving to one of the two.
+
+The identity attributes carry a second rule the nil flag does not: they must
+also be present and non-empty, because an element with no readable identity
+mints nothing and a skipped element is a dropped fact. `xsi:nil` is optional
+and its absent, empty and unrecognised spellings all mean *not nil*, by the
+deliberate leniency recorded at `_NIL_TRUE_VALUES` — an inert extra candidate
+is the safe direction there, where a dropped fact is not. The nil flag is
+read first for the same reason: a fact reported as nil mints nothing whatever
+its identity says, so there is no candidate to lose and no unreadable
+identity acted on.
 
 Two ways to get that wrong, and this module has had both. Skipping an
 element the reader could not read dropped a fact the filer chose while the
@@ -94,6 +102,14 @@ _NIL_ATTRIBUTE: Final = "xsi:nil"
 #: that turns out not to resolve is inert, where a silently dropped fact is
 #: the steering channel this guard exists to close.
 _NIL_TRUE_VALUES: Final = frozenset({"true", "1"})
+
+#: Every attribute this reader interprets, and therefore every attribute the
+#: declare-at-most-once rule covers. Declared rather than implied because the
+#: rule is only as wide as this set: an attribute read past it would resolve
+#: last-wins again, which is the defect the rule exists to close.
+#: `test_the_reader_interprets_no_attribute_outside_the_declared_set` is what
+#: holds the reader to it.
+_INTERPRETED_ATTRIBUTES: Final = (_CONCEPT_ATTRIBUTE, _CONTEXT_ATTRIBUTE, _NIL_ATTRIBUTE)
 
 
 class UnmintableFactIdentity(Exception):
@@ -205,6 +221,11 @@ def _read_once(attrs: Sequence[tuple[str, str | None]], attribute: str) -> str |
     The refusal names the attribute and the count and echoes neither value,
     because everything on this element is filer-authored.
     """
+    if attribute not in _INTERPRETED_ATTRIBUTES:
+        raise ValueError(
+            f"{attribute!r} is not in _INTERPRETED_ATTRIBUTES; add it there so "
+            f"the declare-at-most-once rule covers it before reading it here"
+        )
     declared = [value for name, value in attrs if name == attribute]
     if len(declared) > 1:
         raise UnmintableFactIdentity(
