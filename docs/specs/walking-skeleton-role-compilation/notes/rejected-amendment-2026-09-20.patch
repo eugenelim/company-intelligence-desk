@@ -1,0 +1,583 @@
+diff --git a/docs/specs/walking-skeleton-role-compilation/plan.md b/docs/specs/walking-skeleton-role-compilation/plan.md
+index 474f7b0..e88d589 100644
+--- a/docs/specs/walking-skeleton-role-compilation/plan.md
++++ b/docs/specs/walking-skeleton-role-compilation/plan.md
+@@ -54,7 +54,7 @@ write first and trust least.
+ - [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) — the framework at step-level-reasoning-library position; `Model` as the portability contract; `WrapperToolset.call_tool` as the decision point. ADR-0002 pins 2.45.0.
+ - `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**. The first of those limits in particular narrows the quarantine guarantee's *scope*; it does not license leaving the guarantee unverified, which is why this spec adds criteria for it.
+ - `worker-runtime.md` r5 — see § DR dispositions below. The amendments it once asked of its parent are folded into r8; see § Amendments the worker runtime asked of its parent.
+-- **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
++- **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. This spec adds the `agent_role` columns and the association table § Data & schema names, and widens `PoolConfig` with the default usage limits and allowed model-id set AC-0206 and AC-0251 compare against. Nothing else of the foundation's changes.
+ - **Placement and re-cut rules:** [`docs/specs/README.md`](../README.md) § Cutting one outcome into several specs.
+ - **Out of scope:** the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`, which follows this spec; the provider call, suspension and persistence, owned by `walking-skeleton-step-lifecycle`, which follows that one; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
+ 
+@@ -69,7 +69,7 @@ this one does not own, and three copies of it go wrong the next time one moves.
+ 
+ | DR | Decision | Disposition |
+ | --- | --- | --- |
+-| DR6 | Three spend ceilings; the step one is pre-call | **Partly here** — the per-step `cost_limit` with pre-request counting, `request_limit` and `tool_calls_limit` land in T2 under AC-0206. The per-run ceiling is the evidence spec's, and the per-account AWS Budgets alarm is outside the application entirely |
++| DR6 | Three spend ceilings; the step one is pre-call | **Partly here** — the per-step ceiling ships **token-denominated**, not in currency: `request_limit` and `tool_calls_limit` land in T2 under AC-0206, and the pre-request bound under AC-0246 as the `token_ceiling` key of `usage_limits`. `UsageLimits.cost_limit` is not used — § Grounding probe records that it cannot fire when `usage.cost` is `None`, which it is for a test model — so **no criterion here bounds currency**. Pricing a request needs a price table this spec does not ship and a provider call this spec never makes; the per-run and per-account ceilings DR6 also names remain the evidence spec's and AWS Budgets'. |
+ | DR8 | Thinking off, and reasoning parts stripped before persisting | **Partly here** — AC-0204 is the primary control and lands in T2. The storage backstop is `walking-skeleton-step-lifecycle`'s |
+ | DR9 | Zero tool and output retries on the quarantined role | **Lands**, T2, AC-0205 |
+ | DR13 | `trust_class` is a construction, not a declaration | **Lands** — AC-0203 is the compile-time refusal and AC-0219 the compiled-agent assertion in T2, AC-0220 the parser and AC-0221 the minting authority in T3 |
+@@ -106,6 +106,9 @@ specs cite it here rather than repeating rows.
+ | A realistic history round-trips byte-identically | r5 § 10 Rollout criterion 6 | identical on second dump, over tool call, tool return and retry parts |
+ | A reasoning-stripped history round-trips and leaks nothing | DR8 | identical, no reasoning in the bytes |
+ | `result.usage` is a property; `stream_text` debounces by default | probe-established; no upstream document states either | both confirmed |
++| No public `Agent` attribute exposes the passed stack alone: `Agent.toolset` is a **registration decorator**, `Agent.toolsets` also carries the agent's own `_AgentFunctionToolset`, and only the private `Agent._user_toolsets` holds just the passed list. `WrapperToolset.wrapped` is the traversal field | AC-0202's chain walk needs a root that is not private framework state | confirmed on 2.45.0: `type(Agent(TestModel(), toolsets=[FunctionToolset()]).toolset).__name__` is `'method'`; `.toolsets` is `['_AgentFunctionToolset', 'FunctionToolset']`; `._user_toolsets` is `['FunctionToolset']`. The compiler therefore returns its own stack root rather than reading one off the agent |
++| `UsageLimits` carries `input_tokens_limit`, `per_request_input_tokens_limit` and `count_tokens_before_request`, and the run graph counts the outgoing request and calls `check_before_request` ahead of the provider when the flag is set | AC-0246's pre-request ceiling is the framework's, not a bespoke wrapper | confirmed on 2.45.0: the eight `UsageLimits` fields, the `input_tokens_limit` arm in `check_before_request`, and the counting branch in `_agent_graph` |
++| `Model.count_tokens` raises `NotImplementedError` with no override on `TestModel` or `FunctionModel`, and `UsageLimits.check_before_request` reaches its `cost_limit` arm only when `usage.cost` is non-`None` | AC-0246 asserts a pre-request ceiling | confirmed on 2.45.0; `RunUsage().cost` is `None` and a test model carries no price data, so the framework limit cannot fire under test — the ceiling is the runtime's own |
+ 
+ `DeferredToolRequests` resolves from a private module re-exported at the package
+ root. T1 imports it from the root and the framework-seam contract test pins
+@@ -125,10 +128,14 @@ provider seam is `walking-skeleton-step-lifecycle`'s; no task here reaches one.
+ ## Construction tests
+ 
+ **Integration tests:**
+-- One quarantine end-to-end: the deterministic pipeline mints a reference set from the recorded filing, the quarantined agent selects among them, the parser admits, and a planning step receives references and scalars only. This is the spine AC-0219 through AC-0222 read.
++- One quarantine construction test: the deterministic pipeline mints a reference set from the recorded filing, the quarantined agent selects among them, and the parser admits only labels, typed scalars and minted references. It ends at the parser's verdict, which is where this spec's criteria end — the onward crossing into a planning step's context is `walking-skeleton-step-lifecycle`'s T5, under AC-0222. This is the spine AC-0219, AC-0220, AC-0221, AC-0238 and AC-0250 read.
+ - One framework-seam contract suite (T1) asserting every check in § Grounding probe, so a version bump fails the build rather than a runtime.
+ 
+-**Manual verification:** none. Every criterion here is machine-checkable.
++**Manual verification:** one. T1's downgrade check moves the pin, runs the suite, reads the failure and restores the pin; no test can install a different version of its own dependency. Every acceptance criterion remains machine-checkable.
++
++**AC-0233 enumeration suite (T2):** seeds `agent_role`, `agent_role_integration` and `integration_registry`, reads them back through `load_registry()`, drives a call through every (role, resolved tool) pair with a spy the tool body increments, and asserts no spy moved. Carries `@pytest.mark.substrate`.
++
++**Migration check (T2):** `tests/schema/` asserts the widened `agent_role` columns and the `agent_role_integration` association table exist with the stated types and nullability after `alembic upgrade head`. It carries `@pytest.mark.substrate` and joins the existing schema suite the foundation spec created; it is machine-checkable, not manual.
+ 
+ ## Durable-output map
+ 
+@@ -136,6 +143,7 @@ provider seam is `walking-skeleton-step-lifecycle`'s; no task here reaches one.
+ | --- | --- | --- | --- |
+ | Current architecture — the `worker-runtime.md` marker | T4 | This spec's clause moved from unbuilt to built | The header's built and unbuilt lists match the repository |
+ | Current architecture — `docs/architecture/README.md` § What is built | T4 | The compiler, the toolset stack and the quarantined agent moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
++| Framework-seam contract suite | T1 | `tests/contract/` asserts every § Grounding probe row, so a version bump reds the build rather than a runtime | The suite exists, runs in the offline gate, and its probe rows match the pinned version |
+ | Reusable learning — `spikes/README.md` | T4 | A section stating what was and was not established | Hypothesis checks separated from setup |
+ 
+ ## Design (LLD)
+@@ -144,22 +152,90 @@ Shape is `service`; the sub-sections below are the set that shape selects.
+ 
+ ### Design decisions
+ 
+-- **The compiler is the only constructor of the agent.** It asserts the agent holds exactly one toolset, that it is the decision point, and that the chain beneath it is the specified order. Nesting order only governs tools reached *through* the wrapped stack, so a sibling tool has no ceiling entry to violate and no behavioural test can catch it. Traces to: AC-0201, AC-0202.
++- **The compiler is the only constructor of the agent.** It asserts that the stack it built is the decision point and that the chain beneath it is the specified order, reading `CompiledRole.stack` rather than any `Agent` attribute — § Grounding probe records that `Agent.toolsets` always carries the agent's own `_AgentFunctionToolset`, so "exactly one toolset" is false of every agent and cannot be the test. A decorator-registered tool is caught at compile time instead: the compiler is the only constructor, so it refuses a role whose callable set does not resolve entirely from the registry. Nesting order only governs tools reached *through* the wrapped stack, so a sibling tool has no ceiling entry to violate and no behavioural test can catch it. Traces to: AC-0201, AC-0202.
+ - **The structural check is a function over a constructed chain, not a parameter on the compiler.** Asserting order by making the compiler accept an ordered layer list would widen a production contract to make a test possible, and would put stack order in a caller's hands. Instead the compiler builds the chain and calls a checker; the checker is unit-tested against hand-built wrong chains, and the compiled agent is asserted by walking it. Traces to: AC-0202.
+ - **The decision point ships with its position, not its predicate, and refuses everything in between.** Splitting the stack's composition from its containment logic is what makes two reviewable specs out of one; making the interval admit anything would turn the split into a security regression. The interval's rule is not "a lookup miss denies" — there is no lookup to miss, and a criterion phrased around one would pass while every entered tool ran unchecked. Nor is it "refused unless a predicate admits it", which is circular once a predicate exists: the implementation's own verdict becomes the oracle, and a fall-through satisfies it. So AC-0233 is scoped to the no-predicate configuration, where an enumeration over the tool surface decides it outright, and the permanent fall-through guard is `walking-skeleton-authority-containment`'s AC-0235, which a real lookup can fail. AC-0234 keeps the refusal terminal from the first refusal this repository raises; AC-0208 asserts a different property once the real denial path exists — that the denial handler does not also swallow a tool-body bug. Traces to: AC-0202, AC-0233, AC-0234.
+ - **Rejected: typed output as the quarantine boundary.** It would delete the parser and a reviewer will ask. It makes the boundary depend on the framework's serializer and the model's cooperation — the same class of argument r8 uses to reject detection-based defence. Typed output stays as a layer.
+ 
+ ### Interfaces & contracts
+ 
+-No external interface. The internal seams are the compiler's input (an
+-`agent_role` version plus a resolved integration set) and its output (an agent
+-with one toolset), and the parser's admitted-type contract. Each is exercised
+-directly by its own suite. Traces to: AC-0201, AC-0220.
++No external interface. Two internal seams, named here because the stubs in
++T2 and T3 assert against them:
++
++- `ced.agents.compiler.compile_role(role, integrations, pool) -> CompiledRole`
++  — takes an **already-loaded** `agent_role` record, its resolved integration
++  set and the pool configuration the limits are compared against, and returns a
++  `CompiledRole` carrying `.agent` (the constructed `Agent`) and `.stack` (the
++  outermost toolset it was built with, the policy decision point). The compiler
++  performs no database read, by owner decision of 2026-09-20: the caller loads
++  the record, so every compile-time criterion runs offline and the compiler
++  stays pure. The loader is asserted separately by the substrate-marked
++  `tests/schema/` check, which is what keeps a column/field-name mismatch from
++  hiding behind an in-memory fixture. The chain walk
++  roots at `.stack` and traverses `WrapperToolset.wrapped`. It roots there rather
++  than on the agent because 2.45.0 exposes no public attribute holding the passed
++  stack alone — `Agent.toolset` is a registration decorator, `Agent.toolsets` also
++  carries the agent's own `_AgentFunctionToolset`, and `_user_toolsets` is
++  private. A criterion resting on private framework state is one refactor from
++  silent, and the compiler owns what it built.
++- `ced.agents.models.resolve_model(model_id) -> Model` — the closed registry the
++  compiler resolves `agent_role.model_id` through, the same shape tools use. A
++  test supplies a counting stub by registering it under a model id and naming
++  that id on the role record, so nothing is injected past the compiler and the
++  agent under test is the compiled one. `Agent.override(model=…)` is **not** the
++  seam: it replaces the model wholesale, so a criterion asserted through it is
++  an assertion about the test's own object, not the compiled agent.
++- `ced.adapters.postgres.roles.load_role(role_name, version)` and
++  `load_registry()` — the loader AC-0233 enumerates through and the caller
++  uses before calling `compile_role`. It returns the role record, its bound
++  integrations from `agent_role_integration`, and the integration rows. This
++  is the only database read this spec adds.
++- `ced.domain.quarantine.parser.admit(value)` — the admitted-type contract,
++  raising `AdmittedTypeRefused` on anything that is not a closed-vocabulary
++  label, a typed scalar or a minted reference.
++
++Each is exercised directly by its own suite. Traces to: AC-0201, AC-0202, AC-0220.
+ 
+ ### Data & schema
+ 
+-No schema change. This spec reads `agent_role`, `integration_registry` and
+-`entitlements`, all created by the foundation spec. It writes no payload object;
++One expand-only migration, by owner decision of 2026-09-20.
++
++`agent_role` today carries `role_name`, `version`, `ceiling`, `pool_class`,
++`instructions`, `created_at` (migration 0001) and `owner_scope` (migration 0002,
++which widened four tables at once). None of the five compile-time guards has a
++column to read, and r5 § "Two kinds of configuration" puts all five on the role
++record. This revision adds:
++
++| Column | Type | Read by |
++| --- | --- | --- |
++| `model_id` | `text NOT NULL` | AC-0251, against the pool's allowed set |
++| `model_settings` | `jsonb NOT NULL DEFAULT '{}'::jsonb` | AC-0204, which refuses a role enabling thinking |
++| `usage_limits` | `jsonb NOT NULL DEFAULT '{}'::jsonb` | AC-0206, against the pool defaults; its `token_ceiling` key is AC-0246's pre-request bound, under AC-0206's narrow-never-widen rule |
++| `output_type` | `text NOT NULL` | The compiler, which must give every agent a declared output type. It names a member of a closed set the runtime owns, resolved by `ced.agents.outputs.resolve_output_type(name)`: `finding-set` (the analysis role's typed result), `reference-selection` (the quarantined role's labels-and-references result) and `free-form` (a bare `str`). `free-form` is the permissive member `walking-skeleton-step-lifecycle` AC-0255 declares to widen what the framework's schema would accept; it exists because that discriminator needs it, and no Phase 1 role uses it |
++| `quarantined` | `boolean NOT NULL DEFAULT false` | AC-0219 and AC-0203 |
++
++`output_type` is a column rather than a `model_settings` key because `pydantic_ai.settings.ModelSettings` is a fixed TypedDict — `thinking` is one of its keys, which is what AC-0204 reads, but `output_type` is an `Agent.__init__` parameter and not a model setting. Putting it in that jsonb would have been a field the framework never reads.
++
++`quarantined` rather than `trust_class`: `integration_registry.trust_class`
++already exists and means the *integration's* output class, which AC-0203 reads
++in the same compile. Two columns of that name, on two tables, meaning two
++different things, is the kind of collision a later reader pays for.
++
++The role↔integration binding AC-0203 reads is an association table,
++`agent_role_integration (role_name, version, integration_name)`, not a column —
++a role binds to many integrations and a column cannot hold that. It is part of
++this revision.
++
++This table is the canonical column list; `spec.md` § Assumptions summarizes it rather than restating it.
++
++**Grants.** `0001_base_schema.py` grants `SELECT` on each readable table explicitly to `app_api, app_worker`; a table created without one is invisible to the worker and a migration check run as the owner passes anyway. This revision grants `SELECT ON agent_role_integration TO app_api, app_worker`, and adds no grant for the new `agent_role` columns because a column inherits its table's. The `tests/schema/` check connects **as `app_worker`**, not as the migration owner, so a missing grant reds.
++
++The revision follows the existing no-downgrade form: `downgrade()` raises
++`NotImplementedError("migrations are expand-only; there is no downgrade path")`,
++as both shipped revisions do and as `AGENTS.md` states.
++
++It reads `integration_registry` and `entitlements` unchanged, both created by
++the foundation spec. It writes no payload object;
+ the first one is `walking-skeleton-step-lifecycle`'s, which is where object keys
+ become scope-qualified.
+ 
+@@ -186,12 +262,12 @@ constructed object rather than inferred from configuration.
+ 
+ ### Dependencies & integration
+ 
+-New dependencies, recorded before being added per `AGENTS.md`:
+-`pydantic-ai-slim[bedrock]` 2.45.0. The `[bedrock]` extra is pinned here rather
+-than in `walking-skeleton-step-lifecycle` because T1's contract suite asserts
+-the `BedrockConverseModel` row of § Grounding probe, and a seam contract that
+-cannot import the seam is not one. Everything else is inherited from the
+-foundation spec's manifest.
++No new dependency. `pydantic-ai-slim[bedrock]` 2.45.0 is already pinned in
++`pyproject.toml` under ADR-0002 D1, recorded against the foundation spec's plan.
++The `[bedrock]` extra landed there rather than in
++`walking-skeleton-step-lifecycle` because T1's contract suite asserts the
++`BedrockConverseModel` row of § Grounding probe, and a seam contract that cannot
++import the seam is not one. Everything here is inherited from that manifest.
+ 
+ External: none. SEC EDGAR is **not** a dependency — the corpus is the recorded
+ fixture. No task here reaches a provider.
+@@ -202,41 +278,75 @@ fixture. No task here reaches a provider.
+ 
+ **Depends on:** none
+ 
+-**Touches:** pyproject.toml, src/**/adapters/framework_contract.py, tests/contract/**
++**Touches:** src/**/adapters/framework_contract.py, tests/contract/**
++
++`pyproject.toml` is not touched: `pydantic-ai-slim[bedrock]` 2.45.0 is already pinned there under ADR-0002 D1.
+ 
+ **Tests:**
+-- The contract suite asserts every check in § Grounding probe, including the package-root import path for the deferred-requests type. A re-export moving is additive-minor drift the vendor does not class as breaking, so it must red here rather than in a runtime.
+-- A deliberate downgrade of the pin reds the suite. Without this the suite proves the current version behaves as documented and nothing about its ability to notice a change, which is the only thing it exists for.
++- The contract suite asserts every check in § Grounding probe **except the private-attribute clause of the toolset row**: `Agent._user_toolsets` is recorded there as the reason the seam does not depend on it, and a gate that asserts a private name reds on vendor churn the seam is immune to. What the suite asserts from that row is that `Agent.toolsets` carries more than the passed list — the fact AC-0202's root selection rests on. It asserts every other row, including the package-root import path for the deferred-requests type. A re-export moving is additive-minor drift the vendor does not class as breaking, so it must red here rather than in a runtime.
++- A deliberate downgrade of the pin reds the suite. **Mode: manual verification**, because no test in this suite can install a different version of its own dependency. The artifact is a recorded transcript in `notes/verification-ledger.md` showing the pin moved, the suite run, the failure, and the pin restored. § Construction tests is corrected to declare this one manual check rather than none. Without it the suite proves the current version behaves as documented and nothing about its ability to notice a change, which is the only thing it exists for.
++- The probe table gains two rows this task pins, both load-bearing and neither covered before: the toolset observation surfaces AC-0202 must not root on, and the token-counting and cost-derivation behaviour AC-0246 must not rest on. § Grounding probe states both; this task asserts them and does not restate them.
++- **`no stub (goal-based)`.** This task carries no acceptance criterion; § Testing Strategy's TDD mode covers criteria, and T1's verification is its `Done when` gate plus the recorded downgrade transcript.
+ 
+ **Approach:**
+-- Add the framework dependencies to the manifest the foundation spec created.
++- The manifest already carries the pin; this task writes the contract suite that reads it, and the two probe rows above.
+ 
+-**Done when:** both checks above hold.
++**Done when:** the contract suite is green under `pytest -m 'not substrate'`, the downgrade transcript is recorded, and the two new probe rows are asserted by the suite.
+ 
+ ### T2: A role compiles, bad roles refuse to, and the stack denies
+ 
+ **Depends on:** T1
+ 
+-**Touches:** src/**/agents/compiler.py, src/**/agents/toolsets/**, tests/compiler/**
++**Touches:** migrations/versions/**, src/**/adapters/postgres/roles.py, src/**/agents/compiler.py, src/**/agents/models.py, src/**/agents/outputs.py, src/**/agents/toolsets/**, src/**/worker/pool.py, AGENTS.md, deploy/compose.yaml, tests/compiler/**, tests/fixtures/registry_seed.py, tests/schema/**, tests/worker/test_pool_paths.py
++
++The migration is the expand-only `agent_role` widening § Data & schema records. `pool.py` owns `PoolConfig`, which today carries `worker_id`, `pool_class` and the lease timings only — AC-0206 reads a pool default usage limit from it and AC-0251 a pool allowed model-id set, and neither exists, so the task that must assert them is the task that defines them. Both are read from the environment the way the existing fields are, with `CED_POOL_DEFAULT_LIMITS` (JSON) and `CED_POOL_ALLOWED_MODEL_IDS` (comma-separated); both are **required**, with no in-code default, because a silent default is a spend bound nobody chose — which means every existing construction moves in the same task. `deploy/compose.yaml` sets only `CED_WORKER_ID`, `CED_POOL_CLASS`, `CED_STEP_BODY_SECONDS` and the DSNs today, so both worker services gain the two variables; without that, `worker-a` and `worker-b` fail at boot, `restart: "no"` keeps them dead, and every `tests/fault_injection` check fails its two-worker precondition. The four `PoolConfig(...)` constructions in `tests/worker/test_pool_paths.py` gain the two fields. `AGENTS.md` § Running the two deployables documents `ced-worker` with only `CED_WORKER_ID` to set, and `PoolConfig.from_environment`'s docstring says Compose sets only the worker id and the step-body duration; both go stale in this edit. All four paths are in this task's `Touches`. A role whose `usage_limits` omits `token_ceiling` inherits the pool default rather than compiling unbounded — AC-0206's narrowing rule needs a value to narrow from, and an absent ceiling that compiled to "no bound" would make AC-0246 green on a role with no bound at all.
+ 
+ **Tests:**
+ - AC-0201 has two cases, each a compile error rather than a call-time denial.
+ - AC-0202 walks the constructed chain and asserts the type order; the checker is separately unit-tested against hand-built wrong chains, which is what lets the ordering be asserted without the compiler accepting a layer list.
+ - AC-0203, AC-0204, AC-0205, AC-0219 and AC-0251 are each a role record the compiler must reject or constrain. AC-0203's case set covers every non-quarantined role the skeleton carries, not just the planning one, because that is the scope r5's R2 states. AC-0205 asserts the compiled budgets are zero rather than that the role record requested zero — the record is the input, the compiled agent is the fact.
+-- AC-0246 uses a stub model that records whether its request method ran, with a ceiling below the counted tokens. A settings read would pass on a flag that is set and never consulted; the stub is what makes "before the request" observable. AC-0206 cannot see this either way.
++- AC-0246 uses a stub model that implements `count_tokens` and records whether `request` ran, with the ceiling below the counted tokens. **The enforcement is the framework's own, not a bespoke wrapper:** the compiler sets `UsageLimits(input_tokens_limit=…, count_tokens_before_request=True)` from the role's declared limits, and the run graph counts the outgoing request and calls `check_before_request` ahead of the provider. An earlier draft reimplemented this as a `WrapperModel` subclass on the mistaken ground that `UsageLimits` offered only `cost_limit`; it also carries `input_tokens_limit`, `per_request_input_tokens_limit` and `count_tokens_before_request`, so `AGENTS.md` § Cut before adding rung 4 takes the native capability. What the runtime must supply is a model that can count: `Model.count_tokens` raises on both `TestModel` and `FunctionModel`, which § Grounding probe records, and without a counting model the pre-request path is unreachable and the criterion is green while nothing bounds the request. The raised type is the framework's `UsageLimitExceeded`; no domain exception is added. The ceiling is the `input_tokens_limit` key of the role's `usage_limits`, so a role may narrow it and never widen it, under AC-0206. No criterion here bounds currency: `cost_limit` cannot fire when `usage.cost` is `None`, and pricing needs a table this spec does not ship. A settings read would pass on a flag that is set and never consulted; the stub is what makes "before the request" observable. AC-0206 cannot see this either way.
+ - AC-0206 needs both directions: a role wider than the pool default fails the build, a narrower one compiles to its own value. Only the widening case protects the operator's reviewable deploy, and it fails rather than clamps so the role file and the limit in force cannot disagree.
+-- AC-0233 enumerates the skeleton's roles and registered tools, drives a call through each with a spy the tool body increments, and asserts no spy moved. The spy is what makes "did not execute" observable rather than inferred, and the enumeration is what stops the criterion passing on a miss path alone. The suite runs in the no-predicate configuration the criterion names, so it retires with that configuration rather than being carried forward by the successor.
++- AC-0233 enumerates the skeleton's roles and registered tools **by reading `agent_role` and `integration_registry` through `load_registry()`**. The rows come from `tests/fixtures/registry_seed.py`, which inserts the skeleton's three roles, its integrations and their bindings; the criterion is not vacuous because it reads the tables back rather than iterating the seeding list, so a role the seed writes and the loader misses is a failure rather than a skipped pair. **Residual limit, recorded in `spec.md` § Follow-ons:** reading back defeats pair cherry-picking and column drift, not seed drift — no production seed of `agent_role` exists, so the universe the criterion quantifies over is what the fixture wrote, and a role dropped from the seed silently shrinks it. **An integration's tools are not a registry column** — `integration_registry` names the integration and the code registry names the module-level callables it resolves to, so the enumeration is every (role, resolved tool) pair the loader and the code registry produce together. It drives a call through each with a spy the tool body increments, and asserts no spy moved. It carries `@pytest.mark.substrate`: reading the tables is the point, and a fixture list is what the criterion refuses. The spy is what makes "did not execute" observable rather than inferred, and the enumeration is what stops the criterion passing on a miss path alone. The suite runs in the no-predicate configuration the criterion names, so it retires with that configuration rather than being carried forward by the successor.
+ - AC-0234 asserts the raised type is not the framework's retry type nor a subclass. A bare "raises" assertion passes on the wrong one, and the wrong one degrades the boundary into a negotiation with no visible failure.
++- AC-0257 drives a refused call and asserts the refusal leaves the agent run and terminates the step, with no further model turn issued — observed on the stub model's request count, not on the wrapper's return. It sits here rather than in T3 because the decision point it constrains lives in this task's `Touches`.
+ - Tools resolve as module-level callables from the registry; a closure trips the framework's context-parameter inference, which the probe hit directly.
++- AC-0202's chain walk roots at `CompiledRole.stack`, the outermost toolset the compiler built, and traverses `.wrapped`. It does not root on the `Agent`: T1's probe row records that no public attribute there holds the passed stack alone.
++- **Stub** (`stub: true`) — the compiler seam is determined by § Interfaces & contracts, so this is a stub and not a no-stub disposition:
++
++  ```python
++  # STUB: AC-0202
++  # tests/compiler/test_stack_composition.py
++  from ced.agents.compiler import compile_role
++
++
++  def test_the_compiled_stack_is_exactly_four_layers_in_order() -> None:
++      compiled = compile_role(role=analysis_role_record(), integrations=(), pool=pool_defaults())
++
++      chain: list[str] = []
++      node = compiled.stack
++      while node is not None:
++          chain.append(type(node).__name__)
++          node = getattr(node, "wrapped", None)
++
++      assert chain == [
++          "PolicyDecisionPoint",
++          "StepEventToolset",
++          "TrustClassToolset",
++          "FunctionToolset",
++      ]
++  ```
++
++  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.agents.compiler'` — an import-time failure is a pytest collection error, not a test failure, which is the red this stub produces until the module exists. The walk roots at `CompiledRole.stack` and traverses `.wrapped`, per § Grounding probe. The other criteria in this task grow from this surface.
+ 
+ **Approach:**
+ - The refusal seam is the compiler's return path, not the agent's: a role record that violates a guard never produces an agent, so there is no object a caller could hold and invoke. That is what makes AC-0201 through AC-0205 compile errors rather than call-time denials.
+ - The usage-limit narrowing is applied where the pool default is known, so the compiled agent carries the resolved value and the role record keeps the requested one. Resolving it at call time would make AC-0206's widening case unobservable on the compiled agent.
+-- The decision point is installed as the outermost layer with no predicate bound to it. It holds a reference to a resolver that has no entries, which is what makes the interval refuse by construction rather than by a branch someone can delete.
++- The decision point is installed as the outermost layer with no predicate bound to it, and no reachable path through it returns an admit verdict — the admit branch does not exist yet, rather than existing and finding an empty table. AC-0233 is behavioural and cannot see the difference between the two constructions; it establishes that nothing admits today, not that nothing *can*. The permanent fall-through guard is `walking-skeleton-authority-containment`'s AC-0235, where a real lookup exists to miss.
+ 
+-**Done when:** AC-0201 through AC-0206, AC-0219, AC-0233, AC-0234, AC-0246 and AC-0251 are green.
++**Done when:** AC-0201 through AC-0206, AC-0219, AC-0234, AC-0246, AC-0251 and AC-0257 are green under `pytest -m 'not substrate'`; AC-0233 and the `tests/schema/` check are green under the full `pytest` run against the Compose substrate. AC-0233 carries `@pytest.mark.substrate` because it enumerates by reading `agent_role` and `integration_registry` through the loader — an in-memory fixture is the list the criterion forbids.
+ 
+-### T3: Free text does not cross the boundary
++### T3: The parser admits only what the boundary allows
+ 
+ **Depends on:** T2
+ 
+@@ -246,15 +356,30 @@ fixture. No task here reaches a provider.
+ - AC-0220 feeds the parser output that is neither a closed-vocabulary label nor a typed scalar and asserts the step fails. The parser is the runtime's, outside the agent — a test that drives the agent's structured output instead is testing the layer, not the boundary.
+ - AC-0221 is the criterion to write first and trust least: a well-formed reference that resolves in *another* step's set must still fail. Shape validity is not provenance, and a parser that checks only shape admits an attacker-chosen value inside a well-formed reference.
+ - AC-0238 asserts an ordering and an equality, not a value: the recorded mint precedes the agent's first model turn, and the before and after snapshots match. AC-0250 is separate because a set nothing tries to mutate satisfies AC-0238 with no enforcement built at all. A post-run probe alone cannot see a resolver that consults a second source while the agent runs, which is the "agent emits, resolver accommodates" shape this criterion exists to catch.
+-- AC-0242 drives a refused integration result whose text is distinctive, then searches the run's events **and every payload object they reference** for it. Stopping at the events table leaves the prose one dereference away, still streamed and still readable by a later context assembler. The parser's rejection is the thing under test; the diagnostic carrying the rejected prose into the log is the thing this catches.
+-- AC-0222 runs a quarantined step over the recorded filing, then a planning step, and asserts the planning step's assembled context contains no free text — including after a round trip through the database, which is the indirect path that would otherwise reopen the boundary.
++- **Markers:** every criterion in this task runs offline. AC-0222, AC-0242, AC-0255 and AC-0256 moved to `walking-skeleton-step-lifecycle`, which owns the step path they fail through; nothing left in T3 needs Postgres.
++- **Stub** (`stub: true`) — the parser seam is determined by § Interfaces & contracts:
++
++  ```python
++  # STUB: AC-0220
++  # tests/quarantine/test_parser_admits.py
++  import pytest
++
++  from ced.domain.quarantine.parser import AdmittedTypeRefused, admit
++
++
++  def test_free_text_is_refused() -> None:
++      with pytest.raises(AdmittedTypeRefused):
++          admit("Apple reported record revenue this quarter.")
++  ```
++
++  Validation: **fails at collection** with `ModuleNotFoundError: No module named 'ced.domain.quarantine'` — the missing package, not the missing module, is what the import reports, and an import-time failure surfaces as a collection error rather than a test failure. The mint interface AC-0238 and AC-0250 read is **`no stub (implementation-discovered)`** — discovery predicate: the candidate set is per-step in-process state by the owner's ruling of 2026-09-20, so its holder is chosen while building the step path T2 does not yet define; proof obligation: write the red assertion against the mint interface as discovered, prove the red, and record the seam in `notes/verification-ledger.md` before production code.
+ 
+ **Approach:**
+-- The integration result the parser judges arrives through the runtime's own retrieval path, not as a tool-body return value, so AC-0220, AC-0242 and AC-0233's blanket refusal are consistent. This is the same construction AC-0219 forces: a quarantined role resolves no integrations, so it has no tool to call.
+-- The quarantine spine reaches no registered tool. The quarantined role resolves no integrations (AC-0219) and the planning step in AC-0222 is asserted on its assembled context, not on a tool call, so the spine and AC-0233's blanket refusal are satisfiable together.
++- The integration result the parser judges arrives through the runtime's own retrieval path, not as a tool-body return value, so AC-0220 and AC-0233's blanket refusal are consistent. This is the same construction AC-0219 forces: a quarantined role resolves no integrations, so it has no tool to call.
++- The quarantine spine reaches no registered tool: the quarantined role resolves no integrations (AC-0219), so the spine and AC-0233's blanket refusal are satisfiable together. The planning-step half of that spine is `walking-skeleton-step-lifecycle`'s T5.
+ - The deterministic pipeline mints the candidate reference set *before* the quarantined agent runs. The agent selects and labels among candidates that already resolve and cannot mint an identifier. Building the weaker construction — agent emits, parser rejects — is the failure mode here, and it is the one spike 4 measured and the design explicitly moved away from.
+ 
+-**Done when:** AC-0220, AC-0221, AC-0222, AC-0238, AC-0242 and AC-0250 are green.
++**Done when:** AC-0220, AC-0221, AC-0238 and AC-0250 are green under `pytest -m 'not substrate'`.
+ 
+ ### T4: The record says what this spec established and what it did not
+ 
+@@ -264,27 +389,35 @@ fixture. No task here reaches a provider.
+ 
+ **Tests:**
+ - `python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green.
++- **`no stub (goal-based)`.** This task carries no acceptance criterion; its verification is the lint command above plus a reader check that the record separates what was established from what was not.
+ 
+ **Approach:**
+ - State plainly that the quarantine criteria establish the boundary holds against the cases written, and establish nothing about an adaptive adversary — r8 records that no structural defence has been tested under an unlimited budget, and that gap stays open.
+-- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. r5's STATUS header lists the agent layer, the authorization boundary and the provider call as unbuilt. Move the first clause only; the other two are the siblings'.
++- Update `docs/architecture/README.md` § What is built, which is the map where partial progress is expressible. Record the `agent_role` widening and the association table there too: § Reading the frozen foundation spec already tells a reader that the frozen spec's account of the schema is incomplete, and this revision is the first change that makes it so. r5's STATUS header lists the agent layer, the authorization boundary and the provider call as unbuilt. Move the first clause only; the other two are the siblings'.
++
++**Done when:** the status lint is green, the record separates what was established from what was not, and `docs/architecture/README.md` names the `agent_role` widening among what is built.
++
++## Follow-ons recorded by the pre-EXECUTE review
++
++The single-path limits are recorded in `spec.md` § Follow-ons: AC-0222's and AC-0256's together in one bullet, AC-0202's separately as an enumeration-source defect.
+ 
+-**Done when:** the status lint is green and the record separates what was established from what was not.
+ 
+ ## Rollout
+ 
+ - **Delivery:** three stacked PRs — T1+T2, T3, T4. Each leaves the repository working and is independently reviewable.
+-- **Review shape:** T3 is **DEEP** and is sized as its own PR for that reason: it is security-boundary work that attracts a mandatory security review, and it carries a failure mode that is invisible in a passing suite. T2 is **MIXED** — the compiler plus its refusal cases — and splits at the seam between construction and the structural checker if the diff outgrows one reviewable unit. No task here is WIDE.
++- **T2's seam, if it outgrows one unit:** split at AC-0203, AC-0204, AC-0205, AC-0206, AC-0219 and AC-0251 — the six compile-time role guards, each a role record the compiler must reject or constrain — against AC-0201, AC-0202, AC-0233, AC-0234, AC-0246 and AC-0257, the stack's construction and its refusal semantics. That halves the criteria set along a real dependency line; the structural checker named in § Design decisions is one function and divides nothing.
++- **Review shape:** T3 is **DEEP** and is sized as its own PR for that reason: it is security-boundary work that attracts a mandatory security review, and it carries a failure mode that is invisible in a passing suite. T2 is **MIXED** — the compiler plus its refusal cases — and splits at the seam named above if the diff outgrows one reviewable unit. No task here is WIDE.
+ 
+ ## Risks
+ 
+ - **The quarantine boundary can be built weak and still pass a shape test.** The pipeline-first construction is the whole guarantee, and a parser that validates shape without a minting authority looks identical in a green suite. AC-0221 is the specific guard; it is named here because it is the criterion most worth an adversarial read.
+ - **The decision point stands on a framework object.** A change to the wrapper's `call_tool` contract is a change to the authorization boundary and could land in a minor release without being classed as breaking. Mitigated by the T1 contract suite.
+ - **The blanket refusal can be quietly widened when the predicate lands.** `walking-skeleton-authority-containment` replaces "nothing admits" with a real lookup, and the cheapest way to make its own positive-path criterion pass is to let a miss fall through. AC-0233 cannot catch that — it is scoped to the configuration being replaced — which is why the guard is a criterion in that spec, AC-0235, rather than a re-run of this one.
+-- **A schema need discovered here is an amendment to a shipped sibling spec.** Mitigated by the foundation spec creating the three agent tables up front, but not eliminated.
++- **A schema need discovered here is an amendment to a shipped sibling spec.** This risk materialized: the pre-EXECUTE review found that five compile-time guards read `agent_role` attributes no column carries. The owner ruled on 2026-09-20 that this spec adds them in one expand-only revision rather than amending the frozen foundation spec, which keeps the correction where the criteria that need it live. What remains is that the foundation spec's own account of the schema is now incomplete, recorded in `docs/architecture/README.md`.
+ 
+ ## Changelog
+ 
+ - 2026-09-20: initial plan. Cut from `walking-skeleton-agent-runtime`, whose single contract carried AC-0201 through AC-0232 across nine tasks and six stacked PRs — roughly two and a half times either Phase 1 sibling. This spec takes the compiler, the toolset stack and the quarantine boundary; the containment fragment and decision point go to `walking-skeleton-authority-containment`, and the step lifecycle to `walking-skeleton-step-lifecycle` after it. AC-0233 and AC-0234 are the criteria the split creates: the parent spec never needed either, because the decision point's position and its predicate landed in the same contract. The three form a chain: an earlier draft claimed the last two were parallel, which an adversarial spec review falsified, because `walking-skeleton-step-lifecycle`'s AC-0227 requires an approved tool body to run and nothing can admit a call until the predicate exists.
+ - 2026-09-20: spec approved by eugenelim
+ - 2026-09-20: plan approved by eugenelim
++- 2026-09-20: amended after the pre-EXECUTE spec-and-plan and secure-design reviews. Three criteria added (AC-0255 the parser on the quarantined agent's own output, AC-0256 the input trust class by destination, AC-0257 a refusal leaving the agent run); AC-0233, AC-0238 and AC-0246 reworded to be decidable; one expand-only `agent_role` migration admitted, superseding the pinned no-schema-change claim. Authorized by owner rulings of 2026-09-20 on the schema home, AC-0246's named exception, and the candidate reference set as per-step in-process state. Pinned `Touches`, `Tests` and `Done when` changed on all four tasks. T1's `Touches` dropped `pyproject.toml` under the round-1 finding that the manifest already carries the pin, which adjudication sustained as advisory; that correction is part of this amendment rather than a separate change.
+diff --git a/docs/specs/walking-skeleton-role-compilation/spec.md b/docs/specs/walking-skeleton-role-compilation/spec.md
+index 63b11a0..029fc1e 100644
+--- a/docs/specs/walking-skeleton-role-compilation/spec.md
++++ b/docs/specs/walking-skeleton-role-compilation/spec.md
+@@ -24,8 +24,17 @@ The first of three specs delivering the Phase 1 agent runtime, and the one every
+ other guarantee is asserted against. It builds the compiler that turns an
+ `agent_role` record into a running agent, the four-layer toolset stack that
+ agent is allowed to hold, the compile-time refusals that stop a badly shaped
+-role from ever reaching a step, and the quarantine boundary that keeps
+-attacker-authored prose away from anything that can act.
++role from ever reaching a step, and the deterministic parser that decides what
++the quarantine boundary admits.
++
++**The cut line is executability.** Everything here is decided against the
++compiler, the constructed stack, or the parser called directly — no running
++step, no context assembler, no provider. The four criteria that can only be
++observed through a running step moved to
++[`walking-skeleton-step-lifecycle`](../walking-skeleton-step-lifecycle/spec.md)
++on 2026-09-20, each citing this spec as subject owner. This spec still owns the
++quarantine boundary's *construction*; that spec owns its *observation through a
++step*.
+ 
+ Inspectability is the architecture's first-ranked quality attribute and security
+ of the untrusted-content boundary is its second. Both land here: the compiler is
+@@ -57,6 +66,7 @@ three to produce the Phase 1 measurements and the browser stream.
+ | --- | --- | --- | --- | --- | --- |
+ | Current architecture | Applicable — `docs/architecture/README.md` § What is built is the current map and this spec changes it | `docs/architecture/README.md` § What is built | work-loop | The compiler, the toolset stack and the quarantined agent moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
+ | Current architecture — the `worker-runtime.md` marker | Applicable — r5's STATUS header names three things as unbuilt: the agent layer, the authorization boundary and the provider call. This spec builds the first | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` header | work-loop | The agent layer moved from unbuilt to built, the other two clauses untouched | The header's built and unbuilt lists match the repository |
++| Framework-seam contract | Applicable — ADR-0001 D3 rests the decision point on a framework object, and exact pins plus contract tests at the seam are the ratified drift control | `tests/contract/` | work-loop | A suite asserting every § Grounding probe row, running in the offline gate | A version bump reds the build rather than a runtime |
+ | Reusable learning | Applicable — this spec produces the compiler and quarantine evidence Phase 2 plans against | `spikes/README.md` | work-loop | A section stating what was established **and what was not** | Hypothesis checks reported separately from setup |
+ | Decision rationale | Not applicable — no ratified decision changes here; the r5 unsafe-prefix table amendment belongs to `walking-skeleton-authority-containment` | — | — | — | — |
+ | Interface compatibility | Not applicable — no interface surface; the API belongs to the foundation spec | — | — | — | — |
+@@ -89,7 +99,7 @@ three to produce the Phase 1 measurements and the browser stream.
+ 
+ Every criterion sits in exactly one group.
+ 
+-- **TDD (AC-0201, AC-0202, AC-0203, AC-0204, AC-0205, AC-0206, AC-0219, AC-0251, AC-0220, AC-0221, AC-0222, AC-0233, AC-0234, AC-0238, AC-0242, AC-0246, AC-0250)** — all of it, because all of it is a compressible invariant with a cheap oracle and no provider in the loop. The framework ships `TestModel` and `FunctionModel`, so the compiler, the toolset stack and the quarantine boundary are all exercised without a model call. AC-0222 is exercised by an **integration** test: a quarantined step and a planning step together, across the database, because the indirect path is the one a unit test cannot see.
++- **TDD (AC-0201, AC-0202, AC-0203, AC-0204, AC-0205, AC-0206, AC-0219, AC-0251, AC-0220, AC-0221, AC-0233, AC-0234, AC-0238, AC-0246, AC-0250, AC-0257)** — all of it, because all of it is a compressible invariant with a cheap oracle and no provider in the loop. The framework ships `TestModel` and `FunctionModel`, so the compiler, the toolset stack and the quarantine boundary are all exercised without a model call. Every criterion here is decided against the compiler, the constructed stack or the parser directly. **AC-0233 carries the `substrate` marker**: it enumerates by reading `agent_role` and `integration_registry`, and an in-memory fixture would be the suite-held list the criterion forbids. Every other criterion runs in the offline gate. The four that can only be observed through a running step — AC-0222, AC-0242, AC-0255 and AC-0256 — moved to [`walking-skeleton-step-lifecycle`](../walking-skeleton-step-lifecycle/spec.md), which builds the step path and the context assembler; each cites this spec as its subject owner, per `docs/specs/README.md` § Cutting one outcome into several specs.
+ 
+ No criterion here calls a provider, so this spec needs no cloud credential and
+ carries no spend. **This contract deliberately ships a runtime in which no tool
+@@ -133,18 +143,19 @@ approval gate rules on each rather than inheriting it.
+ | --- | --- | --- | --- |
+ | Keep every tool inside the wrapped stack | AC-0201 | r5 § 2 Structural Model, an agent role compiles to an agent makes the single-toolset shape the precondition for every later guarantee. A tool reachable beside the stack has no ceiling entry to violate, so no behavioural test anywhere can catch it | The authorization boundary is complete on paper and bypassable in one line |
+ | Assert the stack's composition | AC-0202 | ADR-0001 D3 and r5 § 2 Structural Model, the toolset stack make the policy decision point's position a security property, and reachability (AC-0201) is a different defect from ordering | A correctly-enclosed stack can still put the decision point too deep to see an unauthorised call |
+-| Enforce the compile-time role guards | AC-0203, AC-0204, AC-0205, AC-0206, AC-0251 | Each discharges a named upstream rule: AC-0203 r5 § 2's R2 (refuse a `free-text` integration on a non-quarantined role), AC-0204 R5's `thinking` disabled and DR8, AC-0205 DR9 — which r5 calls the control that stops a framework-conducted retry loop over attacker-authored filing text — AC-0206 R5's `effective limits = min(pool default, role value)` under § 4's compile-failure semantics, and AC-0251 R5's model-id-within-the-pool's-allowed-set. R5 is a list of six invariants, not one, so each is cited by the member it discharges; with AC-0251 the only member of that catalogue row left unasserted is `ceiling ⊆ parent`, deferred as `may_run`. R5's compile-time ceiling re-verification duty, stated outside the row, is a separate Follow-on | Settled decisions ship as prose with nothing asserting them |
++| Enforce the compile-time role guards | AC-0203, AC-0204, AC-0205, AC-0206, AC-0251 | Each discharges a named upstream rule: AC-0203 r5 § 2's R2 (refuse a `free-text` integration on a non-quarantined role), AC-0204 R5's `thinking` disabled and DR8, AC-0205 DR9 — which r5 calls the control that stops a framework-conducted retry loop over attacker-authored filing text — AC-0206 R5's `effective limits = min(pool default, role value)` under § 4's compile-failure semantics, and AC-0251 R5's model-id-within-the-pool's-allowed-set. R5 is a list of six invariants, not one, so each is cited by the member it discharges; with AC-0251 the only member of that catalogue row left unasserted is `ceiling ⊆ parent`, deferred as `may_run`, recorded as a Follow-on in [`walking-skeleton-authority-containment`](../walking-skeleton-authority-containment/spec.md). R5's compile-time ceiling re-verification duty, stated outside the row, is a separate Follow-on | Settled decisions ship as prose with nothing asserting them |
+ | Bound cost before the call, not after | AC-0246 | r5 § 7's quality-scenario table names the cost mechanism as a limit with **pre-request token counting**, with denial of wallet as the consequence if missed, and § 7 adds that only the innermost ceiling is genuinely pre-call. AC-0206 asserts a limit may only narrow and is green whether or not counting happens before the request | A role carries a cost ceiling that bounds nothing until the tokens are already spent |
+ | Fail closed for the interval | AC-0233 | This spec ships the decision point's position and `walking-skeleton-authority-containment` ships its predicate. AC-0233 covers the configuration in between, and is scoped to it: with the predicate installed the fall-through guard is that spec's AC-0235 and the error-path guard its AC-0236, both of which can be decided against a real lookup and this one cannot. **Retirement trigger:** that spec's T2 removes this criterion's suite in the same task that installs the predicate | An unguarded runtime looks finished and the gap is invisible in a passing build |
+ | Keep a denial terminal from the start | AC-0234 | The exception type is asserted from the first refusal this repository raises, rather than from the first *real* refusal. `walking-skeleton-authority-containment`'s AC-0208 names the concrete domain type; this one is the permanent negative and holds throughout | The interval's refusal ships as a retryable hint, and the boundary is a negotiation before anything asserts otherwise |
+ | Constrain the quarantined role at compile time | AC-0219 | DR13 makes `trust_class` a construction rather than a declaration, and the compiled agent is the fact while the role record is only the input. No § Rollout criterion asks for it. It is tabled apart from the three below because it is a compile-time property verified with them in the compiler task, not a runtime one | A role declared quarantined can still resolve an integration, and the construction is a declaration after all |
+-| Verify the quarantine boundary holds | AC-0220, AC-0221, AC-0222 | This spec builds the quarantined role and the parser. r8 ranks this boundary second of four quality attributes and r8 § 4 Contracts and Invariants owns its guarantee — r5 § 1's scope table puts that guarantee out of this subsystem's scope explicitly, leaving the subsystem the enforcement. No § 10 Rollout criterion in either document asks for it, which is an omission in those lists rather than a decision | The delivery builds a security boundary and measures only what it costs, never that it holds |
++| Verify the quarantine boundary holds | AC-0220, AC-0221 | This spec builds the quarantined role and the parser. r8 ranks this boundary second of four quality attributes and r8 § 4 Contracts and Invariants owns its guarantee — r5 § 1's scope table puts that guarantee out of this subsystem's scope explicitly, leaving the subsystem the enforcement. No § 10 Rollout criterion in either document asks for it, which is an omission in those lists rather than a decision | The delivery builds a security boundary and measures only what it costs, never that it holds |
+ | Pin the pipeline-first construction | AC-0238, AC-0250 | `runtime-architecture.md` r8 § 4 Contracts and Invariants owns this guarantee and states it as "The model never produces a reference, and that is the difference between detecting forgery and making it unrepresentable"; r5 § 1's scope table routes it upstream rather than claiming it. Beyond source even so, because r8 § 10's Phase 1 asks for no criterion over it. AC-0221 asserts only that a non-minted reference fails, which is the detection backstop: an implementation that mints the set *from* the agent's output, or lets it grow mid-run, passes AC-0221 unchanged. The structural claim otherwise lives only in plan prose, which is working material | The guarantee the architecture ranks second of four is contract-free, and the weaker construction the plan names as the failure mode ships with a green suite |
+-| Keep rejected text out of the durable record | AC-0242 | The context package is not free text's only sink. A rejected result whose diagnostic carries the offending prose puts attacker-authored text into the event log, which the evidence spec streams to a browser and any later context assembler reads back | AC-0222 holds on the path it walks while the same text reaches a reader by another one |
++| Keep a denial terminal through to the step | AC-0257 | r5 § 4's Tool authorization row states two properties — a domain exception propagating out of the agent run, and never a retryable hint. AC-0234 asserts the second. Nothing asserted the first | A wrapper catches its own refusal and hands the model a tool-error string, and the boundary is a negotiation with no visible failure |
++| Observed through a running step, so decided elsewhere | AC-0222, AC-0242, AC-0255, AC-0256 — in [`walking-skeleton-step-lifecycle`](../walking-skeleton-step-lifecycle/spec.md) | Each is this spec's by subject: the quarantine boundary, the parser on the agent's own output, the input trust class by destination, and keeping rejected text out of the durable record. None can be observed without a running step and a context assembler, which that spec builds and this one does not. Placed there under `docs/specs/README.md` § Cutting one outcome into several specs, which sends a criterion whose observation needs a later spec's component to the spec that can execute it | The quarantine boundary is asserted where nothing can run it, and the criteria pass vacuously or not at all |
+ 
+ **Compiling a role**
+ 
+-- [ ] **AC-0201.** Compiling an agent role whose tools are reachable outside the wrapped toolset stack fails the build. A decorator-registered tool and a second entry in `toolsets=[…]` each fail, and the failure is a compile error rather than a denial at call time.
++- [ ] **AC-0201.** Compiling an agent role whose tools are reachable outside the wrapped toolset stack fails the build. Two cases fail: a role bound to an integration the compiler was not given, so a tool it names resolves to nothing, and a constructed chain carrying a toolset beside the stack rather than inside it. The first is a resolution failure and the second a composition failure; together they are why no tool sits outside the wrapped stack, since the role record binds integrations and the code registry maps each to its module-level callables. Both are compile errors rather than denials at call time. The compiler takes no toolset list — it builds the chain — so a caller cannot pass a sibling toolset in; the second case is the structural checker's, exercised against a hand-built chain.
+ - [ ] **AC-0202.** Every compiled agent's toolset chain is exactly the policy decision point wrapping the step-event toolset wrapping the trust-class toolset wrapping the function toolset, asserted by walking the constructed chain; and the compiler's structural check rejects a chain composed in any other order.
+ - [ ] **AC-0203.** Compiling any non-quarantined role bound to an integration declared `free-text` fails at compile time.
+ - [ ] **AC-0204.** Compiling a role whose model settings enable thinking fails at compile time.
+@@ -155,21 +166,20 @@ approval gate rules on each rather than inheriting it.
+ 
+ **Bounding cost before the call**
+ 
+-- [ ] **AC-0246.** A compiled agent whose cost ceiling is below the counted tokens raises before the model's request is issued, demonstrated with a stub model that records whether it was called.
++- [ ] **AC-0246.** A compiled agent whose cost ceiling is below the counted tokens raises the framework's `UsageLimitExceeded` before the model's request is issued. **The ceiling is denominated in tokens, not currency**: it is the `input_tokens_limit` key of the role's `usage_limits`, compiled into the agent's `UsageLimits` with `count_tokens_before_request` set, so the framework's own pre-request path enforces it and AC-0206's narrow-never-widen rule governs it like every other declared limit. Demonstrated with a stub model that implements `count_tokens` and records whether `request` ran. The check is the runtime's own and runs ahead of the framework: on the pinned 2.45.0 `usage.cost` is `None` for a test model, so `UsageLimits.cost_limit` never reaches its comparison and cannot raise — a criterion resting on it would be green while nothing bounded the spend. The stub must implement `count_tokens`: neither `TestModel` nor `FunctionModel` does, and the framework's pre-request path is unreachable without it, which is what would otherwise make this criterion green while nothing bounded the request. No criterion in this spec bounds currency — `cost_limit` cannot fire when `usage.cost` is `None`, and pricing needs a table this spec does not ship and a provider call it never makes.
+ 
+ **Refusing before the predicate arrives**
+ 
+-- [ ] **AC-0233.** With no containment predicate installed, a call is refused and no tool body executes for every role in the role registry and every tool in the integration registry, enumerated from those registries rather than from a list held in the suite.
++- [ ] **AC-0233.** With no containment predicate installed, a call is refused and no tool body executes for every role in the role registry and every tool in the integration registry, enumerated by reading `agent_role` and `integration_registry` through the loader rather than from a list held in the suite — the point is that the suite cannot cherry-pick the pairs it drives, so the enumeration reads the same tables the runtime does. A role that resolves no tool is asserted to refuse at resolution and recorded as such, so a skipped pair is distinguishable from a refused one.
+ - [ ] **AC-0234.** A refusal raised by the decision point is neither `ModelRetry` nor any subclass of it, so the authorization boundary is never presented to the model as a retryable hint.
+ 
+ **Holding the quarantine boundary**
+ 
+-- [ ] **AC-0220.** Output from an integration declared `admitted-types` that is not a closed-vocabulary label or a typed scalar fails the step, refused by the runtime's deterministic parser rather than by the agent's structured output.
+-- [ ] **AC-0221.** A reference the runtime did not mint for this step fails the step, including one that is well-formed and resolvable in another step's reference set.
+-- [ ] **AC-0222.** No free text produced by a quarantined step reaches a planning step's context package, including by way of stored state read back from the database.
+-- [ ] **AC-0238.** The candidate reference set is complete before the quarantined agent's first model turn, and the set observed before that turn is identical to the set observed after the last one.
++- [ ] **AC-0220.** Output from an integration declared `admitted-types` that is not a closed-vocabulary label or a typed scalar is refused by the runtime's deterministic parser, which raises rather than returning a value. The parser is called directly, outside any agent, so the refusal cannot come from the agent's structured output.
++- [ ] **AC-0221.** A reference the runtime did not mint for the current candidate set is refused by the parser, including one that is well-formed and resolvable in another set. Shape validity is not provenance.
++- [ ] **AC-0238.** The candidate reference set is complete before the quarantined agent's first model turn, and the set observed before that turn is identical to the set observed after the last one. Both snapshots are taken by the test's stub model at its own request boundary, so the ordering is decided outside the implementation rather than by a record the implementation emits.
+ - [ ] **AC-0250.** A mutation of the candidate reference set attempted while the run is in flight is refused.
+-- [ ] **AC-0242.** A refused integration result records its rejection without the rejected text reaching the event log or any payload object an event of that run references.
++- [ ] **AC-0257.** A refusal raised by the decision point propagates out of `Agent.run` rather than being caught and returned to the model, and no further model turn is issued after it. Observed on the stub model's request count; the step-termination half is `walking-skeleton-step-lifecycle`'s, which owns the step.
+ 
+ ## Follow-ons
+ 
+@@ -183,7 +193,9 @@ amendment rather than an in-place correction.
+ - eugenelim: this spec § Acceptance Criteria — **R5's compile-time ceiling re-verification has no criterion.** r5 § 4 gives R5 a duty outside its catalogue row: re-verify the ceiling predicates against the pinned `arg_schema`. AC-0248 covers the resume case; nothing covers the ordinary compile case, and the authoring-time refusals fire at authoring rather than at compile.
+ - eugenelim: this spec § Acceptance Criteria — **the compile-time egress check has no criterion.** r5 § 4 requires a `connection_ref` naming a host the egress proxy does not allow to fail at compile time, so the registry can select within egress and never widen it. That is a runtime obligation, not the proxy's, and it sits in this spec's own category of compile-time refusals. Deferred because Phase 1 ships no proxy and therefore no allowlist to check against; it becomes buildable with the AWS deployment.
+ - eugenelim: this spec § Acceptance Criteria — **AC-0202 is two predicates under one checkbox.** The chain-order property and the structural checker's rejection of a hand-built wrong chain have separate failure modes and separate remedies, and the second names an internal helper the plan exists to decide.
+-- eugenelim: this spec § Acceptance Criteria — **AC-0222 is universally quantified and proven on one path.** One quarantined step, one planning step, one fixture. The Testing Strategy caveats adaptive adversaries but not path coverage, so a reader takes a single-path result as universal.
++- eugenelim: `walking-skeleton-step-lifecycle/spec.md` § Acceptance Criteria — **AC-0222's and AC-0256's single-path limits travel with them.** Both are universally quantified and proven on one path: AC-0222 over one quarantined step, one planning step and one fixture; AC-0256 over one assembly path, with no enumeration source. Recorded here because this spec is their subject owner, and in that spec because that is where the evidence is produced.
++- eugenelim: this spec § Acceptance Criteria — **AC-0233's role universe is the test fixture's.** Reading `agent_role` and `integration_registry` back through the loader defeats pair cherry-picking and column drift, but no production seed of those tables exists, so the set the criterion quantifies over is what `tests/fixtures/registry_seed.py` wrote; a role dropped from the seed shrinks it silently. Closing this needs a single source the runtime and the suite both load the skeleton's roles from.
++- eugenelim: this spec § Acceptance Criteria — **AC-0202 is universally quantified with no enumeration source.** "Every compiled agent's toolset chain" names no source to enumerate from, and T2 walks the chains of the roles the skeleton carries. AC-0233 shows the shape a fix takes: enumerate from the role and integration registries.
+ - eugenelim: `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md` § 4, the trust-boundary discussion — **the cheap local checks have no owner after the split.** Tool-result protocol validation, structural anomaly detection on retrieved chunks and code-injection patterns are specified as implemented directly; no Phase 1 spec claims them. Low urgency, since the Phase 1 corpus is a fixed fixture and no attacker controls chunk size.
+ 
+ ## Assumptions
+@@ -191,8 +203,8 @@ amendment rather than an in-place correction.
+ - Technical: `pydantic-ai` is pinned to 2.45.0 rather than ADR-0001 D5's 2.44.0 (source: user decision 2026-09-18). Every load-bearing API claim the ratified design rests on was re-verified against 2.45.0 and all held; the probe is recorded once, in `plan.md` § Grounding probe, and the two sibling specs cite it there.
+ - Technical: registering a tool on a nested function trips the framework's context-parameter inference, so the compiler resolves module-level callables from the registry rather than closures (source: probe, 2026-09-18).
+ - Technical: a recorded Apple 10-Q fixture exists under `spikes/phase-0/fixtures/`, so the quarantine criteria need no live SEC fetch — which matters because EDGAR returns 403 to this network (source: `spikes/README.md` § Spike 4).
+-- Technical: the foundation spec ships the schema, both append paths, the privilege split and the pool. This spec adds no column (source: `walking-skeleton-foundation/plan.md` § Data & schema).
++- Technical: the foundation spec ships the schema, both append paths, the privilege split and the pool. This spec adds, in one expand-only migration, the `agent_role` columns the compile-time guards read — the four § Data & schema names plus `output_type` — plus the `agent_role_integration` association table the role↔integration binding needs, because r5 § "Two kinds of configuration" puts them there and the foundation spec shipped none of them (source: owner decision 2026-09-20, after a pre-EXECUTE review found AC-0203, AC-0204, AC-0206, AC-0219 and AC-0251 each read an attribute no column carries).
+ - Process: this spec is one of three cut from `walking-skeleton-agent-runtime`, whose directory was deleted on 2026-09-20 because a single contract carrying AC-0201 through AC-0232 was roughly two and a half times the size of either Phase 1 sibling. AC-0201, AC-0202, AC-0204, AC-0205 and AC-0219 through AC-0222 carry across with their wording unchanged. AC-0203 and AC-0206 were reworded by owner ruling of 2026-09-20, for different reasons. **AC-0203 contradicted r5:** it refused a `free-text` integration only on a *planning* role where r5 § 2's R2 refuses it on any *non-quarantined* one. **AC-0206 resolved an ambiguity:** r5 § 4's row states both readings at once, giving the invariant as `Effective limits = min(pool default, role value)` and the violated-consequence as "Compile failure", so the original clamp was a defensible reading of the same row. The owner ruled for the strict reading — a role file that disagrees with the limit in force is worse than a loud failure — and the ambiguity is raised as a Follow-on where r5 owns it. Both rewords are strictly stricter and neither widens authority. **Operational consequence, recorded because it runs the wrong way:** under the clamp, lowering the pool default silently tightened every role; under the build failure, it breaks every role declaring a higher value, and the cheapest escape from a fleet that will not compile is to raise the default back. AC-0233 and AC-0234 are new and exist only because the split separates the decision point's position from its predicate, as is `walking-skeleton-authority-containment`'s AC-0235 (source: user decision 2026-09-20; adversarial spec review rounds 1 and 2, 2026-09-20).
+ - Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
+-- Product: the skeleton carries one coordinator role, one quarantined role, and one analysis role with a single registered tool, over the recorded fixture rather than a live corpus — the thinnest agent set that exercises every criterion (source: assumption stated 2026-09-18, to be confirmed at the approval gate).
++- Product: the skeleton carries one coordinator role, one quarantined role, and one analysis role with a single registered tool, over the recorded fixture rather than a live corpus — the thinnest agent set that exercises every criterion (source: confirmed by the owner at the 2026-09-20 approval gate).
+ - Governance: r8 and r5 are ratified as of 2026-09-18, r8 with its five accepted limits in § 9 open, and the DR decisions settled (source: both documents' Sign-off and Status headers).
+diff --git a/docs/specs/walking-skeleton-step-lifecycle/plan.md b/docs/specs/walking-skeleton-step-lifecycle/plan.md
+index a4fbba6..844c489 100644
+--- a/docs/specs/walking-skeleton-step-lifecycle/plan.md
++++ b/docs/specs/walking-skeleton-step-lifecycle/plan.md
+@@ -47,7 +47,7 @@ stronger than what the scan can see. The record has to say so.
+ - **Hard dependency:** `walking-skeleton-authority-containment` ships the containment predicate. AC-0227 requires an approved tool body to run, and the decision point admits nothing until that predicate exists.
+ - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
+ - **Placement and re-cut rules:** [`docs/specs/README.md`](../README.md) § Cutting one outcome into several specs.
+-- **Out of scope:** the compiler and the quarantine boundary, owned by `walking-skeleton-role-compilation`; the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`. Both precede this spec; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
++- **Out of scope:** the compiler, and the quarantine boundary's *construction* — the parser, the minting pipeline and the compile-time refusals — all owned by `walking-skeleton-role-compilation`. **In scope by exception:** AC-0222, AC-0242, AC-0255 and AC-0256, that spec's by subject but observable only through a running step, placed here under `docs/specs/README.md` § Cutting one outcome into several specs and owned by T5; the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`. Both precede this spec; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
+ 
+ ## DR dispositions
+ 
+@@ -221,9 +221,38 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
+ 
+ **Done when:** AC-0226 through AC-0231, AC-0241, AC-0245, AC-0248 and AC-0253 are green.
+ 
++### T5: The quarantine boundary holds through a running step
++
++**Depends on:** T1, T3
++
++**Touches:** src/**/worker/executor.py, src/**/worker/context.py, src/**/adapters/postgres/event_log.py, src/**/adapters/objectstore/**, tests/quarantine_step/**
++
++The event-log and object-store paths are here because AC-0242's redaction point is where a rejection diagnostic is written, not where it is raised; a criterion that searches both sinks needs the modules that write them.
++
++Four criteria arrived here from `walking-skeleton-role-compilation` by owner
++decision of 2026-09-20. That spec is their subject owner — it builds the
++quarantined role, the deterministic parser and the compiled stack — but none can
++be observed without a running step and a context assembler, and no task there
++could host the module they fail through. `context.py` is the assembler; it is
++new and named here because AC-0256 fails in it.
++
++**Tests:**
++- AC-0222 runs a quarantined step over the recorded filing, then a planning step, and asserts the planning step's assembled context contains no free text — including after a round trip through the database, which is the indirect path that would otherwise reopen the boundary. Carries `@pytest.mark.substrate`.
++- AC-0242 drives a refused integration result whose text is distinctive, then searches the run's events **and every payload object they reference** for it. Stopping at the events table leaves the prose one dereference away, still streamed and still readable by a later context assembler. AC-0231 makes this spec the first to write a payload object, so the second arm is live here rather than vacuous. Carries `@pytest.mark.substrate`.
++- AC-0255 drives the quarantined agent's own output through the parser and asserts every field is admitted there, then repeats the case with the agent's declared output type widened so the framework's schema would accept the value the parser refuses, and asserts the step still fails. **The seam is the `agent_role.output_type` column**, not a compiler parameter: the compiler must give every agent a declared output type and reads it from that column, which the sibling spec's migration adds. It is a column rather than a `model_settings` key because `ModelSettings` is a fixed TypedDict that has no `output_type`. This task varies the role record it feeds the step, which needs no change to `compile_role`'s signature and no test-only parameter — the widening the sibling spec's § Design decisions forbids. Runs offline.
++- AC-0256 assembles a planning role's context containing a value outside the admitted types by a path that does not originate in a quarantined step, and asserts the context assembler fails the step before the agent is constructed. No database. Provenance-scoped cases cannot see this one.
++- The claim that the pinned version exposes no switch disabling output validation is pinned as a § Grounding probe row in `walking-skeleton-role-compilation`, which T1's contract suite asserts, so a version bump that adds one reds the build rather than silently voiding AC-0255's discriminator.
++- **`no stub (implementation-discovered)`.** Discovery predicate: the context assembler's seam is chosen while building the step path T1 and T3 define, and `src/ced/worker/context.py` does not exist. Proof obligation: write one compilable red assertion per criterion against the assembler as discovered, prove each red, and record the seam in `notes/verification-ledger.md` before production code.
++
++**Approach:**
++- The assembler is the enforcement point for AC-0256 and runs before the agent is constructed, so a context that would carry free text never reaches a model. AC-0255's parser is `walking-skeleton-role-compilation`'s; this task drives it through a step rather than reimplementing it.
++- AC-0222's database round trip is the path a unit test cannot see, which is why it is substrate-marked rather than faked.
++
++**Done when:** AC-0255 and AC-0256 are green under `pytest -m 'not substrate'`, and AC-0222 and AC-0242 are green under the full `pytest` run against the Compose substrate.
++
+ ### T4: The record says what this spec established and what it did not
+ 
+-**Depends on:** T3
++**Depends on:** T3, T5
+ 
+ **Touches:** spikes/README.md, docs/architecture/README.md, docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md
+ 
+@@ -238,8 +267,8 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
+ 
+ ## Rollout
+ 
+-- **Delivery:** three stacked PRs — T1+T2, T3, T4. Each leaves the repository working and is independently reviewable.
+-- **Review shape:** every task here is **MIXED** or smaller. T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. No task here is WIDE or DEEP.
++- **Delivery:** four stacked PRs — T1+T2, T3, T5, T4. Each leaves the repository working and is independently reviewable.
++- **Review shape:** T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite, which is the same reason the sibling spec sized the equivalent work that way. Every other task here is **MIXED** or smaller. T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails.
+ 
+ ## Risks
+ 
+@@ -253,3 +282,4 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
+ - 2026-09-20: initial plan. Cut from `walking-skeleton-agent-runtime`, whose single contract carried AC-0201 through AC-0232 across nine tasks and six stacked PRs. This spec takes the parent plan's T6, T7 and T8, and keeps the parent's dependency on the decision point: an earlier draft claimed independence from `walking-skeleton-authority-containment` by arguing the parent's T7→T6 edge was sequencing, which an adversarial spec review falsified — the edge that carried the dependency was T5→T4, because AC-0227 requires an approved tool body to run and nothing admits a call without the containment predicate. The three specs are a chain.
+ - 2026-09-20: spec approved by eugenelim
+ - 2026-09-20: plan approved by eugenelim
++- 2026-09-20: amended to receive AC-0222, AC-0242, AC-0255 and AC-0256 from `walking-skeleton-role-compilation`, whose pre-EXECUTE review found that no task there could host the step path and context assembler those criteria fail through. Placement per `docs/specs/README.md` § Cutting one outcome into several specs; owner decision of 2026-09-20. Adds T5 and the `src/ced/worker/context.py` module.
+diff --git a/docs/specs/walking-skeleton-step-lifecycle/spec.md b/docs/specs/walking-skeleton-step-lifecycle/spec.md
+index db67ffe..632ef1f 100644
+--- a/docs/specs/walking-skeleton-step-lifecycle/spec.md
++++ b/docs/specs/walking-skeleton-step-lifecycle/spec.md
+@@ -77,6 +77,9 @@ three to produce the Phase 1 measurements and the browser stream.
+ 
+ ### Never do
+ 
++- **No typed output standing in for the deterministic parser.** Structured output is a layer; the boundary is the parser, because a control must not rest on the model's cooperation or the framework's serializer. Carried from `walking-skeleton-role-compilation` § Boundaries with AC-0222, AC-0242, AC-0255 and AC-0256, which it governs.
++- **No free text crossing from a quarantined role to a planning role**, including indirectly through stored state or a resolved value. Carried with the same four criteria.
++
+ - **No static or long-lived model-provider credential anywhere** — no `AKIA`-prefixed key, no credentials file baked into an image, no inline secret.
+ - **No history processor standing in for the executor's reasoning strip.** A processor changes what is *sent to the model* and leaves the reasoning part in exactly the artifact that must not hold it, which is the mistake AC-0228 is written to catch rather than restate.
+ - **No `pydantic_ai` import outside `agents/` and `adapters/`.**
+@@ -86,7 +89,7 @@ three to produce the Phase 1 measurements and the browser stream.
+ 
+ Every criterion sits in exactly one group.
+ 
+-- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237, AC-0241, AC-0245, AC-0248, AC-0253, AC-0254)** — the persistence and deadline criteria, because each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
++- **TDD (AC-0226, AC-0227, AC-0228, AC-0229, AC-0230, AC-0231, AC-0232, AC-0237, AC-0241, AC-0245, AC-0248, AC-0253, AC-0254, AC-0222, AC-0242, AC-0255, AC-0256)** — the persistence and deadline criteria, plus the four quarantine criteria received from `walking-skeleton-role-compilation`, which are TDD for the same reason: each is a compressible invariant with an oracle outside the implementation. Of those four, **AC-0222 and AC-0242 carry the `substrate` marker** — the first needs the database round trip that is its whole point, the second searches the run's events and the payload objects they reference — while AC-0255 and AC-0256 run in the offline gate. Each is a compressible invariant with a cheap oracle and no provider in the loop. AC-0232 uses a `Model` stub that hangs, so the deadline path is exercised with no spend. AC-0227 is exercised across a **process boundary**, because same-process reuse would pass on in-memory state the design forbids relying on.
+ - **Goal-based check (AC-0224, AC-0225)** — a scan of the running container for a long-lived credential, and the producer tuple read back off the run header. A one-liner is the verdict.
+ - **End-to-end (AC-0223)** — the one criterion that calls a real provider, and the only reason the Phase 1 runtime needs a cloud credential at all.
+ 
+@@ -111,6 +114,7 @@ each rather than inheriting it.
+ 
+ | Obligation | Criteria | Why it is here | If cut |
+ | --- | --- | --- | --- |
++| Hold the quarantine boundary where a step can run | AC-0222, AC-0242, AC-0255, AC-0256 | Subject owner is `walking-skeleton-role-compilation`, which builds the quarantined role and the parser; every one of these is decided against a running step and the runtime's context assembler, which this spec builds. `docs/specs/README.md` § Cutting one outcome into several specs sends a criterion whose observation needs a later spec's component to the spec that can execute it, and requires the row to cite the subject owner — this is that row | The boundary r8 ranks second of four quality attributes is asserted in a spec that cannot run it, and passes vacuously |
+ | Name the members that carry the tuple's integrity | AC-0254 | r8 § 5 enumerates fourteen producer fields; AC-0225 names two illustrative ones. Three are security-bearing and neither criterion required them: `model_adapter` and `fetch_adapter`, which r8 says exist "so a fixture run can never be mistaken for a live one", and `tool_manifest_hash`. AC-0223's oracle reads the log for a `step.completed` whose producer tuple names the live adapter — the one check distinguishing a real provider call from a replay — so it rests on a field no criterion required | The Phase 1 evidence base cannot tell a fixture run from a live one, and AC-0223 proves nothing it claims |
+ | Record the producer tuple | AC-0225 | Inspectability is r8's first-ranked quality attribute, and a recorded run whose producer is unknown cannot be re-derived or compared across a version bump. No § Rollout criterion asks for it | Phase 1's measurements cannot be attributed to the stack that produced them |
+ | Release the lease on suspension | AC-0237 | r5 § 3 Runtime Model, the approval gate step 3 makes lease release how a *different* worker resumes, which is exactly what AC-0227 then relies on. No § Rollout criterion asks for it, and AC-0232 covers only a hung step's release under `step_deadline` — a different path with a different trigger | A suspended step holds its lease until expiry, AC-0227's separate-process resume passes only because the test arranges it, and the approval gate stalls a worker for the whole TTL |
+@@ -145,12 +149,30 @@ each rather than inheriting it.
+ - [ ] **AC-0230.** With a crash injected between the payload write and the fenced append, an unreferenced payload object remains and no event carries a payload reference that does not resolve.
+ - [ ] **AC-0231.** Every payload object key is scope-qualified as `<owner_scope>/<content_hash>`, so a bare content hash is never the key.
+ 
++**Holding the quarantine boundary through a running step**
++
++These four are `walking-skeleton-role-compilation`'s by subject — it builds the
++quarantined role, the parser and the compiled stack — and sit here because none
++can be observed without a running step and a context assembler, which this spec
++builds and that one does not. Placement per `docs/specs/README.md` § Cutting one
++outcome into several specs; moved by owner decision of 2026-09-20 after a
++pre-EXECUTE review found no task in that spec could host the module they fail
++through.
++
++- [ ] **AC-0222.** No free text produced by a quarantined step reaches a planning step's context package, including by way of stored state read back from the database. *Subject owner: `walking-skeleton-role-compilation`.*
++- [ ] **AC-0242.** A refused integration result records its rejection without the rejected text reaching the event log or any payload object an event of that run references. *Subject owner: `walking-skeleton-role-compilation`.*
++- [ ] **AC-0255.** Every field of a quarantined agent's own output — labels, typed scalars and references alike — is admitted by the runtime's deterministic parser outside the agent, and an agent declared with a permissive `output_type` that accepts a value the parser refuses still fails the step. The permissive declaration is the discriminator: it removes the framework's schema as a possible cause of the refusal, so a run that still fails shows the parser and not the serializer is the admitting component. *Subject owner: `walking-skeleton-role-compilation`.*
++- [ ] **AC-0256.** A planning role's context package containing anything outside the admitted types fails the step in the runtime's context assembler, before the agent is constructed, whatever produced that content and by whichever assembly path it arrived. The check is the runtime's, not the agent's. *Subject owner: `walking-skeleton-role-compilation`.*
++
+ **Bounding a hung step**
+ 
+ - [ ] **AC-0232.** A step whose model call hangs is failed and its lease released within `step_deadline`, whether or not the underlying provider call terminated.
+ 
+ ## Follow-ons
+ 
++- eugenelim: this spec § Acceptance Criteria — **AC-0248 reads registry columns that do not exist.** It resolves "the integration registry at the versions the suspended role version resolved", but `integration_registry` is `(integration_name PK, trust_class, config, created_at)` — no version column and no `arg_schema` — while this plan pins "Nothing here adds a column". Same defect class the sibling spec's pre-EXECUTE review found for `agent_role` and closed with an expand-only migration; which spec adds the registry columns is an owner decision, so it is recorded rather than assumed. Surfaced 2026-09-20.
++- eugenelim: this spec § Acceptance Criteria — **AC-0222's and AC-0256's single-path limits.** Both are universally quantified and proven on one path: AC-0222 over one quarantined step, one planning step and one fixture; AC-0256 over one assembly path, with no enumeration source. Recorded here because T5 produces the evidence, and in `walking-skeleton-role-compilation` § Follow-ons because that spec is their subject owner.
++
+ - eugenelim: [`walking-skeleton-evidence`](../walking-skeleton-evidence/spec.md) § Follow-ons — **no criterion records who approved a publication.** That spec owns the transition and holds the finding; it is named here because this spec's approval gate is where the unattributed decision is taken.
+ 
+ - eugenelim: `walking-skeleton-evidence/spec.md` § Acceptance Criteria — **the DR5 reject-and-resume cycle cap has no acceptance criterion anywhere.** r5 § 3 Runtime Model is explicit that rejection resuming the conversation **is not** the forbidden negotiation pattern, because the model cannot publish at all and can only ask again. The three-cycle cap exists so the loop is bounded; r5 records the number as arbitrary and asks Phase 1 to replace it with an observed one. `walking-skeleton-evidence` owns the reject-and-resume transition the cap counts. Its plan dispositions DR5 to its own T1 as "lands, unmeasured", so what is missing is the criterion that observes the cap, not the cap itself, and adding one is an amendment to an Approved spec and out of this change's scope. The criterion that replaces it must also require the cap's configuration to carry a **finite default**, so it asserts a cap exists rather than that a config value is read. **AC-0244 is retired unused** — it was drafted here and moved before approval; the identifier is not reallocated.

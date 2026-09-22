@@ -27,6 +27,18 @@ cites as the owner of the pin, pins 2.45.0. Corrected in the projection, not the
 ADR. No accepted decision changed, and the revision stays r5; recorded because
 specs citing r5 carry amendment triggers keyed to its content.
 
+**Errata:** 2026-09-20 — four deviations for Phase 1 are recorded in
+[ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md). **D1**
+suspends the pre-request spend bound (§ 1 Goals, § 4's Spend-ceiling row, § 7's
+Cost scenario). **D2** suspends content-addressed instruction text (§ 4 Where
+instructions live, § 5's object-store row, § 6's `instruction_ref`). **D3**
+narrows § 4's `free-text` quarantine-only exemption to unreachable. **D4**
+replaces § 4's `Effective limits = min(pool default, role value)` with the
+strict reading, where a role value wider than the pool default is a compile
+failure. Each carries an owner, and D1 to D3 carry return conditions. The
+revision stays r5; recorded here so a reader of r5 alone is not left believing
+any of the four holds in Phase 1.
+
 **Governing decisions:**
 [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md) (framework),
 [ADR-0002](../../adr/0002-pydantic-ai-version-pin.md) (version pin),

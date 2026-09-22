@@ -47,7 +47,7 @@ stronger than what the scan can see. The record has to say so.
 - **Hard dependency:** `walking-skeleton-authority-containment` ships the containment predicate. AC-0227 requires an approved tool body to run, and the decision point admits nothing until that predicate exists.
 - **Hard dependency:** `walking-skeleton-foundation` ships the schema, both append paths, the privilege split and the pool. Nothing here adds a column.
 - **Placement and re-cut rules:** [`docs/specs/README.md`](../README.md) § Cutting one outcome into several specs.
-- **Out of scope:** the compiler and the quarantine boundary, owned by `walking-skeleton-role-compilation`; the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`. Both precede this spec; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
+- **Out of scope:** the compiler, and the quarantine boundary's *construction* — the parser, the minting pipeline and the compile-time refusals — all owned by `walking-skeleton-role-compilation`. **In scope by exception:** AC-0222, AC-0242, AC-0255 and AC-0256, that spec's by subject but observable only through a running step, owned here by T5; the containment fragment and the decision point's predicate, owned by `walking-skeleton-authority-containment`. Both precede this spec; the run state machine, publication, the browser stream and the Phase 1 measurements, all owned by `walking-skeleton-evidence`; the AWS deployment, out by the owner's decision of 2026-09-18.
 
 ## DR dispositions
 
@@ -221,9 +221,50 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 
 **Done when:** AC-0226 through AC-0231, AC-0241, AC-0245, AC-0248 and AC-0253 are green.
 
+### T5: The quarantine boundary holds through a running step
+
+**Depends on:** T1, T3
+
+**Touches:** src/**/worker/executor.py, src/**/worker/context.py, src/**/adapters/postgres/event_log.py, src/**/adapters/objectstore/**, tests/quarantine_step/**
+
+Four criteria arrived from `walking-skeleton-role-compilation` by owner decision
+of 2026-09-20. That spec builds the quarantined role, the parser and the
+compiled stack; none of these can be observed without a running step and a
+context assembler, and no task there could host the module they fail through.
+`context.py` is that assembler, and it is new.
+
+**Tests:**
+- AC-0222 runs a quarantined step over the recorded filing, then a planning step, and asserts the planning step's assembled context contains no free text — including after a round trip through the database, which is the indirect path a unit test cannot see. Carries `@pytest.mark.substrate`.
+- AC-0242 drives a refused integration result whose text is distinctive, then searches the run's events **and every payload object they reference**. AC-0231 makes this spec the first to write a payload object, so the second arm is live here rather than vacuous. Carries `@pytest.mark.substrate`.
+- AC-0255 drives the quarantined agent's own output through the parser, then repeats with the role's `output_schema_ref` widened so the framework's schema would accept the refused value, and asserts the step still fails. Runs offline.
+- AC-0256 assembles a planning role's context containing a value outside the admitted types by a path that does not originate in a quarantined step, and asserts the assembler fails the step before the agent is constructed. No database.
+- **Stub** (`stub: true`) for AC-0255 — the parser seam is pinned by `walking-skeleton-role-compilation`'s own stub, so this criterion does not wait on discovery:
+
+  ```python
+  # STUB: AC-0255
+  # tests/quarantine_step/test_agent_output_is_parsed.py
+  import pytest
+
+  from ced.domain.quarantine.parser import AdmittedTypeRefused, admit
+
+
+  def test_agent_output_fields_go_through_the_parser() -> None:
+      with pytest.raises(AdmittedTypeRefused):
+          admit("Apple reported record revenue this quarter.")
+  ```
+
+  Validation: fails at collection with `ModuleNotFoundError: No module named 'ced.domain.quarantine'`. The widening arm grows from this surface once the output-contract member exists.
+- **`no stub (implementation-discovered)`** for AC-0222, AC-0242 and AC-0256. Discovery predicate: the context assembler's seam is chosen while building the step path T1 and T3 define, and `src/ced/worker/context.py` does not exist. Proof obligation: write one compilable red assertion per criterion against the assembler as discovered, prove each red, and record the seam in `notes/verification-ledger.md` before production code.
+
+**Approach:**
+- The assembler is AC-0256's enforcement point and runs before the agent is constructed, so a context carrying free text never reaches a model. AC-0255's parser is the sibling spec's; this task drives it through a step rather than reimplementing it.
+- AC-0242's redaction point is where a rejection diagnostic is written, which is why the event-log and object-store paths are in `Touches`.
+
+**Done when:** AC-0255 and AC-0256 are green under `pytest -m 'not substrate'`, and AC-0222 and AC-0242 are green under the full `pytest` run against the Compose substrate.
+
 ### T4: The record says what this spec established and what it did not
 
-**Depends on:** T3
+**Depends on:** T3, T5
 
 **Touches:** spikes/README.md, docs/architecture/README.md, docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md
 
@@ -238,8 +279,8 @@ task. SEC EDGAR is **not** a dependency — the corpus is the recorded fixture.
 
 ## Rollout
 
-- **Delivery:** three stacked PRs — T1+T2, T3, T4. Each leaves the repository working and is independently reviewable.
-- **Review shape:** every task here is **MIXED** or smaller. T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. No task here is WIDE or DEEP.
+- **Delivery:** four stacked PRs — T1+T2, T3, T5, T4. Each leaves the repository working and is independently reviewable.
+- **Review shape:** T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite. Every other task here is **MIXED** or smaller.
 
 ## Risks
 
