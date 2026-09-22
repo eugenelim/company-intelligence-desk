@@ -29,21 +29,23 @@ and length — `FACT_IDENTITY_PATTERN` in `vocabulary.py`, beside the closed
 sets the parser admits by and under the same rule. A filing carrying an
 identity outside it mints nothing and raises.
 
-**An identity the reader cannot read raises for the same reason**, and so
-does one the reader cannot read *singly*. A numeric fact element that
-declares no `name` or no `contextRef`, or declares either empty, has no
-identity to admit or refuse; an element that declares either of them twice
-has two, and nothing here ranks them. One rule covers all of it: a numeric
-fact element yields **exactly one** conforming identity, or the mint fails.
+**Every attribute this module reads must be readable exactly once**, and
+that is the rule the three refusals below share. It covers the two identity
+attributes and `xsi:nil`, which is the whole set the reader interprets. An
+element declaring one of them zero times, or empty, or more than once, does
+not yield a value this module may act on, and the mint fails rather than
+picks.
 
-**Reading a duplicate last-wins would make this module an authority it must
-not be.** `html.parser` hands over every occurrence, and collapsing them with
-`dict()` silently kept the final one — so `name="A" name="B"` minted `B`
-where an XML-conformant XBRL processor rejects the document outright. A
-lenient reader that resolves what a strict resolver refuses disagrees with
-every successor built on the strict reading, on input the filer chooses.
-Refusing is what keeps the two from diverging; picking a precedence rule
-instead would settle by fiat, here, a question no ratified document has
+Two ways to get that wrong, and this module has had both. Skipping an
+element the reader could not read dropped a fact the filer chose while the
+candidate set still reported itself complete. Collapsing the attribute list
+with `dict()` kept the final occurrence, so a repeated attribute resolved
+last-wins — a document a conformant XBRL processor rejects outright,
+resolved here, on input the filer controls. Both are the same steering
+channel, and a lenient reader that resolves what a strict resolver refuses
+disagrees with every successor built on the strict reading. Refusing keeps
+the two from diverging; picking a precedence rule would settle by fiat, in
+the most lenient place in the stack, a question no ratified document has
 asked.
 
 **The set is per-step in-process state**, by the owner's ruling of
@@ -95,21 +97,15 @@ _NIL_TRUE_VALUES: Final = frozenset({"true", "1"})
 
 
 class UnmintableFactIdentity(Exception):
-    """A numeric fact element yields no single conforming identity.
+    """The mint cannot read a numeric fact element unambiguously.
 
-    Three causes, one rule. The element carries an identity the declared
-    alphabet does not permit; or it carries no readable identity at all —
-    `name` or `contextRef` absent, valueless, or empty; or it declares one of
-    them more than once, leaving two identities and no rule that ranks them.
+    Raised for an identity the declared alphabet does not permit, and for
+    any attribute the reader interprets that the element declares zero times,
+    empty, or more than once — see the read-exactly-once rule in this
+    module's docstring for why each of those refuses rather than skips.
 
-    Loud rather than skipped, and the direction matters. Dropping the fact
-    would hide the exclusion: the candidate set would still look complete
-    while a fact the filer chose had quietly become uncitable, which is the
-    same steering channel a presence-only nil guard opens. Omitting an
-    attribute is the cheaper way to reach that channel than misspelling one,
-    which is why the unreadable case refuses too. Refusing the mint
-    fails the step instead, and § Boundaries forbids a live fetch, so in
-    Phase 1 only the recorded corpus reaches here.
+    Refusing the mint fails the step, and § Boundaries forbids a live fetch,
+    so in Phase 1 only the recorded corpus reaches here.
     """
 
 
@@ -191,42 +187,46 @@ class _NumericFactReader(HTMLParser):
         """Record `(concept, context)` for one numeric fact element."""
         if tag != _NUMERIC_FACT_TAG:
             return
-        nil = dict(attrs).get(_NIL_ATTRIBUTE)
+        nil = _read_once(attrs, _NIL_ATTRIBUTE)
         if nil is not None and nil.strip() in _NIL_TRUE_VALUES:
             return
         self.identities.add(_identity(attrs))
 
 
+def _read_once(attrs: Sequence[tuple[str, str | None]], attribute: str) -> str | None:
+    """Return the one occurrence of `attribute`, or refuse the mint.
+
+    Takes the attribute list rather than a mapping, and that is the whole
+    point: collapsing to a mapping is what hides a second occurrence.
+    `None` means the element did not declare it, which each caller judges
+    for itself — absent is fatal for an identity attribute and ordinary for
+    `xsi:nil`.
+
+    The refusal names the attribute and the count and echoes neither value,
+    because everything on this element is filer-authored.
+    """
+    declared = [value for name, value in attrs if name == attribute]
+    if len(declared) > 1:
+        raise UnmintableFactIdentity(
+            f"a {_NUMERIC_FACT_TAG} element declares {attribute!r} "
+            f"{len(declared)} times; nothing ranks the occurrences, so no "
+            f"candidate set is minted for this filing"
+        )
+    return declared[0] if declared else None
+
+
 def _identity(attrs: Sequence[tuple[str, str | None]]) -> tuple[str, str]:
     """Read one numeric fact element's single identity, or refuse the mint.
 
-    Takes the attribute list rather than a mapping, because collapsing it to
-    a mapping is what hides a duplicate. `html.parser` hands over every
-    occurrence, and `dict()` keeps the last — a choice no ratified document
-    makes, made silently, on input the filer controls.
-
     Both attributes are required of `ix:nonFraction` and neither is
-    repeatable, so an element missing one, or declaring one twice, is not a
-    conforming fact element. That is a reason to refuse it and not a reason
-    to pass over it: the filer chooses what the filing declares, and a silent
-    skip hands them a fact that vanishes from the candidate set with nothing
-    recording that it did.
-
-    The refusal names which attribute failed and how, and echoes no attribute
-    value, because everything on this element is filer-authored.
+    repeatable, so an element missing one, declaring one empty, or declaring
+    one twice is not a conforming fact element — and under this module's
+    read-exactly-once rule that is a reason to refuse it rather than pass
+    over it.
     """
     identity: list[str] = []
     for attribute in (_CONCEPT_ATTRIBUTE, _CONTEXT_ATTRIBUTE):
-        declared = [value for name, value in attrs if name == attribute]
-        if len(declared) > 1:
-            raise UnmintableFactIdentity(
-                f"a {_NUMERIC_FACT_TAG} element declares {attribute!r} "
-                f"{len(declared)} times; nothing ranks the occurrences, and a "
-                f"reader that picked one would resolve a document a conformant "
-                f"XBRL processor rejects. No candidate set is minted for this "
-                f"filing"
-            )
-        value = declared[0] if declared else None
+        value = _read_once(attrs, attribute)
         if not value:
             raise UnmintableFactIdentity(
                 f"a {_NUMERIC_FACT_TAG} element declares no readable "

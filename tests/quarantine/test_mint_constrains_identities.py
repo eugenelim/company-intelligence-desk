@@ -19,16 +19,22 @@ Two properties, both asserted on **crafted** identities. The recorded corpus
 exercises neither: every identity in it already conforms, and none of them
 collides.
 
-A third property joins them, on crafted input for the same reason: a numeric
-fact element yields **exactly one** readable identity or the mint refuses.
-Both halves of that used to be silent. An element declaring no `name` or no
-`contextRef`, or declaring either empty, was passed over — a fact the filer
-chose vanishing from a candidate set that still reported itself complete,
-which is the steering channel `UnmintableFactIdentity` exists to close on the
-non-conforming side. An element declaring either attribute *twice* resolved
-last-wins through `dict()`, so the mint read a document a conformant XBRL
-processor rejects, and read it differently from whatever strict resolver a
-successor writes.
+**The last three groups are beyond any acceptance criterion and carry none**,
+by owner decision of 2026-09-22 — the groups above them are not, and § Boundaries
+carries no clause about whether a fact element's attributes are readable, so
+the checks below are named for what they assert rather than for a criterion
+they discharge. They pin the module's read-exactly-once rule: every attribute
+the mint interprets — `name`, `contextRef` and `xsi:nil` — must be declared
+exactly once, or the mint refuses.
+
+Both failure directions used to be silent. An element declaring no `name` or
+no `contextRef`, or declaring either empty, was passed over — a fact the filer
+chose vanishing from a candidate set that still reported itself complete. An
+element declaring an interpreted attribute *twice* resolved last-wins through
+`dict()`, so the mint read a document a conformant XBRL processor rejects, and
+read it differently from whatever strict resolver a successor writes. On
+`xsi:nil` that second one was the sharper of the two, because that attribute
+decides whether a fact enters the set at all.
 """
 
 from __future__ import annotations
@@ -259,8 +265,11 @@ def test_a_nil_fact_with_no_identity_is_still_not_minted() -> None:
     """The nil read runs first, and that ordering is deliberate.
 
     A fact reported as nil resolves to nothing and is not a candidate however
-    it is spelled, so there is no identity for this guard to want. Refusing it
-    would make a filing legal under XBRL fail the mint.
+    it is spelled, so there is no candidate to lose either way and no identity
+    for the guard below to want. This element is not itself legal inline XBRL —
+    `name` and `contextRef` are required of `ix:nonFraction` whatever `xsi:nil`
+    says — so the ordering is justified by there being nothing at stake, not by
+    the element being conformant.
     """
     minted = mint_candidate_set(_STEP, _filing('xsi:nil="true"'))
 
@@ -280,7 +289,6 @@ def test_a_nil_fact_with_no_identity_is_still_not_minted() -> None:
             "the same value twice",
             'name="us-gaap:Revenues" name="us-gaap:Revenues" contextRef="c-1"',
         ),
-        ("a duplicate that is empty", 'name="us-gaap:Revenues" name="" contextRef="c-1"'),
         ("three times", 'name="a" name="b" name="c" contextRef="c-1"'),
     ],
 )
@@ -298,6 +306,11 @@ def test_a_duplicated_identity_attribute_refuses_the_whole_mint(
     The repeated-identical case is refused too: admitting it would need the
     reader to compare values, which is a precedence rule by another name, and
     the collapse is what hides the duplicate in the first place.
+
+    A duplicate whose *last* occurrence is empty is deliberately not in this
+    group. It is refused either way — the sibling unreadable-identity rule
+    catches it under last-wins — so it is evidence for that rule and not for
+    this one, and counting it here would overstate what this group pins.
     """
     with pytest.raises(UnmintableFactIdentity):
         mint_candidate_set(_STEP, _filing(attributes))
@@ -350,3 +363,74 @@ def test_a_repeated_non_identity_attribute_is_not_the_mints_business() -> None:
     assert minted.references == frozenset(
         {f"{REFERENCE_PREFIX}{_STEP}/xbrl/us-gaap:Revenues/c-1"}
     )
+
+
+# ── The same rule on `xsi:nil`, which decides whether a fact is a candidate ─
+
+
+@pytest.mark.parametrize(
+    ("description", "nil"),
+    [
+        ("not-nil then nil", '"false" xsi:nil="true"'),
+        ("nil then not-nil", '"true" xsi:nil="false"'),
+        ("the same value twice", '"true" xsi:nil="true"'),
+        ("two spellings of not-nil", '"false" xsi:nil="0"'),
+    ],
+)
+def test_a_duplicated_nil_flag_refuses_the_whole_mint(description: str, nil: str) -> None:
+    """`xsi:nil` is read by this module, so it is under the same rule.
+
+    This is the sharper half of the duplicate defect, because this attribute
+    decides whether a fact enters the candidate set at all. Under last-wins,
+    `xsi:nil="false" xsi:nil="true"` dropped an otherwise well-formed fact in
+    silence while the reversed order minted it — the filer choosing which
+    evidence is citable, by writing an attribute twice, with no refusal
+    anywhere. The identity rule alone did not reach it: the identity here is
+    perfectly conforming.
+    """
+    with pytest.raises(UnmintableFactIdentity):
+        mint_candidate_set(
+            _STEP, _filing(f'name="us-gaap:Revenues" contextRef="c-1" xsi:nil={nil}')
+        )
+
+
+def test_a_single_nil_flag_still_decides_the_fact_either_way() -> None:
+    """The rule is about duplication, not about nil, so both directions hold.
+
+    Paired with the refusals above so the guard cannot be satisfied by a
+    reader that simply stopped honouring `xsi:nil`.
+    """
+    assert not mint_candidate_set(
+        _STEP, _filing('name="us-gaap:Revenues" contextRef="c-1" xsi:nil="true"')
+    ).references
+    assert mint_candidate_set(
+        _STEP, _filing('name="us-gaap:Revenues" contextRef="c-1" xsi:nil="false"')
+    ).references == frozenset({f"{REFERENCE_PREFIX}{_STEP}/xbrl/us-gaap:Revenues/c-1"})
+
+
+def test_the_read_exactly_once_rule_covers_every_attribute_the_mint_reads() -> None:
+    """The rule is stated as the closed set, so extending the reader is a diff.
+
+    A later change that interprets a fourth attribute has to add it here, and
+    a repeated attribute the mint does *not* read stays out of scope — the
+    mint is not a general XML-conformance check.
+    """
+    interpreted = ("name", "contextref", "xsi:nil")
+    for attribute in interpreted:
+        others = {
+            "name": "us-gaap:Revenues",
+            "contextref": "c-1",
+            "xsi:nil": "false",
+        }
+        del others[attribute]
+        rest = " ".join(f'{name}="{value}"' for name, value in others.items())
+        with pytest.raises(UnmintableFactIdentity):
+            mint_candidate_set(
+                _STEP, _filing(f'{rest} {attribute}="false" {attribute}="false"')
+            )
+
+    minted = mint_candidate_set(
+        _STEP,
+        _filing('name="us-gaap:Revenues" contextRef="c-1" unitRef="usd" unitRef="eur"'),
+    )
+    assert len(minted) == 1
