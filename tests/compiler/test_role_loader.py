@@ -18,6 +18,13 @@ AC-0273's unbound-row case is not here: it is decided against
 `list_integration_tools()` under the `substrate` marker, because a row no role
 binds is by definition absent from any one role's pinned rows.
 
+**The last group is beyond AC-0273 and carries no criterion**, by owner
+decision of 2026-09-22. That criterion enumerates exactly the four whole-array
+shapes; a row storing `[1]` clears all four and reaches
+`IntegrationTool(tool_name=1)` against a field declared `str`. These checks
+are named for what they assert rather than for a criterion they discharge, so
+a reader is not sent looking for one.
+
 Every case starts from a record that loads and breaks exactly one field, so a
 refusal cannot come from a second defect the case did not intend.
 """
@@ -265,3 +272,69 @@ def test_the_tools_rule_reaches_every_bound_row_not_only_the_first() -> None:
         decode_role_record(valid_role(), records)
 
     assert "market-data" in str(caught.value)
+
+
+# ── Beyond AC-0273: what is inside the array ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        pytest.param(1, id="integer"),
+        pytest.param(None, id="null"),
+        pytest.param(True, id="boolean"),
+        pytest.param(["fetch_filing"], id="nested-array"),
+        pytest.param({"name": "fetch_filing"}, id="object"),
+    ],
+)
+def test_a_tools_entry_that_is_not_a_string_fails_to_load(tool_name: Any) -> None:
+    """A tool name is a string, and the loader is where that is decided.
+
+    Without this the value reaches `IntegrationTool(tool_name=...)`, whose
+    field is declared `str`, and the first observation is a wrongly typed
+    entry inside AC-0233's enumeration rather than a refusal naming the row.
+    `True` is here because `isinstance(True, int)` holds, so a check written
+    against the wrong type still admits it.
+    """
+    record = valid_integration(tools=[tool_name])
+
+    with pytest.raises(RoleLoadError) as caught:
+        decode_role_record(valid_role(), [record])
+
+    assert "sec-filings" in str(caught.value)
+
+
+def test_the_refusal_names_which_entry_failed() -> None:
+    """A row may carry many tools; the operator has to find the one that failed.
+
+    The bad entry is third, so a message naming only the row would leave an
+    operator reading the whole array by hand.
+    """
+    record = valid_integration(tools=["fetch_filing", "fetch_index", 7])
+
+    with pytest.raises(RoleLoadError) as caught:
+        decode_role_record(valid_role(), [record])
+
+    assert "tools[2]" in str(caught.value)
+
+
+def test_a_bad_entry_beside_good_ones_is_not_skipped() -> None:
+    """Refused, never dropped.
+
+    A loader that skipped the malformed entry and kept the rest would shrink
+    the tool surface silently — the same defect AC-0273 closes one level up,
+    reappearing one level down.
+    """
+    record = valid_integration(tools=["fetch_filing", 7])
+
+    with pytest.raises(RoleLoadError):
+        decode_role_record(valid_role(), [record])
+
+
+def test_a_row_whose_entries_are_all_strings_loads() -> None:
+    """The admitted direction, so the refusals above are not vacuous."""
+    record = valid_integration(tools=["fetch_filing", "fetch_index"])
+
+    loaded = decode_role_record(valid_role(), [record])
+
+    assert loaded.integrations[0]["tools"] == ["fetch_filing", "fetch_index"]

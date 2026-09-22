@@ -159,13 +159,22 @@ def _row_label(record: Mapping[str, Any]) -> str:
 
 
 def _check_integration_record(record: Mapping[str, Any]) -> None:
-    """Apply the two registry-row refusals, naming the row that failed.
+    """Apply the registry-row refusals, naming the row that failed.
 
     Shared by `decode_role_record` and `list_integration_tools` so the rule
     holds on the bound subset and on the whole-registry read alike. AC-0273
     states it unqualified, and the row no role binds is the one a bound-only
     guard would miss: it fails nowhere and instead shrinks the tool surface
     AC-0233 believes it enumerated.
+
+    **The element check below is beyond AC-0273**, which enumerates exactly
+    the four whole-array shapes above it, and it ships with no criterion of
+    its own by owner decision of 2026-09-22. It is here rather than deferred
+    because the array's shape and its contents are read on the same line: a
+    row storing `[1]` clears all four shapes and reaches
+    `IntegrationTool(tool_name=1)` against a field declared `str`, so the
+    first observation of a malformed row is a wrongly typed value inside
+    AC-0233's enumeration instead of a refusal naming the row.
     """
     # AC-0266. Membership, not a substring or a case-fold: a near-miss of a
     # real member is exactly the value that must be refused.
@@ -192,6 +201,20 @@ def _check_integration_record(record: Mapping[str, Any]) -> None:
             f"{_row_label(record)} has an empty tools array; a row contributing "
             f"no tools is not registrable"
         )
+
+    # Beyond AC-0273. The four shapes above judge the array; this judges what
+    # is in it. Refused rather than coerced, and rather than skipped: a
+    # loader that dropped the bad entry would shrink the tool surface
+    # silently, which is the defect AC-0273 exists to close one level up.
+    # The position is in the message because a row may carry many entries and
+    # the operator has to find the one that failed.
+    for position, tool_name in enumerate(tools):
+        if not isinstance(tool_name, str):
+            raise RoleLoadError(
+                f"{_row_label(record)} has tools[{position}] of type "
+                f"{type(tool_name).__name__}; every entry must be a tool name "
+                f"string"
+            )
 
 
 def decode_role_record(
