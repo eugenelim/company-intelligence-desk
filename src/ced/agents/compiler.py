@@ -21,6 +21,15 @@ anything disagreeing with them in either direction. It never *overrides* a
 declared value, because a silent override makes the record and the agent
 disagree.
 
+**The deterministic parser is wired here, not written here.** The
+trust-class layer takes a `ResultParser`, and the compiler supplies
+`ced.domain.quarantine.parser.parse_integration_result` — the boundary
+itself, outside any agent. It is handed no candidate set, which is the
+fail-closed direction and not an omission: an integration result is not the
+minting pipeline's output, so a reference arriving through one was minted by
+nobody. No tool body executes anywhere in this spec, so the seam is unreached
+by contract rather than by omission.
+
 **Retry budgets are not declarable** (§ 5): zero for a quarantined role, the
 framework's default otherwise. There is no role field to read and none is read.
 
@@ -80,6 +89,7 @@ from ced.agents.toolsets import (
     check_stack_order,
 )
 from ced.domain.events import ROLE_COMPILE_REFUSED, ROLE_LOAD_FAILED
+from ced.domain.quarantine.parser import parse_integration_result
 
 __all__ = [
     "ADMITTED_SETTINGS",
@@ -101,7 +111,6 @@ __all__ = [
     "append_role_refusal",
     "check_sole_toolset",
     "compile_role",
-    "no_parser_installed",
     "unresolved_tool",
 ]
 
@@ -123,11 +132,13 @@ class ReferenceSelection(BaseModel):
     """The quarantined role's closed-vocabulary result.
 
     Minimal on purpose. r5 § 7 requires a *closed-vocabulary* output type and
-    names no fields; the reference vocabulary itself is minted outside the
-    agent by `walking-skeleton-role-compilation`'s parser task, and the
+    names no fields; the candidate references themselves are minted outside
+    the agent by `ced.domain.quarantine.mint`, before the agent runs, and the
     step path that carries a result anywhere is a successor spec's. What is
     load-bearing here is that the type is structured, so a malformed output
-    fails validation instead of arriving as prose.
+    fails validation instead of arriving as prose — and that the structure is
+    a layer, never the boundary: `ced.domain.quarantine.parser.admit` decides
+    what crosses.
     """
 
     references: list[str]
@@ -230,19 +241,6 @@ def unresolved_tool(**arguments: Any) -> Any:
     """
     raise ToolBodyNotInstalled(
         f"no tool body is installed in this spec; called with {sorted(arguments)}"
-    )
-
-
-def no_parser_installed(tool_name: str, result: Any) -> Any:
-    """Stands where the deterministic parser will be wired, and refuses.
-
-    The trust-class layer parses an integration's result before any layer
-    above sees it. No integration returns a result in this spec, so there is
-    nothing to parse; refusing is the fail-closed direction, and returning the
-    raw value would be the detection-based defence r8 rejects.
-    """
-    raise ToolBodyNotInstalled(
-        f"no result parser is installed in this spec; {tool_name!r} returned a result"
     )
 
 
@@ -495,7 +493,7 @@ def compile_role(
     )
 
     stack = PolicyDecisionPoint(
-        StepEventToolset(TrustClassToolset(_domain_toolset(ceiling), no_parser_installed))
+        StepEventToolset(TrustClassToolset(_domain_toolset(ceiling), parse_integration_result))
     )
     check_stack_order(stack)
 

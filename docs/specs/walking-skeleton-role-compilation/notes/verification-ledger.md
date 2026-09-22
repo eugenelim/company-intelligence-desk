@@ -1048,3 +1048,207 @@ the rest of the suite follows.
 * AC-0233's retirement is now mechanical: `walking-skeleton-authority-containment`'s
   T2 deletes `tests/compiler/test_whole_tool_surface_refuses.py`, and the
   file's own docstring says so, so the removal is not left to memory.
+
+## T3 — the quarantine boundary
+
+### The approved stub, materialized
+
+`tests/quarantine/test_parser_admits.py` was extracted programmatically from
+`plan.md` lines 316–329, stripping exactly the two-space fence indent, and is
+**byte-identical** to the plan block: SHA-256
+`04f06ab34d0936adeb498f9d2b80cd491478537206aaf427ffeea85dc6a12015` on both the
+plan-derived text and the file on disk. No reformat was needed afterwards, as
+the plan's stub-formatting amendment predicted.
+
+**The red matches what the plan records, exactly.** `pytest
+tests/quarantine/test_parser_admits.py` fails at collection with
+`ModuleNotFoundError: No module named 'ced.domain.quarantine'` — the missing
+*package*, not the module: the traceback names `ced.domain.quarantine` and not
+`ced.domain.quarantine.parser`.
+
+### The discovered mint seam, recorded before production code
+
+The plan pins AC-0238's and AC-0250's interface as `no stub
+(implementation-discovered)`, with the holder chosen while building the minting
+pipeline under `src/**/domain/quarantine/**`. The predicate resolved inside T3
+as follows. This is an observation of a declared discovery, not an amendment.
+
+```
+ced.domain.quarantine.mint
+    CandidateSetSealed(Exception)
+        The runtime's own refusal for a mutation attempted after the mint.
+
+    CandidateSet
+        step_id: UUID                 the step the set was minted for
+        references -> frozenset[str]  an immutable read; no caller holds the
+                                      mutable interior
+        sealed -> bool                observable completeness
+        add(reference: str) -> None   the only mutation affordance; raises
+                                      CandidateSetSealed once sealed
+        seal() -> None
+        __contains__, __len__
+        __setattr__ raises CandidateSetSealed once sealed, so `sealed` cannot
+        be rebound to reopen `add`
+
+    mint_candidate_set(step_id: UUID, filing_html: str) -> CandidateSet
+        Returns an already-sealed set, so no unsealed set escapes the pipeline.
+```
+
+**Why `add` exists at all.** AC-0250 requires *the runtime's own refusal*, and
+a holder with no mutation affordance can only be attacked through
+`FrozenInstanceError` or `AttributeError` — the incidental `TypeError` the
+criterion names. The affordance is present precisely so that refusing it is a
+built guard rather than an accident of the container type.
+
+**No test hook reaches production.** `mint_candidate_set` takes no recorder and
+no callback. AC-0238's ordering is decided by the test's stub model taking both
+snapshots at its own request boundary, and by a timeline list the test owns;
+nothing under `src/ced/` knows that object exists.
+
+**Red proven before production code.** With only the three test modules on
+disk, `pytest tests/quarantine` reported `3 errors in 1.23s`, every one
+`ModuleNotFoundError: No module named 'ced.domain.quarantine'` at collection.
+
+### The reuse search, taken once over the execution root
+
+`AGENTS.md` § Cut before adding, rung 2, over `src/` and `tests/`, for the
+three things this task would otherwise write fresh.
+
+| Wanted | Found | Outcome |
+| --- | --- | --- |
+| An HTML or inline-XBRL extractor | nothing under `src/`, `tests/` or `tools/` | Decisive empty result. Stopped at **rung 3, the standard library**: `html.parser.HTMLParser` reads tag and attribute names, which is all the mint needs, so no dependency was added |
+| An immutable or sealable collection holder | ten `@dataclass(frozen=True)` uses | Not reusable here. A frozen dataclass refuses by `FrozenInstanceError`, which is exactly the incidental exception AC-0250 names as insufficient, so the holder is written at **rung 7** with a named refusal |
+| A closed-set membership idiom | `compiler.ADMITTED_SETTINGS`, `roles.TRUST_CLASSES`, `domain/events.RUN_LIFECYCLE_TYPES` | **Reused.** Every constant in `vocabulary.py` follows the same module-level `Final` + `frozenset` shape |
+| Role records, a pool mapping and stub models for the suite | `tests/compiler/role_records.py` | **Reused verbatim** — `a_quarantined_role`, `a_pool`, `CountingModel`, `returns_an_empty_selection`. The quarantine suite imports them rather than restating a second set of fixtures |
+
+### What the minting pipeline derives, and what it does not
+
+684 candidates from the recorded Apple 10-Q, one per distinct non-nil
+inline-XBRL numeric fact identity — concept name plus `contextRef`. The 762
+`ix:nonFraction` elements collapse to 684 identities; two are `xsi:nil` and
+therefore resolve to nothing, and adding `unitRef` to the identity changes the
+count by zero, so it is not part of it.
+
+**Not derived here, and named because a reader would otherwise assume it:**
+parsed table cells with their coordinates and section boundaries, both of
+which r8 § 4 puts in the eventual pipeline. Nothing is minted from the 98
+`ix:nonNumeric` elements, which carry filer-authored text.
+
+**The committed baseline is genuinely independent of the pipeline under test.**
+`tests/fixtures/candidate_set_expected.json` was generated by a throwaway
+regular-expression pass over the raw filing bytes — a different extraction
+from the `html.parser` one in `mint.py` — and the two agree on all 684
+references. An expectation computed from the pipeline could not fail for a
+pipeline that derives the wrong set from the fixture; two independent
+extractions agreeing can.
+
+### Falsifications — each guard broken on purpose, then restored
+
+| # | Break | Red | Stayed green |
+| --- | --- | --- | --- |
+| F1 | Label membership replaced by a token-shape regex `[a-z]+(-[a-z]+)+` | 3 AC-0268 checks | **All 33 others, the AC-0220 stub included.** This is precisely the hole AC-0268 exists for: free prose still fails while `tariff-refund-tailwind` crosses |
+| F2 | Reference provenance replaced by a shape test on slash count | 3 AC-0221 checks | 33, AC-0220 and AC-0268 among them. Shape validity is not provenance, demonstrated rather than asserted |
+| F3 | `mint_candidate_set` never seals | 3 AC-0250 checks and AC-0238's completeness check | 32 |
+| F4 | The mint drops every `aapl:`-prefixed concept | AC-0238's baseline equality, by 36 missing references | 35, non-emptiness and the before/after identity included — which is why the committed baseline is the load-bearing clause |
+| F5 | The categorical content-addressing branch disabled | **Nothing, on the first run.** See below | all 36 |
+| F6 | Exact-type matching replaced by `isinstance` | the `datetime` case | 35 |
+| F7 | The later-spec hazard: branch disabled **and** `ContentLocator` added to `ADMITTED_SCALAR_TYPES` | 4 AC-0274 checks | 33 |
+
+**F5 found a real gap and it was closed.** With the categorical branch
+removed, a `ContentLocator` was still refused — by the fall-through for a
+value of an unrecognised type — so the branch AC-0274's third clause asks for
+was dead code and the suite could not see the difference. A check that only
+observes *that* it raised cannot tell a categorical refusal from an incidental
+one, and would have stayed green for a later spec that admits the type and
+deletes the branch. The fix is a named reason,
+`vocabulary.CONTENT_ADDRESSING_REFUSAL`, carried in the refusal and read by
+the suite, plus a check that a different refusal does **not** carry it. F5
+re-run after the fix reds 2 checks and F7 reds 4.
+
+### Gates, run unfiltered from the worktree root
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| `ruff format --check .` | 0 | 161 files already formatted |
+| `ruff check .` | 0 | All checks passed |
+| `mypy` | 0 | no issues in 27 source files |
+| `pytest -m 'not substrate'` | 1 | 224 passed, 1 failed, 182 deselected, 9.69 s |
+| `pytest` | 1 | 406 passed, 1 failed, 198.12 s |
+| `tools/lint-no-identifiers.py --staged` | 0 | clean over the staged change |
+| `tools/lint-intents.py` | 0 | clean, 8 intents |
+| `tools/hooks/pre-pr.py` | 0 | all checks passed |
+| `lint-spec-status.py --root . --all` | 0 | spec metadata clean, 5 specs |
+
+The single failure in both suites is
+`tests/architecture/test_recorded_layout.py::test_no_top_level_directory_is_unrecorded`
+on `.github`, pre-existing and in `workspace.toml [backlog].open`. The
+baseline handed to this task was 187 / 1 offline and 369 / 1 full; the offline
+count rises by 37 and the full count by the same 37, because every added check
+is offline. `tests/architecture/test_dependency_direction.py` is green: the
+parser imports no framework, which is forced rather than chosen —
+`domain/` is not an admitted layer for `pydantic_ai`.
+
+### What was declined, and the rung that killed it
+
+* **A recorder or callback parameter on `mint_candidate_set`,** so the mint
+  could announce its own completion on the test's timeline. **Rung 1, not
+  genuinely needed:** AC-0238 requires the snapshots to be taken by the stub
+  model at its own request boundary, and `sealed` plus the baseline equality
+  already decide the ordering. A production hook whose only caller is a test
+  would also have weakened the claim it exists to support.
+* **A hashed, unguessable reference token.** **Rung 1.** Unpredictability buys
+  nothing here — the quarantined agent is handed the candidate set, so it
+  already holds every token — and it would have made the committed baseline
+  684 opaque lines instead of a readable diff. Membership is the control.
+* **An HTML parsing dependency.** **Rung 3**, the standard library satisfies
+  the outcome, so nothing was added to `pyproject.toml`.
+* **`enum.Enum` for the unit enumeration.** **Rung 1**: a non-member of an
+  `Enum` cannot be constructed, so AC-0274's second clause would have had
+  nothing to decide and the membership test would be vacuous.
+
+### Statements walked backwards and repaired
+
+* `src/ced/agents/toolsets/trust_class.py` — "Nothing here stubs a parser …
+  until it does, the compiler wires a parser that refuses whatever it is
+  handed". Now names `parse_integration_result` and why it is passed no
+  candidate set.
+* `src/ced/agents/compiler.py` — `no_parser_installed`, whose message read "no
+  result parser is installed in this spec", is **removed**, with its `__all__`
+  entry; the stack now wires the real parser. The module docstring gains the
+  wiring paragraph.
+* `src/ced/agents/compiler.py`, `ReferenceSelection` — "the reference
+  vocabulary itself is minted outside the agent by
+  `walking-skeleton-role-compilation`'s parser task" was future-tense and also
+  conflated two different things, the label vocabulary and the candidate
+  references. It now names `ced.domain.quarantine.mint` and says the structure
+  is a layer rather than the boundary.
+* `tests/compiler/toolset_chains.py:44` — "Stands where T3's parser will be
+  wired" is **left alone and is still true**: that helper builds hand-made
+  chains for the structural checker and wires its own refusing stub, which is
+  not the compiler's seam.
+* The T2f entry above, which recorded the placeholder as the state at that
+  time, is left unedited. This ledger is append-only.
+
+### Observed and not touched
+
+* **`plan.md` T3's `Touches` omits `src/ced/agents/compiler.py`**, while the
+  wiring T3 owes — replacing T2's deliberate `compiler.no_parser_installed`
+  placeholder — can only happen there, because the compiler is the only
+  constructor of the stack and passes the `ResultParser` explicitly. The file
+  was changed and the deviation is reported rather than worked around. Nothing
+  else in `compiler.py` was touched.
+* `role-configuration-seams.md`'s header still reads **STATUS: PLANNED**.
+  Still open; T4 owns it.
+* `docs/architecture/README.md` § What is built names neither the parser nor
+  the minting pipeline. T4's.
+
+### What these checks do not establish
+
+They establish that the boundary holds against the cases written. They
+establish nothing about an adaptive adversary, and nothing about the
+reference-*selection* channel: a closed vocabulary bounds the alphabet, not
+the channel, so a quarantined agent can still pass signal by *which* of 684
+candidates it chooses. AC-0238 makes forgery unrepresentable and says nothing
+about steering. No free-text integration is reachable in Phase 1 under
+ADR-0006 D3, so the `free-text` branch of the trust-class layer stays
+unexercised and these criteria establish the `admitted-types` path only.
