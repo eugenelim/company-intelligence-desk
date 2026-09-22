@@ -854,3 +854,197 @@ because three downstream drops and one upstream override each defeat it. One
 criterion was reworded to an observation point that exists on the pinned
 version. Everything else the rounds found was this amendment's own record
 keeping, most of it introduced by the controller's own fixes.
+
+## T2f — the whole tool surface refuses, and a refusal is readable
+
+Layer (f) of T2, the last one: AC-0233 and AC-0261. Both are `substrate`
+criteria. Nothing in layers (a) to (e) changed except the two additions
+recorded under § What was added to production, below.
+
+### AC-0233 — which assertion carries which clause
+
+The criterion has four clauses and each has its own assertion in
+`tests/compiler/test_whole_tool_surface_refuses.py`, because three of them are
+satisfiable by an implementation failing the fourth.
+
+| Clause | Carried by |
+| --- | --- |
+| The enumeration is non-empty and covers the skeleton's named roles | `test_the_enumeration_reads_the_tables_and_covers_the_named_roles` — `list_roles()` and `list_integration_tools()` are both asserted non-empty, the three seeded role names are asserted present, and the shape the spec's Assumptions give the skeleton is pinned: the analysis role's ceiling binds exactly one tool and the quarantined role's is empty |
+| No tool body executes | `test_no_tool_body_executes_anywhere_on_the_surface` — every role-and-tool pair is driven and the spy list is empty. `test_the_spy_would_notice_a_body_that_ran` is its control |
+| At least one pair is refused **at the decision point**, distinctly from one refused earlier at resolution | `test_at_least_one_pair_is_refused_at_the_decision_point` — both directions are named pair by pair, not merely "both sites appear" |
+| It runs in the no-predicate configuration | asserted per compiled stack inside `_sites_over_the_whole_surface`: the stack is a `PolicyDecisionPoint` and its resolver is `NoCeilingEntries` |
+
+**The two refusal sites are two exception types, observed by running them.**
+A pair whose role binds the tool raises `ToolCallDenied` from the decision
+point. A pair whose role does not bind it never resolves: the framework
+re-prompts and then raises `UnexpectedModelBehavior("Tool '<name>' exceeded
+max retries count of N")`, with N = 0 on the quarantined role's zero tool
+budget and N = 1 on a planning role's default. Measured on the installed
+2.45.0 before the test was written, at one model turn and two turns
+respectively. The call never reaches the decision point, which is exactly the
+earlier refusal the criterion asks to be told apart.
+
+**The spy replaces the body; it does not wrap it.** Carried forward from layer
+(d) and honoured: every bound tool resolves to `compiler.unresolved_tool`,
+which raises, so a wrapping spy would report "no body ran" for a runtime in
+which every body ran and blew up. The fixture monkeypatches the module
+attribute, which the compiler reads at build time, so every stack compiled
+afterwards holds the spy.
+
+### The spy alone is weaker than it looks, and that is why clause 3 exists
+
+Falsification run, recorded because it changed how the file reads. With
+`policy.py`'s admit test replaced by `if False:` — the decision point admitting
+everything — three of the five checks red, but **not because a body ran**. The
+spy stays empty: the step-event layer below refuses next, with
+`RuntimeError: tool 'fetch_filing' reached the step-event layer with no step
+context`. So "no tool body executed" is satisfied by a runtime whose
+authorization boundary is disabled, and clause 3's site assertion is the only
+thing in the criterion that notices. The pin was restored and the five checks
+are green again.
+
+### AC-0261 — the event types, and the evidence they clear the shipped CHECK
+
+| Stage | Type | Raised by |
+| --- | --- | --- |
+| Load | `role.load.failed` | `RoleLoadError` from `ced.adapters.postgres.roles` |
+| Compile | `role.compile.refused` | `RoleCompileError` from `ced.agents.models` |
+
+Revision 0001's `events_type_is_canonical` is `^[a-z0-9]+(\.[a-z0-9]+)+$`,
+read out of `migrations/versions/0001_base_schema.py:129` rather than from any
+document quoting it. **No assertion here restates that pattern.** Each type is
+appended for real against the migrated database and read back, which is the
+only proof it clears both the function's shape check and the table's CHECK;
+and `role.load_failed` — the spelling two ratified drafts carried while
+quoting the pattern that rejects it — is appended in the same check and must
+be refused, which is what separates a satisfied constraint from a dropped one.
+
+Falsification run: `ROLE_LOAD_FAILED` was temporarily set to
+`role.load_failed`. Three checks red with
+`MalformedEventType: append_step_event refuses a type outside the canonical
+shape: role.load_failed (caller app_worker)`, raised by revision 0002's
+`CED01` before the table CHECK is reached. Restored; six checks green.
+
+**Both refusals go through `append_step_event`, and that is forced rather than
+chosen.** `append_run_event` admits `run.requested` and `run.cancelled` alone
+— revision 0002's allowlist — so it cannot carry a role refusal, and it writes
+a null `agent_role` besides. `append_step_event` is therefore the only path
+that admits a step-scoped type, which also makes the append fenced on
+`lease_epoch` like every other worker write.
+
+**"Distinguishes it from a runtime fault" is decided against the vocabulary
+that exists.** Nothing in this repository appends a `step.failed`, and the
+step path that would is `walking-skeleton-step-lifecycle`'s, so no
+runtime-fault constant was invented to compare against — an unused constant is
+`Cut before adding` rung 1, and review round 1 already removed three of them
+from `ced/domain/events.py`. What is decidable today, and is asserted: the two
+refusal types collide with no type this runtime appends (each imported by
+name, so a rename reds), they differ from each other, and on one step's log an
+operator selecting by type separates both refusals — each naming its role in
+`agent_role` — from a genuine `tool.invoked` beside them.
+
+**Which guard refused is not recorded**, per the criterion and § 3: the
+envelope has no column for it and this spec writes no payload object.
+
+### What was added to production
+
+| Where | What | Why there |
+| --- | --- | --- |
+| `src/ced/domain/events.py` | `ROLE_LOAD_FAILED`, `ROLE_COMPILE_REFUSED` | The declared single home for shared event vocabulary; its own docstring warns that a second home is how names drift |
+| `src/ced/agents/compiler.py` | `ROLE_REFUSAL_EVENT_TYPES`, `ROLE_REFUSAL_TYPES`, `append_role_refusal` | See below |
+
+**`append_role_refusal` lives in the compiler module for a layering reason.**
+The step executor that will call it is a successor spec's and does not exist,
+so the append has to sit beside one of the two stages it reports. This module
+is the only one that can reach both refusal types without inverting a layer:
+`RoleCompileError` is in `ced.agents.models` and `RoleLoadError` is in
+`ced.adapters.postgres.roles`, so putting the mapping in `adapters/` would
+make an adapter import `agents/`. It maps the **raised type** to the event
+type, so which stage an event reports is decided by what was raised and never
+by a caller — a caller that could choose the type could file a compile refusal
+as a runtime fault, which is the distinction the criterion exists to make. An
+exception it cannot classify raises `TypeError` rather than defaulting to
+either stage, and a check asserts the log stays empty in that case.
+
+### Deviations from T2's pinned `Touches`
+
+`Touches` names `src/**/agents/compiler.py` and `src/**/adapters/postgres/roles.py`
+but no home for an event-type constant or an append path.
+`src/ced/domain/events.py` was edited for the two constants and is **outside
+`Touches`**. The alternative was a second vocabulary home, which that file's
+own docstring and revision 0002's `RUN_LIFECYCLE_TYPES` history argue against.
+Reported rather than resolved silently. No other file outside `Touches` was
+touched; `tests/compiler/**` and `tests/fixtures/registry_seed.py` are named.
+
+### Declined under `Cut before adding`
+
+* A `StepRefusalContext`-style carrier for the five fenced-identity arguments
+  `append_role_refusal` takes — rung 1. `StepContext` already exists for the
+  step-event layer, but it carries a live connection and is built by a step
+  path this spec does not have; reusing it would mean constructing a lie, and
+  inventing a second one for a function with one caller is reach.
+* A `step.failed` constant to compare the refusal types against — rung 1, as
+  above: nothing appends one, and review round 1 removed three constants with
+  no caller from that same module.
+* A shared helper wrapping `read_events` for the substrate suites — rung 2.
+  The search found `tests/event_log/conftest.py`'s `sequence_of`, which reads
+  `seq` values only and not envelopes. `_events` is four lines local to one
+  file, and its reason for existing is the transaction note below rather than
+  the read.
+* A fixture of my own for a run with a leased step — rung 2, and the search
+  found `tests/event_log/conftest.py`'s `leased_step`, which is reused by
+  import. It is the only fixture in the repository that establishes a fenced
+  step without going through the code under test.
+* A seeding helper of my own for the three skeleton roles — rung 2. The search
+  found `tests/fixtures/registry_seed.py`, whose `insert_role`,
+  `insert_integration`, `ceiling_entry` and `seeded` cover it; the skeleton
+  fixture is composed from them and writes no SQL of its own.
+
+### A transaction trap, found by a teardown that hung rather than failed
+
+`read_events` is a plain `SELECT`, so on a non-autocommit connection it leaves
+a transaction open. A later `append_step_event` on the same connection then
+nests inside it as a savepoint, the outer transaction never commits, and the
+row lock `fence_step` took on `steps` is still held when `leased_step`'s
+teardown deletes the run — so the teardown blocks rather than fails, and the
+suite hangs with no output. Observed in `pg_stat_activity` as
+`DELETE FROM steps WHERE run_id = $1` waiting on `transactionid` behind an
+`idle in transaction` backend whose last statement was `RELEASE "_pg3_1"`.
+The suite's `_events` helper commits after reading, and says why.
+
+### Gates, run unfiltered from the worktree root
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| `ruff format --check .` | 0 | 148 files already formatted |
+| `ruff check .` | 0 | All checks passed |
+| `mypy` | 0 | no issues in 23 source files |
+| `pytest -m 'not substrate'` | 1 | 187 passed, 1 failed, 182 deselected, 11.02 s |
+| `pytest` | 1 | 369 passed, 1 failed, 167.36 s |
+| `tools/lint-no-identifiers.py` | 0 | clean over tracked files |
+| `lint-spec-status.py --root . --all` | 0 | spec metadata clean, 5 specs |
+
+The single failure in both suites is
+`tests/architecture/test_recorded_layout.py::test_no_top_level_directory_is_unrecorded`
+on `.github`, pre-existing and in the backlog. The baseline handed to this
+layer was 187 / 1 offline and 358 / 1 full; the eleven added checks are all
+`substrate`, which is why the offline count is unchanged and the full count
+rises by exactly eleven. `tests/architecture/test_dependency_direction.py` is
+green in the same offline run.
+
+`tools/lint-no-identifiers.py` reads tracked files only, so the four files
+this layer changed or added were additionally checked by hand for twelve-digit
+runs, addresses and absolute home paths; none is present. The one placeholder
+identifier in the suites is `cik="0000000a"`, letter-bearing by the same rule
+the rest of the suite follows.
+
+### Observed and not touched
+
+* `role-configuration-seams.md`'s header still reads **STATUS: PLANNED** —
+  "nothing here is built. `src/ced/agents/` is empty." False since layer (c)
+  and further false now. Reported at layer (d) and still open; T4 owns it.
+* `docs/architecture/README.md` § What is built still names neither the
+  toolset stack nor the compiler. T4's.
+* AC-0233's retirement is now mechanical: `walking-skeleton-authority-containment`'s
+  T2 deletes `tests/compiler/test_whole_tool_surface_refuses.py`, and the
+  file's own docstring says so, so the removal is not left to memory.

@@ -36,6 +36,20 @@ over, in `ced.agents.models`, which is where that set is read.
 **Every one of them refuses on the return path, not at call time.** A role
 that violates a guard never produces an agent, so there is no object a caller
 could hold and invoke.
+
+**`append_role_refusal` is the other half of that, and it lives here for a
+layering reason rather than a thematic one.** § 3 makes the refusal an
+operator-facing contract: the executor appends an event naming the stage that
+refused and the role that failed, so a bad role file is distinguishable from a
+runtime fault. The step executor that will call it is
+`walking-skeleton-step-lifecycle`'s and does not exist yet, so the append has
+to live beside one of the two stages it reports. This module is the only one
+that can reach both refusal types without inverting a layer —
+`RoleCompileError` comes from `ced.agents.models` and `RoleLoadError` from
+`ced.adapters.postgres.roles`, and putting the mapping in `adapters/` would
+make an adapter import `agents/`. It maps the raised type to the event type,
+so which stage an event reports is decided by what was raised and never by
+the caller.
 """
 
 from __future__ import annotations
@@ -43,7 +57,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, cast
+from uuid import UUID
 
+import psycopg
 from pydantic import BaseModel
 from pydantic_ai.toolsets import AbstractToolset
 
@@ -54,6 +70,8 @@ from ced.adapters.framework_contract import (
     ModelSettings,
     UsageLimits,
 )
+from ced.adapters.postgres.event_log import append_step_event
+from ced.adapters.postgres.roles import RoleLoadError
 from ced.agents.models import RoleCompileError, resolve_model
 from ced.agents.toolsets import (
     PolicyDecisionPoint,
@@ -61,6 +79,7 @@ from ced.agents.toolsets import (
     TrustClassToolset,
     check_stack_order,
 )
+from ced.domain.events import ROLE_COMPILE_REFUSED, ROLE_LOAD_FAILED
 
 __all__ = [
     "ADMITTED_SETTINGS",
@@ -71,12 +90,15 @@ __all__ = [
     "POOL_OWNED_LIMIT",
     "QUARANTINED_OUTPUT_CONTRACT",
     "QUARANTINED_RETRIES",
+    "ROLE_REFUSAL_EVENT_TYPES",
+    "ROLE_REFUSAL_TYPES",
     "CompiledRole",
     "FindingSet",
     "ReferenceSelection",
     "RoleCompileError",
     "SoleToolsetError",
     "ToolBodyNotInstalled",
+    "append_role_refusal",
     "check_sole_toolset",
     "compile_role",
     "no_parser_installed",
@@ -174,6 +196,24 @@ POOL_OWNED_LIMIT: Final = "count_tokens_before_request"
 #: loader refuses every non-member; this is the one member the *compiler*
 #: denies on top of that.
 FREE_TEXT: Final = "free-text"
+
+#: Which stage refused, keyed on the type that was raised rather than on an
+#: argument. A caller that could choose the event type could file a compile
+#: refusal as a load failure, or either as a runtime fault, which is exactly
+#: the distinction AC-0261 exists to make readable.
+#:
+#: `RoleLoadError` is the stored record disagreeing with its ratified shape;
+#: `RoleCompileError` is the role disagreeing with the pool or its own
+#: bindings. Neither derives from the other, so the order here is
+#: presentational.
+ROLE_REFUSAL_EVENT_TYPES: Final[tuple[tuple[type[Exception], str], ...]] = (
+    (RoleLoadError, ROLE_LOAD_FAILED),
+    (RoleCompileError, ROLE_COMPILE_REFUSED),
+)
+
+#: The two event types the mapping above can produce, derived from it so a
+#: reader — and a suite — never restates the pair.
+ROLE_REFUSAL_TYPES: Final = frozenset(event for _, event in ROLE_REFUSAL_EVENT_TYPES)
 
 
 def unresolved_tool(**arguments: Any) -> Any:
@@ -477,6 +517,54 @@ def compile_role(
         version=version,
         ceiling=ceiling,
         quarantined=quarantined,
+    )
+
+
+def append_role_refusal(
+    conn: psycopg.Connection[Any],
+    refusal: Exception,
+    *,
+    run_id: UUID,
+    step_id: UUID,
+    lease_epoch: int,
+    principal: str,
+    agent_role: str,
+) -> int:
+    """Record that a role never became an agent, and say at which stage.
+
+    AC-0261. The event type comes from `refusal`'s own type, so the load
+    stage and the compile stage are distinguishable by type and both are
+    distinguishable from a runtime fault; `agent_role` names the role that
+    failed, which is what the shipped envelope can carry. **Which guard
+    refused is deliberately not recorded** — the envelope has no column for
+    it and this spec writes no payload object.
+
+    Goes through `append_step_event` because that is the only path admitting
+    a step-scoped type: `append_run_event` accepts `run.requested` and
+    `run.cancelled` alone. So the append is fenced on `lease_epoch` like
+    every other worker write, which is right — a worker whose lease has moved
+    on must not narrate a step it no longer owns.
+
+    Raises `TypeError` on an exception it cannot classify rather than filing
+    it under either stage. A refusal event for a failure that was neither a
+    load nor a compile refusal would be a log that misleads, which is worse
+    than one that is missing an entry.
+    """
+    for refusal_type, event_type in ROLE_REFUSAL_EVENT_TYPES:
+        if isinstance(refusal, refusal_type):
+            return append_step_event(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=lease_epoch,
+                type=event_type,
+                principal=principal,
+                agent_role=agent_role,
+            )
+    raise TypeError(
+        f"{type(refusal).__name__} is not a role refusal; "
+        f"the stages this records are "
+        f"{[t.__name__ for t, _ in ROLE_REFUSAL_EVENT_TYPES]}"
     )
 
 

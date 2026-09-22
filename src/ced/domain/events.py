@@ -58,6 +58,32 @@ TOOL_INVOKED: Final = "tool.invoked"
 #: second home for half a pair is how the two drift.
 TOOL_COMPLETED: Final = "tool.completed"
 
+#: A stored role record the loader refuses, appended at the **load** stage.
+#: `role-configuration-seams.md` § 3: a record the loader rejects is appended
+#: with its own event type rather than as a step fault, so an operator can
+#: tell a bad role file from a runtime fault without attaching a debugger.
+#:
+#: **The spelling is constrained by `events_type_is_canonical`**, revision
+#: 0001's CHECK `^[a-z0-9]+(\.[a-z0-9]+)+$`: each dot-separated segment is
+#: lowercase ASCII alphanumerics only. `role.load_failed` — the spelling two
+#: ratified drafts carried — fails it on the underscore, and so would
+#: `role-load-failed`. `tests/compiler/test_refusal_is_readable.py` decides
+#: this against the shipped database rather than against a copy of the
+#: pattern, and pairs each admitted type with the rejected underscore
+#: spelling so a disabled constraint cannot pass for a satisfied one.
+ROLE_LOAD_FAILED: Final = "role.load.failed"
+
+#: A role the compiler refuses, appended at the **compile** stage. Its own
+#: type for the same reason and under the same constraint: AC-0261 asks that
+#: the refusal be distinguishable by type from a runtime fault, and the
+#: envelope carries `agent_role`, which names the role that failed.
+#:
+#: **Which guard refused is deliberately absent.** The `events` envelope has
+#: no column for it and this spec writes no payload object; the spec that
+#: opens that write path owns the other half, and the spec's § Follow-ons
+#: carries the register entry.
+ROLE_COMPILE_REFUSED: Final = "role.compile.refused"
+
 #: The step-scoped **vocabulary** is deliberately not enumerated here or in the
 #: schema. `walking-skeleton-authority-containment` adds the types its toolset emits,
 #: and an enum frozen now would make each one a migration against a shipped
