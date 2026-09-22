@@ -445,6 +445,16 @@ starting point, and `ruff format --check .` reds on the block inside `plan.md`
 itself, which is a backlog item awaiting an owner decision and is why the
 stub could not be formatted first.
 
+**Superseded on 2026-09-21, after this observation was recorded.** The
+observation above stands as the record of what happened at T2 layer (d) and is
+not rewritten. What no longer holds is its closing rationale: the plan block's
+format failure was a backlog item awaiting an owner decision *then*, and the
+owner authorized the amendment that closed it — see
+[`amendment-2026-09-21-stub-formatting.md`](amendment-2026-09-21-stub-formatting.md).
+The plan's stub is now byte-identical to the materialized copy, so the two
+sentences above describe an interval that has ended rather than a standing
+state.
+
 ### Gates
 
 ```
@@ -570,3 +580,277 @@ increments". Every bound tool in this spec resolves to `unresolved_tool`, which
 adapter. A spy that **replaces** the body satisfies the criterion; a spy that
 wraps it does not, because the wrapped body raises before the counter moves.
 Recorded before that layer starts rather than discovered inside it.
+
+## T2e — the compile-time refusals over the role record
+
+Layer (e) of T2: the nine guards AC-0203, AC-0204, AC-0206, AC-0246, AC-0251,
+AC-0258, AC-0260, AC-0267 and AC-0269. Layer (f) — AC-0233 and AC-0261 — is
+not in this layer.
+
+### Where each guard landed
+
+| Criterion | Guard | Decided by |
+| --- | --- | --- |
+| AC-0260 | `_bound_integrations`, unresolved pin and unlisted tool | `tests/compiler/test_binding_guards.py` |
+| AC-0203 | `_bound_integrations`, `free-text` on a bound row | same file, parametrized |
+| AC-0258 | `_bound_integrations`, `pool_classes` membership | same file, four cases |
+| AC-0267 | membership in `OUTPUT_CONTRACTS`, before the lookup | `tests/compiler/test_declared_sets.py` |
+| AC-0269 | `_check_settings`, `ADMITTED_SETTINGS` allowlist | same file |
+| AC-0251 (compile half) | `ced.agents.models.resolve_model` | same file |
+| AC-0204 | `_check_settings` plus `settings["thinking"] = False` | `tests/compiler/test_thinking_setting.py` |
+| AC-0206 | `_resolved_limits` | `tests/compiler/test_limit_ceiling.py` |
+| AC-0246 | no new code — the compiled `UsageLimits` carries the pool's flag | same file |
+
+AC-0206's three clauses are three parametrized checks over `DECLARABLE_LIMITS`:
+`…_wider_than_the_pool_default_fails_the_build` (clause 1),
+`…_narrower_than_the_pool_default_compiles_to_its_own` (clause 2), and
+`…_a_key_the_role_omits_inherits_the_pools_value` (clause 3, read off the
+compiled `UsageLimits`). Two more cover the pool-owned flag and a limit
+outside the declarable four.
+
+### Framework facts established by running the installed package
+
+* `pydantic_ai` 2.45.0. `ModelSettings` is a `total=False` TypedDict of
+  **sixteen** keys, `extra_headers` and `extra_body` among them — the claim
+  AC-0269 rests on, confirmed against the installed package and not taken
+  from the brief.
+* **`thinking` never reaches the model inside `ModelSettings` on this
+  version.** `Model.prepare_request` resolves it into
+  `ModelRequestParameters.thinking` and strips the key from the settings the
+  model's `request` receives. It carries the value across when the profile
+  declares `supports_thinking` **or** `thinking_always_enabled`, except that
+  an explicit `False` is dropped on an always-thinking profile — a model that
+  cannot stop reasoning gets no instruction to. AC-0204's original wording,
+  "the settings a stub model receives carry `thinking` as `False`", was
+  therefore not literally observable on 2.45.0; the criterion was reworded to
+  the resolved request parameters on 2026-09-21 under the stub-formatting
+  amendment. The hole it names is deferred as **one** Follow-on with a register
+  entry, stated over the property that the value the model reads on the
+  executor's run path is `False` rather than over any one profile flag: three
+  mechanisms drop it downstream and an override defeats it upstream, and a
+  guard scoped to any one leaves the rest open. The criterion's intent —
+  the value at the model boundary, not on the carrier — is met by asserting
+  `info.model_request_parameters.thinking is False` against a stub whose
+  profile supports thinking.
+
+  **Superseded on 2026-09-21.** This bullet used to close "Reported, not
+  edited: the criterion's wording names a location the pinned version does not
+  use." That was the pre-amendment status and is false of `spec.md` as it now
+  reads; the owner directed the reword rather than the deferral, and it landed
+  in this amendment. Retired here rather than deleted, because leaving a
+  corrected claim beside its superseded one is the defect this amendment's own
+  record names as dominant, and it recurred three times before this.
+* `per_request_input_tokens_limit` is checked **twice** per turn:
+  `_agent_graph._prepare_request` calls `check_per_request_input_tokens` on
+  `count_tokens`' result before the request, and `_append_response` calls it
+  again on the response's own usage. Only the first is pre-request. The
+  admitted case in `test_limit_ceiling.py` therefore needs a ceiling clear of
+  `FunctionModel`'s estimated usage as well as of the counted value; a first
+  draft with a ceiling of 10 and a count of 5 failed on the second check at
+  51 estimated input tokens, which is the observation behind
+  `PER_REQUEST_CEILING = 500`.
+* `Model.count_tokens` raises `NotImplementedError` with no override on
+  `TestModel` or `FunctionModel` — re-confirmed here and pinned by
+  `tests/contract/test_model_surface.py` (the brief cited
+  `test_agent_surface.py`; the `count_tokens` assertions are in
+  `test_model_surface.py`).
+
+### The AC-0270 / AC-0246 tension, named rather than left for a reviewer
+
+`test_limit_ceiling.py` sets `count_tokens_before_request` **true**, which
+AC-0270 refuses. They do not conflict: AC-0270 governs the deployed
+`CED_POOL_DEFAULT_LIMITS` through `verify_boot`, and this file passes a pool
+mapping straight to `compile_role`, reaching no environment. The ratified
+design § 7 names the counting stub as what sets the flag for this
+demonstration. The file's module docstring says so, which is where a reader
+meets it.
+
+### Interpretation recorded: AC-0203's "every non-quarantined role"
+
+The case set is derived from the compiler's own output-contract set —
+`OUTPUT_CONTRACTS` minus `QUARANTINED_OUTPUT_CONTRACT` — rather than from a
+list of role names written in the test. Today that is one class; a role class
+added to the set is covered without the file changing. The skeleton carries no
+second non-quarantined role to enumerate.
+
+### `RoleCompileError` moved to `ced.agents.models`
+
+The ratified design § 2 puts AC-0251's compile half in `ced.agents.models`,
+"which is where AC-0251 is enforced". `ced.agents.compiler` imports that
+module, so the module cannot import the compiler, and the shared refusal type
+had to sit on the reachable side of that edge. `compiler` re-exports it and
+keeps it in `__all__`, so every existing import still resolves and a caller
+still catches one named type for every compile refusal. A third module holding
+only the exception was declined: the design names two modules in `agents/` and
+adding a third is a structural change no ratified document carries.
+
+### Walking backwards — statements this layer made false, and what was done
+
+* `compiler.py`'s module docstring, "**What this module does not yet
+  enforce**", listing all of these guards as absent. Replaced with the list of
+  guards and where AC-0251 lives instead.
+* `_resolved_limits`' docstring, "the comparison … is not applied here yet, so
+  today a wider value is simply carried". Rewritten around the three clauses.
+* `compile_role`'s docstring, "`integrations` … with those not yet installed,
+  the argument is carried and not inspected". Rewritten.
+* `models.py`'s module docstring, "gives this module one job". It has two now,
+  and the membership check runs first.
+
+Nothing else in `src/` claimed a guard was missing; `grep` for "not yet",
+"absent today" and "unguarded" over `src/ced` and `tests/compiler` returns
+only statements that are still true.
+
+### Test fixtures that changed, and why the existing suite moved with them
+
+`a_planning_role()` binds `filing-archive` v1 and previously compiled against
+`integrations=()`. Under AC-0260 that is now a refusal, so `role_records.py`
+gains `an_integration()` — one pinned registry row in the shape `load_role`
+returns, whose defaults resolve that ceiling entry — and the seven existing
+call sites that compile a planning role pass it. `a_role` gains `pool_class`
+and `model_id` parameters, which AC-0258 and AC-0251 vary.
+`returns_an_empty_selection` and `CountsTokensModel` are new.
+
+### Declined under `Cut before adding`
+
+* A `free_text` denylist helper shared with `ced.adapters.postgres.roles`'s
+  `TRUST_CLASSES` — rung 2, the search found the loader's allowlist and it is
+  the loader's, reachable only by making `agents/` import `adapters/postgres`
+  for one string literal.
+* Importing `DEFAULT_LIMIT_KEYS` and `COUNT_TOKENS_KEY` from
+  `ced.worker.pool` — rung 2 again, a hit that does not fit: `agents/` does
+  not import `worker/`, which is the reason `compile_role` takes the pool as a
+  plain mapping. The two names are written on both sides of that seam with a
+  comment saying so.
+* A `RoleCompileError` subclass per guard — rung 1. Every criterion says
+  "fails to compile" and none reads a type; the message names the key, the
+  value or the row, which is what an operator reads.
+* A ceiling-entry shape check (`integration_name` present, `predicates` well
+  formed) — rung 1 and out of scope: AC-0262 is the loader's and the predicate
+  encoding belongs to `walking-skeleton-authority-containment`.
+
+One addition *was* made beyond the criterion's literal words: a role
+`model_settings.limits` key outside § 5's four is refused, not only
+`count_tokens_before_request`. Without it `cost_limit`, `output_tokens_limit`
+and `total_tokens_limit` — all three excluded by § 5, all three accepted by
+`UsageLimits` — would reach the constructed limits unexamined, which is the
+same failing-open shape AC-0269 closes for `settings`.
+
+### Gates, run unfiltered from the worktree root
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| `ruff format --check .` | 0 | 146 files already formatted |
+| `ruff check .` | 0 | All checks passed |
+| `mypy` | 0 | no issues in 23 source files |
+| `pytest -m 'not substrate'` | 1 | 187 passed, 1 failed, 171 deselected, 11.31 s |
+| `pytest` | 1 | 358 passed, 1 failed, 179.26 s |
+
+The single failure in both suites is
+`tests/architecture/test_recorded_layout.py::test_no_top_level_directory_is_unrecorded`
+on `.github`, pre-existing on `main` and in the backlog. The baseline handed to
+this layer was 148 / 1 offline and 319 / 1 full; the 39 added tests account for
+the difference exactly in both. `tests/architecture/test_dependency_direction.py`
+is green in the same offline run, which is what T2's `Done when` names.
+
+**`ruff format --check .` now exits 0.** The `plan.md:250` failure recorded as
+this layer's second known-not-mine failure was closed while this layer ran, by
+the stub-formatting amendment in
+[`amendment-2026-09-21-stub-formatting.md`](amendment-2026-09-21-stub-formatting.md).
+
+### Observed and not touched
+
+`plan.md` and `spec.md` were modified in this worktree **during** this layer,
+by that amendment — `plan.md` to `Status: Drafting`, `spec.md` to
+`Status: Draft`, with the amendment's changelog entry added. Both files are
+hash-pinned and this layer edited neither; the modification is recorded here so
+a later reader does not attribute it to the implementation commit.
+
+## Amendment rounds 9 to 11 — a procedural slip, recorded
+
+The pre-EXECUTE loop for the stub-formatting amendment ran three review rounds.
+Rounds 9 and 10 were adversarial; round 11 was the security lens, fired because
+the owner widened the amendment to reword AC-0204, a guarding control. The
+earlier not-warranted judgement was not carried forward, because the diff that
+justified it no longer described the change.
+
+**On round 11 the controller revised the spec before firing `findings-remain`.**
+The skill's order is: adjudication sustains findings, fire `findings-remain`
+(`SPEC-PLAN-REVIEW` → `SPEC-PLAN-DRAFTING`), revise from sustained findings
+only, then fire `spec-ready`. The edits were made while the engine still read
+`SPEC-PLAN-REVIEW`, and the transition was fired afterwards. The end state is
+the same and the artifacts are all persisted and classified, so nothing is lost
+from the audit trail; what was lost is the ordering guarantee that a revision
+cannot begin before the round that authorized it is closed. Recorded rather
+than quietly corrected, because a state machine that is obeyed only when
+convenient records less than it appears to.
+
+**Where a framework error entered and how far it travelled.** Round 10's
+adjudication justified deferring the always-thinking hole partly on the claim
+that the pinned Anthropic-on-Bedrock path writes `thinking: {type: disabled}`
+for a `False` value. That was read from `models/bedrock.py`'s **non-adaptive**
+branch alone. The adaptive branch has no `else`, so an explicit `False` emits
+nothing and the provider default governs, and current Claude families take the
+adaptive branch. The controller repeated the claim to the owner without
+reading the surrounding construct. Round 11's security review caught it, and
+the round-11 adjudication records the propagation path. The spec's own trap
+list says never to assert a framework fact without reading it; the failure
+here was subtler — reading one branch of a conditional and treating it as the
+construct — and it is worth naming as its own trap.
+
+## Round 12 — an indeterminate, surfaced and then directed past
+
+The round-12 adversarial adjudication classified `invalid
+(indeterminate-present)`. The indeterminate was Nit 5: whether the recorded
+account of the round-11 ordering slip is complete. One fact it needed — when
+the round-11 adjudication artifact was written to disk, relative to the
+content edits — is not recoverable from any readable artifact, because
+`.loop-run/events.jsonl` logs state transitions and not artifact writes.
+
+**The controller did not resolve it itself, and the reason is worth stating.**
+A file timestamp is one shell command away. The bounded evidence retry in
+`finding-adjudication.md` § Bounded evidence retry admits only a gate from a
+closed Evidence gate catalog that repository guidance or the approved plan
+declared *before the reviewer report existed*, with a literal argument vector
+and read-confined isolation. A grep of `AGENTS.md` and `plan.md` finds no such
+catalog, so no entry was eligible and ad-hoc execution is precisely what the
+rule excludes — otherwise the artifact under adjudication chooses what runs.
+The nit's second half, whether a slip of this shape needs more than a ledger
+note, is an owner decision the lifecycle reference does not settle.
+
+It was surfaced to the owner with the two other open decisions, and the owner
+directed continuation. The account above stands as recorded; the missing
+timestamp is not added, because obtaining it would have meant waiving a
+control rather than satisfying it.
+
+## Closing the amendment's review loop
+
+Five review rounds ran on this amendment across two lenses: 9 and 10
+adversarial, 11 security, 12 both, 13 adversarial. The round-13 adjudication
+sustained one finding — a clause in this amendment's own authority note whose
+pointer resolved to a different owner question — and refuted the other
+outright rather than deferring it, on the ground that the remaining objection
+was a wording preference no authority decides and that "the next round can
+raise the opposite preference with equal force".
+
+That adjudication also answered the cost question directly: **nothing there
+justified a sixth round**, because the sustained item was a text correction
+with a determined outcome, no code, gate or contract surface behind it, and it
+"can be verified by re-reading the two sentences it touches". The controller
+applied the correction, re-read those sentences, and additionally found and
+fixed a second copy of the same count claim earlier in the note — a walk the
+refuted nit had noticed in passing and which refuting it did not perform.
+
+**No reviewer confirmed that last correction, and the owner directed the build
+to proceed.** That is recorded rather than smoothed over: the basis for
+treating the pre-EXECUTE review as satisfied is the adjudicator's explicit
+no-sixth-round finding plus the controller's own re-read, not a clean reviewer
+report. Anyone auditing this run should read it that way.
+
+**What the five rounds bought, stated once.** One inert control: AC-0204's
+`thinking=False` does not reach the model on several paths, which no criterion
+here could see. It is deferred as a property — that the value the model reads
+on the executor's run path is `False` — rather than as a list of mechanisms,
+because three downstream drops and one upstream override each defeat it. One
+criterion was reworded to an observation point that exists on the pinned
+version. Everything else the rounds found was this amendment's own record
+keeping, most of it introduced by the controller's own fixes.
