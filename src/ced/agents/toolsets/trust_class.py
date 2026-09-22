@@ -6,15 +6,16 @@ free-text result therefore cannot reach the attribution record or the agent:
 the step-event layer above sees only what the parser admitted, and so does the
 agent.
 
-**The parser itself is T3's and is injected here, not written here.** This
-spec's `Never do` refuses typed output standing in for the deterministic
-parser, so the boundary has to be a parser the compiler wires in rather than a
-serializer this layer trusts. `parse_result` is the named seam; T3 supplies
-the callable from `ced.domain.quarantine` and may narrow the protocol below,
-which is why `trust_class.py` is in that task's `Touches` as well as this
-one's. Nothing here stubs a parser, because a stub would compete with the one
-T3 lands; until it does, the compiler wires a parser that refuses whatever it
-is handed, which is the fail-closed direction and not a parse.
+**The parser is injected here, not written here.** This spec's `Never do`
+refuses typed output standing in for the deterministic parser, so the
+boundary has to be a parser the compiler wires in rather than a serializer
+this layer trusts. `parse_result` is the named seam, and what the compiler
+now wires into it is
+`ced.domain.quarantine.parser.parse_integration_result` — the real boundary,
+which narrows `admit(value, candidates)` to the two-argument protocol below
+and passes no candidate set. That is the fail-closed direction and not an
+omission: an integration result is not the minting pipeline's output, so a
+reference arriving through one was minted by nobody and is refused.
 
 **What this does not establish.** No tool body executes anywhere in this spec
 — the decision point refuses every call until the successor's predicate
