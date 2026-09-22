@@ -21,14 +21,20 @@ import pytest
 from ced.agents.compiler import compile_role
 from ced.agents.toolsets import ToolCallDenied
 
-from .role_records import CountingModel, a_planning_role, a_pool, calls_the_only_tool
+from .role_records import (
+    CountingModel,
+    a_planning_role,
+    a_pool,
+    an_integration,
+    calls_the_only_tool,
+)
 
 
 def test_a_denied_tool_call_propagates_out_of_the_run() -> None:
     """The refusal is what the caller sees, unwrapped and unretried."""
     model = CountingModel(calls_the_only_tool)
     compiled = compile_role(
-        role=a_planning_role(), integrations=(), pool=a_pool(model=model.model)
+        role=a_planning_role(), integrations=(an_integration(),), pool=a_pool(model=model.model)
     )
 
     with pytest.raises(ToolCallDenied) as caught:
@@ -40,7 +46,7 @@ def test_no_further_model_turn_is_issued_after_a_denial() -> None:
     """One turn asked for the call; nothing asked the model what to do instead."""
     model = CountingModel(calls_the_only_tool)
     compiled = compile_role(
-        role=a_planning_role(), integrations=(), pool=a_pool(model=model.model)
+        role=a_planning_role(), integrations=(an_integration(),), pool=a_pool(model=model.model)
     )
 
     with pytest.raises(ToolCallDenied):

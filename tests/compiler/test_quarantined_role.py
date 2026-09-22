@@ -40,6 +40,7 @@ from .role_records import (
     a_planning_role,
     a_pool,
     a_quarantined_role,
+    an_integration,
     returns_a_malformed_output,
 )
 
@@ -64,7 +65,9 @@ def test_an_empty_ceiling_compiles_a_quarantined_role() -> None:
 
 def test_a_non_empty_ceiling_compiles_a_role_that_is_not_quarantined() -> None:
     """The contrast that makes the assertion above contentful rather than vacuous."""
-    compiled = compile_role(role=a_planning_role(), integrations=(), pool=a_pool())
+    compiled = compile_role(
+        role=a_planning_role(), integrations=(an_integration(),), pool=a_pool()
+    )
 
     assert not compiled.quarantined
     assert sorted(_innermost_toolset(compiled.stack).tools) == ["fetch_filing"]
@@ -87,7 +90,7 @@ def test_a_non_empty_ceiling_declaring_the_quarantined_contract_fails_to_compile
     role["output_schema_ref"] = "reference-selection"
 
     with pytest.raises(RoleCompileError) as caught:
-        compile_role(role=role, integrations=(), pool=a_pool())
+        compile_role(role=role, integrations=(an_integration(),), pool=a_pool())
     assert "non-empty ceiling" in str(caught.value)
 
 
@@ -122,7 +125,7 @@ def test_a_role_that_is_not_quarantined_keeps_the_frameworks_retry_default() -> 
     """
     model = CountingModel(returns_a_malformed_output)
     compiled = compile_role(
-        role=a_planning_role(), integrations=(), pool=a_pool(model=model.model)
+        role=a_planning_role(), integrations=(an_integration(),), pool=a_pool(model=model.model)
     )
 
     assert compiled.agent._max_tool_retries == 1

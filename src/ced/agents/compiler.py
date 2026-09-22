@@ -24,12 +24,18 @@ disagree.
 **Retry budgets are not declarable** (§ 5): zero for a quarantined role, the
 framework's default otherwise. There is no role field to read and none is read.
 
-**What this module does not yet enforce.** The compile-time refusals over the
-role record — the `free-text` binding, the `thinking` setting, the settings
-and output-contract allowlists, the pool's model-id set, the limit comparison,
-the pool-class check and ceiling binding resolution — land beside the guards
-below in the same function. Where they are absent today, a malformed record
-fails on the framework's own error rather than on a named refusal.
+**The compile-time refusals over the role record all live in this one
+function**, and each names what failed — the key, the value, the row or the
+role — because an operator reading the failure is the point. They are the
+`free-text` binding (AC-0203), the `thinking` setting (AC-0204), the limit
+comparison (AC-0206), the settings allowlist (AC-0269), the output-contract
+allowlist (AC-0267), the pool-class check (AC-0258) and ceiling binding
+resolution (AC-0260). The pool's model-id set (AC-0251) is enforced one module
+over, in `ced.agents.models`, which is where that set is read.
+
+**Every one of them refuses on the return path, not at call time.** A role
+that violates a guard never produces an agent, so there is no object a caller
+could hold and invoke.
 """
 
 from __future__ import annotations
@@ -48,7 +54,7 @@ from ced.adapters.framework_contract import (
     ModelSettings,
     UsageLimits,
 )
-from ced.agents.models import resolve_model
+from ced.agents.models import RoleCompileError, resolve_model
 from ced.agents.toolsets import (
     PolicyDecisionPoint,
     StepEventToolset,
@@ -57,7 +63,12 @@ from ced.agents.toolsets import (
 )
 
 __all__ = [
+    "ADMITTED_SETTINGS",
+    "COMPILED_THINKING",
+    "DECLARABLE_LIMITS",
+    "FREE_TEXT",
     "OUTPUT_CONTRACTS",
+    "POOL_OWNED_LIMIT",
     "QUARANTINED_OUTPUT_CONTRACT",
     "QUARANTINED_RETRIES",
     "CompiledRole",
@@ -71,15 +82,6 @@ __all__ = [
     "no_parser_installed",
     "unresolved_tool",
 ]
-
-
-class RoleCompileError(Exception):
-    """The role record cannot become an agent.
-
-    Distinct from `RoleLoadError`, which is the stored record disagreeing with
-    its own shape. This is the role disagreeing with the pool, with its own
-    bindings, or with what its derived class requires.
-    """
 
 
 class SoleToolsetError(Exception):
@@ -133,6 +135,45 @@ QUARANTINED_OUTPUT_CONTRACT: Final = "reference-selection"
 #: failure raises instead of re-prompting the model over attacker-authored
 #: filing text. Not declarable — there is no role field for it.
 QUARANTINED_RETRIES: Final[AgentRetries] = {"tools": 0, "output": 0}
+
+#: § 5's `settings` shape, applied as an allowlist rather than a denylist. On
+#: the pinned 2.45.0 the framework's `ModelSettings` is a `total=False`
+#: TypedDict of sixteen keys, `extra_headers` and `extra_body` among them, so
+#: forwarding a role's `settings` unchecked would let role data set arbitrary
+#: provider headers and request bodies — authority no ratified document
+#: assigns it, reaching past the `Model` seam r8 relies on for portability.
+ADMITTED_SETTINGS: Final = frozenset({"max_tokens", "temperature", "thinking"})
+
+#: The one setting the compiler owns rather than reads, per § 5. It is set on
+#: every compiled role and no other value is admitted: omitting the key would
+#: leave `ThinkingLevel` unset and the provider's own default in force, which
+#: may reason, so refusing only a truthy declaration would not give r5 § 4's
+#: "`thinking=False` asserted at compile time".
+COMPILED_THINKING: Final = False
+
+#: § 5's four declarable limit keys — all integers, and all comparing against
+#: the pool default. The three `UsageLimits` token and cost fields § 5 leaves
+#: out are not declarable, so a role naming one is refused with every other
+#: non-member.
+DECLARABLE_LIMITS: Final = (
+    "per_request_input_tokens_limit",
+    "input_tokens_limit",
+    "request_limit",
+    "tool_calls_limit",
+)
+
+#: Pool-owned per § 5: the pool supplies it from `CED_POOL_DEFAULT_LIMITS` and
+#: a role declaring it fails to compile. The name is written here as well as
+#: at `ced.worker.pool.COUNT_TOKENS_KEY` because `agents/` does not import
+#: `worker/` — that separation is why `compile_role` takes the pool as a plain
+#: mapping at all.
+POOL_OWNED_LIMIT: Final = "count_tokens_before_request"
+
+#: The trust class r5 § 2 R2 refuses on any non-quarantined role. The closed
+#: set this is one member of lives at `ced.adapters.postgres.roles`, where the
+#: loader refuses every non-member; this is the one member the *compiler*
+#: denies on top of that.
+FREE_TEXT: Final = "free-text"
 
 
 def unresolved_tool(**arguments: Any) -> Any:
@@ -235,16 +276,131 @@ def _domain_toolset(ceiling: Sequence[Mapping[str, Any]]) -> FunctionToolset[Non
 
 
 def _resolved_limits(
-    role_limits: Mapping[str, Any], pool_limits: Mapping[str, Any]
+    label: str, role_limits: Mapping[str, Any], pool_limits: Mapping[str, Any]
 ) -> UsageLimits:
-    """Merge the pool's defaults with the role's declared values.
+    """Merge the pool's defaults with the role's declared values, or refuse.
 
-    A key the role omits inherits the pool's. The comparison that refuses a
-    role value *wider* than the pool's is AC-0206's and is not applied here
-    yet, so today a wider value is simply carried.
+    AC-0206's three clauses, in one place. A role value *wider* than the pool
+    default fails the build rather than being clamped — ADR-0006 D4's strict
+    reading, so the role file and the limit in force cannot disagree. A
+    narrower value is carried as its own. A key the role omits inherits the
+    pool's, and the merge is what makes that true of the **compiled** limits:
+    dropping the key would leave the `UsageLimits` field unset, which 2.45.0
+    treats as unlimited.
+
+    Two keys are refused rather than compared. `count_tokens_before_request`
+    is pool-owned, and a key outside § 5's four is not declarable at all —
+    `cost_limit` among them, which would otherwise reach `UsageLimits`
+    unexamined because the framework accepts it.
     """
+    for key, value in role_limits.items():
+        if key == POOL_OWNED_LIMIT:
+            raise RoleCompileError(
+                f"{label} declares {key!r}, which is pool-owned; the pool supplies "
+                f"it and a role may not"
+            )
+        if key not in DECLARABLE_LIMITS:
+            raise RoleCompileError(
+                f"{label} declares limit {key!r}, which is outside the declarable "
+                f"set {list(DECLARABLE_LIMITS)}"
+            )
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise RoleCompileError(
+                f"{label} declares {key}={value!r}; all four declarable limits are integers"
+            )
+        default = pool_limits.get(key)
+        if isinstance(default, int) and not isinstance(default, bool) and value > default:
+            raise RoleCompileError(
+                f"{label} declares {key}={value}, wider than the pool default of "
+                f"{default}; a role may narrow and never widen"
+            )
+
     merged: dict[str, Any] = {**pool_limits, **role_limits}
     return UsageLimits(**merged)
+
+
+def _check_settings(label: str, settings: Mapping[str, Any]) -> None:
+    """Refuse a `settings` key outside § 5's three, and any `thinking` value.
+
+    AC-0269 and AC-0204's refusing half. The allowlist is the compiler's own
+    and is narrower than the framework's `ModelSettings`, which is the point:
+    a key the TypedDict accepts is exactly the case that distinguishes the two.
+    """
+    unknown = sorted(set(settings) - ADMITTED_SETTINGS)
+    if unknown:
+        raise RoleCompileError(
+            f"{label} declares model setting(s) {unknown}, outside the admitted "
+            f"set {sorted(ADMITTED_SETTINGS)}"
+        )
+    declared = settings.get("thinking", COMPILED_THINKING)
+    if declared is not COMPILED_THINKING:
+        raise RoleCompileError(
+            f"{label} declares thinking={declared!r}; the compiler sets "
+            f"thinking={COMPILED_THINKING!r} on every role and admits no other value"
+        )
+
+
+def _bound_integrations(
+    label: str,
+    pool_class: Any,
+    ceiling: Sequence[Mapping[str, Any]],
+    integrations: Sequence[Mapping[str, Any]],
+) -> None:
+    """Resolve every ceiling entry to a pinned registry row, and judge the row.
+
+    Three refusals over the bindings, each naming the entry that failed:
+
+    * AC-0260 — an entry naming an integration the compiler was not given, and
+      an entry whose `tool_name` is absent from that row's `tools`.
+    * AC-0203 — a `free-text` row on a non-quarantined role. Reached only for
+      such a role by construction: a quarantined role's ceiling is empty, so
+      this loop does not run for one. ADR-0006 D3 narrows the `free-text`
+      exemption to unreachable in Phase 1, which bounds how often this fires
+      and not whether it is right.
+    * AC-0258 — a row that does not list the role's `pool_class`. An empty
+      `pool_classes` means available to every class, so a role whose
+      `pool_class` is absent matches those rows and no others.
+
+    The rows are keyed on the pinned `(integration_name, integration_version)`
+    pair, which is the only way a version is selected: there is no "current
+    version" row to fall back on.
+    """
+    by_pin = {
+        (record.get("integration_name"), record.get("version")): record
+        for record in integrations
+    }
+    for entry in ceiling:
+        pin = (entry.get("integration_name"), entry.get("integration_version"))
+        record = by_pin.get(pin)
+        if record is None:
+            raise RoleCompileError(
+                f"{label} binds integration {pin[0]!r} version {pin[1]!r}, which the "
+                f"compiler was not given; the rows it holds are {sorted(map(repr, by_pin))}"
+            )
+
+        tools = record.get("tools") or ()
+        tool_name = entry.get("tool_name")
+        if tool_name not in tools:
+            raise RoleCompileError(
+                f"{label} binds tool {tool_name!r} on integration {pin[0]!r} version "
+                f"{pin[1]!r}, whose tools are {sorted(tools)}"
+            )
+
+        trust_class = record.get("trust_class")
+        if trust_class == FREE_TEXT:
+            raise RoleCompileError(
+                f"{label} has a non-empty ceiling, so it is not quarantined, and it "
+                f"binds integration {pin[0]!r} version {pin[1]!r} whose trust_class "
+                f"is {FREE_TEXT!r}"
+            )
+
+        pool_classes = record.get("pool_classes") or ()
+        if pool_classes and pool_class not in pool_classes:
+            raise RoleCompileError(
+                f"{label} runs in pool class {pool_class!r}, which integration "
+                f"{pin[0]!r} version {pin[1]!r} does not list; it is available to "
+                f"{sorted(pool_classes)}"
+            )
 
 
 def compile_role(
@@ -265,20 +421,39 @@ def compile_role(
     that builds the step path adds the argument with the criterion reading
     it.
 
-    `integrations` is the pinned registry rows the loader returned. They are
-    read by the compile-time binding guards; with those not yet installed,
-    the argument is carried and not inspected.
+    `integrations` is the pinned registry rows the loader returned, and the
+    binding guards read them: an entry resolving to no row here is AC-0260's
+    compile failure, not a silently smaller toolset.
     """
     role_name = str(role["role_name"])
     version = int(role["version"])
+    label = f"role {role_name!r} version {version}"
     ceiling = tuple(role["ceiling"])
     quarantined = not ceiling
 
     output_schema_ref = str(role["output_schema_ref"])
+    # AC-0267. Membership first, so an unrecognised name is refused by the set
+    # rather than by a `KeyError` from the lookup two lines down.
+    if output_schema_ref not in OUTPUT_CONTRACTS:
+        raise RoleCompileError(
+            f"{label} declares output_schema_ref {output_schema_ref!r}, outside the "
+            f"compiler's set {sorted(OUTPUT_CONTRACTS)}"
+        )
     _check_derived_class(role_name, version, quarantined, output_schema_ref)
     output_type = OUTPUT_CONTRACTS[output_schema_ref]
 
+    _bound_integrations(label, role.get("pool_class"), ceiling, integrations)
+
     model_settings = role["model_settings"]
+    settings = dict(model_settings.get("settings", {}))
+    _check_settings(label, settings)
+    # § 5: set, never merely admitted. An omitted key leaves the provider's
+    # default, so the compiled agent carries the value rather than the record.
+    settings["thinking"] = COMPILED_THINKING
+    limits = _resolved_limits(
+        label, model_settings.get("limits", {}), pool.get("default_limits", {})
+    )
+
     stack = PolicyDecisionPoint(
         StepEventToolset(TrustClassToolset(_domain_toolset(ceiling), no_parser_installed))
     )
@@ -289,7 +464,7 @@ def compile_role(
         output_type=output_type,
         toolsets=[stack],
         retries=QUARANTINED_RETRIES if quarantined else None,
-        model_settings=cast(ModelSettings, dict(model_settings.get("settings", {}))),
+        model_settings=cast(ModelSettings, settings),
         name=role_name,
     )
     check_sole_toolset(agent, stack)
@@ -297,9 +472,7 @@ def compile_role(
     return CompiledRole(
         agent=agent,
         stack=stack,
-        limits=_resolved_limits(
-            model_settings.get("limits", {}), pool.get("default_limits", {})
-        ),
+        limits=limits,
         role_name=role_name,
         version=version,
         ceiling=ceiling,

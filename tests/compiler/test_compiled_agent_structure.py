@@ -26,12 +26,12 @@ from ced.agents import compiler
 from ced.agents.compiler import SoleToolsetError, check_sole_toolset, compile_role
 from ced.agents.toolsets import PolicyDecisionPoint
 
-from .role_records import a_planning_role, a_pool
+from .role_records import a_planning_role, a_pool, an_integration
 
 
 def a_compiled_agent() -> Any:
     """One compiled planning role, which binds a single domain tool."""
-    return compile_role(role=a_planning_role(), integrations=(), pool=a_pool())
+    return compile_role(role=a_planning_role(), integrations=(an_integration(),), pool=a_pool())
 
 
 def test_a_compiled_agent_reaches_no_tool_outside_the_stack() -> None:
@@ -93,7 +93,9 @@ def test_the_compiler_checks_the_agent_it_constructed(monkeypatch: pytest.Monkey
         compiler, "check_sole_toolset", lambda agent, stack: seen.append((agent, stack))
     )
 
-    compiled = compile_role(role=a_planning_role(), integrations=(), pool=a_pool())
+    compiled = compile_role(
+        role=a_planning_role(), integrations=(an_integration(),), pool=a_pool()
+    )
 
     assert len(seen) == 1
     assert seen[0][0] is compiled.agent
@@ -107,7 +109,9 @@ def test_the_compiler_checks_the_order_of_the_chain_it_built(
     seen: list[Any] = []
     monkeypatch.setattr(compiler, "check_stack_order", seen.append)
 
-    compiled = compile_role(role=a_planning_role(), integrations=(), pool=a_pool())
+    compiled = compile_role(
+        role=a_planning_role(), integrations=(an_integration(),), pool=a_pool()
+    )
 
     assert seen == [compiled.stack]
     assert isinstance(compiled.stack, PolicyDecisionPoint)
