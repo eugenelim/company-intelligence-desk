@@ -29,6 +29,13 @@ and length — `FACT_IDENTITY_PATTERN` in `vocabulary.py`, beside the closed
 sets the parser admits by and under the same rule. A filing carrying an
 identity outside it mints nothing and raises.
 
+**An identity the reader cannot read raises for the same reason.** A numeric
+fact element that declares no `name` or no `contextRef`, or declares either
+empty, has no identity to admit or refuse, and skipping it would drop a fact
+the filer chose while the candidate set still reported itself complete. One
+rule covers both: a numeric fact element yields exactly one conforming
+identity, or the mint fails.
+
 **The set is per-step in-process state**, by the owner's ruling of
 2026-09-20, and it is sealed before it leaves this module. Sealing is the
 enforcement AC-0250 reads: a mutation attempted while the agent runs raises
@@ -37,6 +44,7 @@ enforcement AC-0250 reads: a mutation attempted while the agent runs raises
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from html.parser import HTMLParser
 from typing import Any, Final
 from uuid import UUID
@@ -53,6 +61,12 @@ __all__ = [
 #: The inline-XBRL element carrying a numeric fact. Lower-cased because
 #: `html.parser` normalises tag and attribute names.
 _NUMERIC_FACT_TAG: Final = "ix:nonfraction"
+
+#: The two attributes carrying a numeric fact's identity. Lower-cased for
+#: the same reason the tag is: `html.parser` normalises attribute names, so
+#: `contextRef` arrives here as `contextref`.
+_CONCEPT_ATTRIBUTE: Final = "name"
+_CONTEXT_ATTRIBUTE: Final = "contextref"
 
 #: A fact reported as nil has no value, so it can never resolve. A candidate
 #: that resolves to nothing is not a candidate.
@@ -71,12 +85,18 @@ _NIL_TRUE_VALUES: Final = frozenset({"true", "1"})
 
 
 class UnmintableFactIdentity(Exception):
-    """A fact identity the declared alphabet does not permit, so the mint fails.
+    """A numeric fact element yields no single conforming identity.
+
+    Two causes, one rule. The element carries an identity the declared
+    alphabet does not permit, or it carries no readable identity at all —
+    `name` or `contextRef` absent, valueless, or empty.
 
     Loud rather than skipped, and the direction matters. Dropping the fact
     would hide the exclusion: the candidate set would still look complete
     while a fact the filer chose had quietly become uncitable, which is the
-    same steering channel a presence-only nil guard opens. Refusing the mint
+    same steering channel a presence-only nil guard opens. Omitting an
+    attribute is the cheaper way to reach that channel than misspelling one,
+    which is why the unreadable case refuses too. Refusing the mint
     fails the step instead, and § Boundaries forbids a live fetch, so in
     Phase 1 only the recorded corpus reaches here.
     """
@@ -164,10 +184,34 @@ class _NumericFactReader(HTMLParser):
         nil = attributes.get(_NIL_ATTRIBUTE)
         if nil is not None and nil.strip() in _NIL_TRUE_VALUES:
             return
-        concept = attributes.get("name")
-        context = attributes.get("contextref")
-        if concept and context:
-            self.identities.add((concept, context))
+        self.identities.add(_identity(attributes))
+
+
+def _identity(attributes: Mapping[str, str | None]) -> tuple[str, str]:
+    """Read one numeric fact element's identity, or refuse the mint.
+
+    Both attributes are required of `ix:nonFraction`, so an element without
+    them is not a conforming fact element. That is a reason to refuse it and
+    not a reason to pass over it: the filer chooses what the filing declares,
+    and a silent skip hands them a fact that vanishes from the candidate set
+    with nothing recording that it did.
+
+    The refusal names which attribute could not be read and echoes no other
+    attribute, because everything on this element is filer-authored and an
+    absent value has nothing worth rendering.
+    """
+    identity: list[str] = []
+    for attribute in (_CONCEPT_ATTRIBUTE, _CONTEXT_ATTRIBUTE):
+        value = attributes.get(attribute)
+        if not value:
+            raise UnmintableFactIdentity(
+                f"a {_NUMERIC_FACT_TAG} element declares no readable "
+                f"{attribute!r}; it carries no identity to mint a reference "
+                f"from, and no candidate set is minted for this filing"
+            )
+        identity.append(value)
+    concept, context = identity
+    return concept, context
 
 
 def _reference(step_id: UUID, concept: str, context: str) -> str:
@@ -208,7 +252,8 @@ def mint_candidate_set(step_id: UUID, filing_html: str) -> CandidateSet:
     pipeline and nothing can be minted lazily once the agent is running.
 
     **Not total.** A filing carrying a fact identity outside the declared
-    alphabet raises `UnmintableFactIdentity` and yields no set, because the
+    alphabet, or a numeric fact element carrying no readable identity at all,
+    raises `UnmintableFactIdentity` and yields no set, because the
     alternative — returning a set that silently omits it — would report a
     complete candidate set that is not one.
     """

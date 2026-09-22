@@ -18,6 +18,13 @@ than restating its alphabet, so widening it is a diff over the declared set.
 Two properties, both asserted on **crafted** identities. The recorded corpus
 exercises neither: every identity in it already conforms, and none of them
 collides.
+
+A third property joins them, on crafted input for the same reason: a numeric
+fact element yields **exactly one** readable identity or the mint refuses.
+An element declaring no `name` or no `contextRef`, or declaring either empty,
+used to be passed over silently — a fact the filer chose vanishing from a
+candidate set that still reported itself complete, which is the steering
+channel `UnmintableFactIdentity` exists to close on the non-conforming side.
 """
 
 from __future__ import annotations
@@ -182,3 +189,75 @@ def test_the_declared_pattern_excludes_the_token_separator() -> None:
     """The injectivity argument rests on this, so it is asserted directly."""
     assert isinstance(FACT_IDENTITY_PATTERN, re.Pattern)
     assert FACT_IDENTITY_PATTERN.fullmatch("/") is None
+
+
+# ── An element with no readable identity ────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("description", "attributes"),
+    [
+        ("no concept attribute", 'contextRef="c-1"'),
+        ("no context attribute", 'name="us-gaap:Revenues"'),
+        ("neither attribute", 'unitRef="usd"'),
+        ("an empty concept", 'name="" contextRef="c-1"'),
+        ("an empty context", 'name="us-gaap:Revenues" contextRef=""'),
+        ("a valueless concept", 'name contextRef="c-1"'),
+        ("a valueless context", 'name="us-gaap:Revenues" contextRef'),
+    ],
+)
+def test_an_element_with_no_readable_identity_refuses_the_whole_mint(
+    description: str, attributes: str
+) -> None:
+    """Refused for the same reason a non-conforming identity is refused.
+
+    Both attributes are required of `ix:nonFraction`, so an element without
+    them is not a conforming fact element — but "not conforming" is a reason
+    to refuse it, not a reason to drop it. Omitting an attribute is a cheaper
+    route to an uncitable fact than misspelling one, so a rule that refuses
+    only the misspelling leaves the wider door open.
+    """
+    with pytest.raises(UnmintableFactIdentity):
+        mint_candidate_set(_STEP, _filing(attributes))
+
+
+def test_an_unreadable_identity_refuses_even_beside_conforming_facts() -> None:
+    """No partial set: one unreadable element costs the whole filing.
+
+    A reader that refused only when *every* element was unreadable would pass
+    the cases above and still return a quietly short set for the filing this
+    guard is about, where one fact among many is the one made uncitable.
+    """
+    with pytest.raises(UnmintableFactIdentity):
+        mint_candidate_set(
+            _STEP,
+            _filing(
+                'name="us-gaap:Revenues" contextRef="c-1"',
+                'name="us-gaap:Assets"',
+                'name="us-gaap:Liabilities" contextRef="c-1"',
+            ),
+        )
+
+
+def test_the_refusal_names_the_attribute_it_could_not_read() -> None:
+    """An operator needs to know which half of the identity was missing.
+
+    The message names the attribute and echoes no other attribute on the
+    element, because every one of them is filer-authored.
+    """
+    with pytest.raises(UnmintableFactIdentity) as caught:
+        mint_candidate_set(_STEP, _filing('name="us-gaap:Revenues" unitRef="usd"'))
+
+    assert "contextref" in str(caught.value)
+
+
+def test_a_nil_fact_with_no_identity_is_still_not_minted() -> None:
+    """The nil read runs first, and that ordering is deliberate.
+
+    A fact reported as nil resolves to nothing and is not a candidate however
+    it is spelled, so there is no identity for this guard to want. Refusing it
+    would make a filing legal under XBRL fail the mint.
+    """
+    minted = mint_candidate_set(_STEP, _filing('xsi:nil="true"'))
+
+    assert not minted.references
