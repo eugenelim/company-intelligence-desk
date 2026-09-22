@@ -67,8 +67,17 @@ def test_the_parser_has_no_parameter_a_role_or_a_registry_row_could_arrive_throu
     assert isinstance(LABEL_VOCABULARY, frozenset)
 
 
-def test_a_registry_row_and_a_role_record_naming_the_token_do_not_widen_it() -> None:
-    """A compiled role whose registry row carries the token changes nothing."""
+def test_compiling_a_quarantined_role_beside_a_row_naming_the_token_does_not_widen_it() -> None:
+    """A registry row may carry the token, and a compile beside it changes nothing.
+
+    Read what this does *not* decide. A quarantined role's `ceiling` is empty,
+    so `_bound_integrations` iterates nothing and the compiler never reads the
+    row — the check passes identically with `integrations=()`. What it pins is
+    that the token survives as a `tools` entry without the vocabulary moving,
+    which is the layer the registry sits at. Binding the row through a ceiling
+    entry, so a guard reads it, is a second check; `workspace.toml`
+    `[backlog].open` carries it.
+    """
     row = an_integration(tools=(STEERED_LABEL,))
     compile_role(role=a_quarantined_role(), integrations=(row,), pool=a_pool())
     assert STEERED_LABEL in row["tools"]
