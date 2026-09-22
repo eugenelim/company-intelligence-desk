@@ -1,7 +1,7 @@
 # Application/System Design — Company Intelligence Desk runtime
 
 **STATUS: PARTIALLY BUILT.** The event log, the privilege split, the HTTP
-surface and the worker pool ship; the agent layer, the authorization boundary
+surface, the worker pool and the agent layer ship; the authorization boundary
 and the provider call do not. [`../README.md`](../README.md) § What is built is
 the current map.
 
@@ -904,9 +904,10 @@ Where does each element live, and who owns it?
 | Worker pool | this | `src/ced/worker/pool.py` | `ced-worker` | ECS | **Built** |
 | Dependency-direction gate | this | `tests/architecture/dependency_direction.py` | n/a | CI-less; a repository check | **Built** |
 | Local substrate | this | `deploy/` | n/a | docker-compose | **Built** |
-| Agent layer, authorization, quarantine | this | `src/ced/agents/` | `ced-worker` | ECS | Designed — the package is empty |
-| Run state machine transitions | this | `src/ced/domain/` | both | ECS | Partly built |
-| Integration registry | this | `migrations/`, `src/ced/domain/` | both | Postgres | Designed |
+| Agent layer and the quarantine boundary | this | `src/ced/agents/`, `src/ced/domain/quarantine/` | `ced-worker` | ECS | **Built** — the compiler is the only constructor of the agent; the stack is policy decision point → step events → trust class → function tools. The decision point holds no predicate and refuses every call, so no tool body runs |
+| Authorization boundary — the ceiling predicate's encoding and its evaluation | this | n/a — no source yet | `ced-worker` | ECS | Designed — owned by [`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md). The decidable fragment itself ships: `ceiling` is that fragment and revision 0003 settles an entry's binding fields. What is absent is the `predicates` encoding and the evaluator that reads it, which is why the decision point refuses every call |
+| Run state machine transitions | this | `src/ced/domain/` | both | ECS | Designed |
+| Integration registry | this | `migrations/versions/0003_*`, `src/ced/adapters/postgres/roles.py` | both | Postgres | **Built** — revision 0003 closes `agent_role` and `integration_registry` to r5's record shapes, and `load_role` / `decode_role_record` read them |
 | Ingestion | this | `src/ced/adapters/` | ingestion job | ECS scheduled | Designed |
 | UI | this | separate container per the ratified constraint | `ced-ui` | ECS | Designed |
 

@@ -2,7 +2,9 @@
 
 **STATUS: PLANNED**
 
-Nothing described in this folder is built. `docs/architecture/` otherwise holds
+Most of what this folder describes is not built.
+[`../README.md`](../README.md) § What is built is the current
+map. `docs/architecture/` otherwise holds
 current state; this subtree is admitted under the designed-but-unbuilt rule in
 [`docs/architecture/README.md`](../README.md#designed-but-unbuilt), which
 requires this marker and a link to the governing decision.

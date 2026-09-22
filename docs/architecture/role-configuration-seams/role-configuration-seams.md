@@ -1,7 +1,9 @@
 # Architecture Change — role configuration and the compiler's seams
 
-**STATUS: PLANNED** — nothing here is built. `src/ced/agents/` is empty.
-[`../README.md`](../README.md) § What is built is the current map.
+**STATUS: PLANNED** — parts of this delta are built and parts are not. § 8
+Build Mapping names the spec that owns each row, and
+[`../README.md`](../README.md) § What is built is the current map of what
+exists in the tree. This marker does not restate either.
 
 **Decision ratified 2026-09-21:** closing `agent_role` and `integration_registry` to
 the record shapes `worker-runtime.md` r5 ratifies, accept the four construction
