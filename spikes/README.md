@@ -488,11 +488,14 @@ had.
   writes an object. The worker's boot sequence checks both database connections
   and deliberately not the object store, because an S3 client in `worker/`
   would put the AWS SDK outside `adapters/`.
-- **Nothing about the agent layer.** `src/ced/agents/` is empty. The role
-  compiler, the policy decision point, the containment fragment, the quarantine
-  boundary and the provider call are all unbuilt, and `pydantic-ai` is pinned in
-  the manifest and imported by no code — it is there so the
-  dependency-direction gate has something real to forbid.
+- **Nothing about the agent layer.** This suite exercises none of it, and that
+  is still true. What has changed is the state of the code beneath the claim:
+  `src/ced/agents/` was empty when this was written and is not now. The role
+  compiler, the toolset stack and the quarantine boundary are built by
+  `walking-skeleton-role-compilation` — see § Phase 1 — role compilation and
+  the quarantine boundary below, which carries its own limits. Still unbuilt
+  after that spec: the decision point's predicate, the containment fragment and
+  the provider call.
 - **The framework pin moved without re-running spike 7.** ADR-0002 records
   2.45.0 on the strength of an offline probe and the vendor's additive-minor
   policy; spike 7's 10/10 ran under 2.44.0 and was not re-run.
@@ -501,3 +504,154 @@ had.
   received.
 - **`mypy` does not check the tests.** It runs over `src/ced` only, and `ruff`
   skips the vendored agent packs, `spikes/` and `tools/`.
+
+## Phase 1 — role compilation and the quarantine boundary
+
+Not a spike. `walking-skeleton-role-compilation` is delivered code with an
+acceptance suite, recorded here for the same reason the foundation delivery is:
+this is where the repository keeps the answer to *what do we actually know*.
+The same standard applies — **a check that cannot fail is not evidence** — so
+setup and controls are reported apart from the hypothesis checks below.
+
+All checks green except one pre-existing failure that belongs to no spec here,
+`test_no_top_level_directory_is_unrecorded` on `.github`, which is open in
+`workspace.toml`. The count is deliberately not stated: `pytest` reports it,
+and a tally written down here goes stale. No model provider is called, no cloud
+credential is used, and the spend is **$0.00**.
+
+Run it with the commands in [`AGENTS.md`](../AGENTS.md) § Build and test
+commands. Per-check detail, every falsification run, and the limits of each
+layer are in
+[`docs/specs/walking-skeleton-role-compilation/notes/verification-ledger.md`](../docs/specs/walking-skeleton-role-compilation/notes/verification-ledger.md).
+
+### What this established
+
+| Claim | Criteria | Evidence |
+| --- | --- | --- |
+| No tool is reachable beside the wrapped stack | AC-0201 | The constructed `Agent` holds exactly one toolset besides the framework's own `_AgentFunctionToolset`, and it is the decision point. A decorator-registered tool and a second entry in `toolsets=[…]` each fail the build |
+| The stack's composition is walked, not trusted | AC-0202 | The chain is traversed on a real `CompiledRole.stack` through `WrapperToolset.wrapped` — decision point, step events, trust class, function tools. Separately, the structural checker rejects seven hand-built wrong compositions and accepts the ratified one. Order is never a caller's parameter: the compiler builds the chain and calls the checker |
+| A role that violates a settled decision fails the build, not the call | AC-0203, AC-0204, AC-0205, AC-0206, AC-0219, AC-0251, AC-0258, AC-0260, AC-0262, AC-0266, AC-0267, AC-0269, AC-0273 | Each guard is decided by a refusal on a real record. The closed-set guards — output-contract name, `trust_class`, settings keys — are written as allowlists, so a typo fails closed instead of being admitted by default. `thinking` is observed as `False` in the **resolved request parameters** a stub model receives, not on the settings mapping the compiler wrote |
+| The pool's own spend bound is checked before it can claim work | AC-0265, AC-0270 | `validate_pool_config` runs with no database and refuses a deployment that leaves any of the four token ceilings unset or names no allowed model id. Three of the four `UsageLimits` token fields default to `None`, which is unlimited, so a configuration that parses is not a configuration that bounds |
+| The cost ceiling is applied before the request, not after | AC-0246 | The per-request bound is read on the pre-request path. AC-0206 is a different question — whether a role may widen — and is green either way |
+| Every call is refused, across the whole tool surface | AC-0233 | Every role-and-tool pair from both registries is driven against the migrated database. No tool body runs, and at least one pair is refused **at the decision point** as distinct from one refused earlier at resolution, named pair by pair |
+| A denial is terminal from the first refusal this repository raises | AC-0234, AC-0259 | The raised type is `ToolCallDenied`, and it is neither `ModelRetry` nor a subclass — measured against `ModelRetry` as resolved through `ced.adapters.framework_contract`, the same object production code imports |
+| An operator can tell a bad role file from a runtime fault | AC-0261 | `role.load.failed` and `role.compile.refused` are appended for real against the migrated database and read back, which is the only proof they clear both the append function's shape check and the table CHECK. The event type is decided by the raised exception type and never by a caller |
+| The quarantined role is a construction, not a declaration | AC-0219 | A role is quarantined exactly when its `ceiling` is empty. The compiled agent carries no domain tools, the `reference-selection` output contract, and zero tool-retry and output-validation-retry budgets. Guarded in both directions, so one ceiling entry cannot silently promote it |
+| The model never produces a reference | AC-0238, AC-0250 | The deterministic pipeline mints the candidate set from the recorded Apple 10-Q **before** the agent runs and then seals it. 684 candidates, one per distinct non-nil inline-XBRL numeric fact identity. The baseline is committed and was generated by a different extraction from the one under test — a regular-expression pass over the raw bytes — and the two agree on all 684 |
+| Only minted references and admitted types cross the boundary | AC-0220, AC-0221, AC-0268, AC-0274 | Provenance is membership in the minted set, not reference shape. What a minted token may *contain* is a declared alphabet and length, so no part of an admitted reference is the filer's prose, and excluding the token's separator makes it injective over concept and context. Labels are membership in a closed vocabulary, not token shape. Scalars are matched by exact type, not `isinstance`, and a content-addressing value is refused categorically with a named reason the suite reads |
+
+**The guards were broken on purpose and the suite noticed.** Two rounds of
+falsification ran against the quarantine layer. Replacing label membership
+with a token-shape regular expression reds only the label checks — free prose
+still fails while `tariff-refund-tailwind` crosses, which is the hole that
+criterion exists for. Replacing provenance with a slash-count shape test reds
+only the provenance checks. Removing the seal, and dropping a concept prefix
+from the mint, each red a different clause. Full table in the ledger.
+
+**One falsification found a real gap and it was closed.** With the categorical
+content-addressing branch disabled, every check stayed green — the value was
+still refused, but by an unrecognised-type fall-through rather than by the
+branch the criterion asks for. The branch was dead code and the suite could
+not see it. It is now load-bearing: the refusal carries a named reason the
+suite reads, and a check asserts a *different* refusal does not carry it.
+
+**A second round closed the mint's own gap.** The mint interpolated the
+filing's concept name and `contextRef` into a token with no declared
+alphabet, so filer-authored prose crossed inside a value the parser admits on
+membership alone, and the `/` the token uses as its separator was legal in
+both components, so two distinct facts could mint one reference. Both are now
+refused against a declared pattern in `vocabulary.py`. **The recorded corpus
+could not see either defect** — every identity in it already conforms, so the
+committed baseline did not move, and each falsification of the new constraint
+left the baseline check green. Full table in the ledger.
+
+### Setup, and the checks that are controls rather than evidence
+
+- **The framework-seam suite is a version tripwire, not a hypothesis.** It
+  pins the signatures, dataclass fields and `TypedDict` keys this design rests
+  on, against inspected objects and never `hasattr`, so a version bump fails
+  the build rather than a runtime.
+- **Two checks exist to prove other checks can fail.** One rehearses the
+  decision point's admit path with an injected resolver that admits, which
+  shows the refusal comes from the resolver being empty rather than from a
+  literal someone could invert. One drives a tool body that really runs, which
+  shows the spy that reports "no body ran" would notice if one did.
+- **The step body is a stub model, not a provider.** `TestModel` and
+  `FunctionModel` stand in everywhere. That is what keeps this suite free of a
+  credential and of spend.
+- **The corpus is a recorded fixture, never a live fetch.** EDGAR returns 403
+  to this network — the finding from spike 4 — so the filing is read from
+  `spikes/phase-0/fixtures/`.
+
+### What this did NOT establish
+
+**The consolidated limits for this delivery live in
+[`verification-ledger.md`](../docs/specs/walking-skeleton-role-compilation/notes/verification-ledger.md)
+§ What these checks do not establish and in the per-layer sections beside it.**
+They are not duplicated here. What follows is what a reader of this page needs
+in order not to believe more than was shown.
+
+- **The boundary holds against the cases written, and nothing here speaks to
+  an adaptive adversary.** No structural defence has been tested under an
+  unlimited adaptive budget. That is `runtime-architecture.md` r8's own
+  accepted limit and nothing in this delivery closes it.
+- **The guarantee is "no attacker-authored free *text*", not "no
+  attacker-influenced signal".** r8 names selection influence explicitly as
+  the thing the split does not remove.
+- **The reference-selection channel is unmitigated and unmeasured.** A closed
+  vocabulary bounds the alphabet, not the channel. A quarantined agent can
+  pass signal into a planning agent's context by *which* of the 684 candidates
+  it selects. Minting before the run makes forgery unrepresentable; it says
+  nothing about steering, and resolution detects a forged reference rather
+  than a steered-but-valid one. No check here measures the channel's capacity.
+- **The `free-text` branch ships unexercised.** No Phase 1 role can hold a
+  `free-text` integration:
+  [ADR-0006](../docs/adr/0006-four-r5-deviations-for-phase-1.md) D3 narrows
+  r5 § 4's quarantine-only exemption to unreachable, by deriving role class
+  from an empty ceiling. That is the safe posture and it is deliberate. It
+  also means the quarantine criteria establish the **admitted-types** path
+  only.
+- **No tool body executes anywhere, by contract.** The decision point ships
+  with its position and no predicate, and refuses every call until
+  `walking-skeleton-authority-containment` supplies one. So the stack's
+  composition is asserted by construction and never demonstrated end to end
+  here, and `StepEventToolset.call_tool` and `TrustClassToolset.call_tool` are
+  never reached.
+- **A disabled authorization boundary is nearly invisible.** Falsification
+  run: with the decision point's admit test replaced by `if False:` — the
+  boundary admitting everything — "no tool body executed" **stays green**,
+  because the step-event layer below refuses next for a different reason. Only
+  the assertion that a pair is refused *at the decision point* notices. A
+  reader should not read "no body ran" as evidence the boundary works.
+- **`thinking=False` is not shown to reach a provider.** What is shown is the
+  value in the resolved request parameters a stub model receives. Downstream
+  of the compiler, three framework paths on the pinned 2.45.0 drop or never
+  assign it, and upstream an executor passing `model_settings` to `Agent.run`
+  beats the compiled value. The obligation is carried as a property — the
+  value the model reads on the executor's own run path is `False` — and is
+  `walking-skeleton-step-lifecycle`'s, with a register entry. Residual harm is
+  bounded rather than absent: no provider call is issued here.
+- **Which guard refused is not recoverable from the event log.** The refusal
+  names the failing role and its stage. The `events` envelope has no column
+  for the guard and this delivery writes no payload object.
+- **A rejected parse is not attributable in the log.** r5 § 2 wants
+  `tool.completed` to carry the parse outcome. With no outcome column and no
+  payload object, a raising parse leaves `tool.invoked` with no completion
+  beside it, so a reader can tell the call started and did not finish, and no
+  more.
+- **The version pin is guarded against drift, not against a seam change.** A
+  virtualenv that does not carry the pinned release fails the offline gate, at
+  collection-adjacent speed and naming both versions. It is **not** established
+  that any seam row notices a one-release downgrade: on 2.44.0 exactly one
+  assertion reded, the version identity itself, and the other twenty-six
+  passed. That is the expected result — the probe found 2.44.0 and 2.45.0
+  agree on every seam this design rests on — and reaching for a release far
+  enough back to break a seam would be choosing the evidence.
+- **Nothing about tables, sections or filer-authored text.** The mint derives
+  one candidate per numeric fact identity. Parsed table cells with their
+  coordinates and section boundaries, both of which r8 § 4 puts in the
+  eventual pipeline, are not derived, and nothing is minted from the 98
+  `ix:nonNumeric` elements that carry filer-authored text.
+- **Nothing about a provider, a cost, or a latency.** No model is called, so
+  no number on this page bounds a real step. Every provider-touching claim is
+  `walking-skeleton-step-lifecycle`'s.
