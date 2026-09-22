@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — the step lifecycle
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 3 Runtime Model ("The approval gate", "Deadline, cancellation, and the honest limit"), § 5 Data and State ("Object keys are scope-qualified from the first object written") and § 6 Deployment and Operations ("The model seam and fixture mode"). **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the scoped-role Bedrock call, the history round trip and the approval gate across a process boundary. **Named deviation:** that spike persisted to memory rather than to an object store, so it is precedent for the *round trip*, not for the crash-ordering AC-0230 asserts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
@@ -61,7 +61,7 @@ restates another's rows.
 | --- | --- | --- |
 | DR1 | Publication is an executor transition, suspended by a contentless tool | **Partly here** — the contentless `request_approval()` tool, its suspension and its lease release land in T2; the publication transition is the evidence spec's |
 | DR3 | The credential seam is the model/provider layer | **Lands**, T1 — `BedrockConverseModel` resolves the ambient chain and no `CredentialProvider` indirection is built |
-| DR8 | Thinking off, and reasoning parts stripped before persisting | **Partly here** — AC-0228 is the storage backstop that does not depend on a setting staying put and lands in T3. The primary control is `walking-skeleton-role-compilation`'s |
+| DR8 | Thinking off, and reasoning parts stripped before persisting | **Lands here** — AC-0228 is the storage backstop and lands in T3. `walking-skeleton-role-compilation`'s AC-0204 compiles the disable, and its own security review found the compiled value does not reach the provider; AC-0275 and AC-0276 carry that obligation and land in T6, so the thinking half of DR8 is enforced in this spec rather than asserted in the one that cannot observe it |
 | DR12 | Per-integration credential scoping is blast radius, not isolation | **Deferred** to the commissioned broker, recorded in the spec's Follow-ons. MVP has one integration, so the union this would bound is a single scope |
 
 ## Amendments the worker runtime asked of its parent
@@ -262,9 +262,35 @@ context assembler, and no task there could host the module they fail through.
 
 **Done when:** AC-0255 and AC-0256 are green under `pytest -m 'not substrate'`, and AC-0222 and AC-0242 are green under the full `pytest` run against the Compose substrate.
 
+### T6: The reasoning disable is enforced where the model reads it
+
+**Depends on:** T1
+
+**Touches:** src/**/agents/compiler.py, src/**/worker/executor.py, tests/thinking_reaches_the_model/**
+
+`walking-skeleton-role-compilation` ships the compiler this task adds a refusal
+to. That spec is `Shipped` and its contract is frozen, so the refusal's
+**criteria** are this spec's while the **code** lands in the compiler it built;
+nothing here reopens AC-0204, whose carve-out sentence stays as written because
+the `prepare_request` drop it describes is genuinely unreachable on a
+`supports_thinking`-only profile. AC-0275 and AC-0276 are a superset of it.
+
+**Tests:**
+- AC-0275 drives compilation once per defeat surface and asserts a refusal naming the model id and the half that refused: a model id whose profile declares neither thinking flag, one whose profile declares `thinking_always_enabled`, and one whose adapter emits nothing for `False`. The profile half and the adapter half are separate assertions, because a single check goes green on whichever half happens to hold. It asserts the refusal against the **resolved** profile and the adapter's own rendered output, never against a list of model ids: an enumeration passes for every id nobody thought of, which is the whole exposure, since `CED_POOL_ALLOWED_MODEL_IDS` admits an id with no code change.
+- AC-0276 reads the value at the model boundary of a step the **executor** drove, off a stub that records what it was invoked with. It then re-drives the same step presenting a `thinking` value other than `False` and asserts the value the model reads is still `False`. Observing an agent the test constructed is refused: that is the construction that left AC-0204 green while the provider reasoned.
+- **Mutation proof is the task's own obligation, not a review's.** Disable each half of the guard in turn and record which checks red and which stay green in `notes/verification-ledger.md`. A check that cannot red is the failure this task exists to avoid repeating: in the sibling spec three checks passed against a disabled boundary — a dead categorical branch, a spy that could never move its counter, and a parse seam whose removal changed nothing.
+- **`no stub (implementation-discovered)`** for AC-0275 and AC-0276. Discovery predicate: the compiler's refusal seam and the executor's call site are both chosen while building T1's model seam, and `src/ced/worker/executor.py` does not exist. Proof obligation: one compilable red assertion per criterion against the seams as discovered, each proved red, with the seams recorded in `notes/verification-ledger.md` before production code.
+
+**Approach:**
+- AC-0276's recording stub is the construction AC-0263 already uses for usage limits. That is a precedent for the shape only: AC-0263 is owned by no task in this plan, which is a separate pre-existing gap and is not closed here. The identifier is cited in this field rather than in `Tests:` for that reason — naming it there would report it as verified by T6, which would be false.
+- The obligation is a property, not a mechanism list, because on the pinned 2.45.0 four layers defeat the compiled value independently and a guard scoped to any one leaves the rest open. The spec's § Assumptions records all four and the date they were re-verified against the pinned package.
+- Residual harm before this task lands is **bounded, not absent**: no provider call ships in `walking-skeleton-role-compilation`, and the deployed pool admits only `stub:counting`. The exposure is configuration rather than code, which is why the refusal is compile-time and reads the resolved model rather than the deployment's id list.
+
+**Done when:** AC-0275 and AC-0276 are green under `pytest -m 'not substrate'`, and the verification ledger records, per guard half, which checks red when it is disabled and which stay green.
+
 ### T4: The record says what this spec established and what it did not
 
-**Depends on:** T3, T5
+**Depends on:** T3, T5, T6
 
 **Touches:** spikes/README.md, docs/architecture/README.md, docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md
 
@@ -279,8 +305,8 @@ context assembler, and no task there could host the module they fail through.
 
 ## Rollout
 
-- **Delivery:** four stacked PRs — T1+T2, T3, T5, T4. Each leaves the repository working and is independently reviewable.
-- **Review shape:** T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite. Every other task here is **MIXED** or smaller.
+- **Delivery:** five stacked PRs — T1+T2, T3, T5, T6, T4. Each leaves the repository working and is independently reviewable.
+- **Review shape:** T1 is the only spend-bearing task and the only one needing a cloud credential, which is why it leads rather than trails. T5 is **DEEP** and is sized as its own PR: it is security-boundary work carrying a mandatory security review, and its failure mode — a boundary whose tests pass while the guarantee is weaker than the criteria read — is invisible in a green suite. T6 is security-boundary work too and carries a mandatory security review, but it is **MIXED** and small: two criteria over one refusal seam and one call site. Every other task here is **MIXED** or smaller.
 
 ## Risks
 
@@ -294,3 +320,4 @@ context assembler, and no task there could host the module they fail through.
 - 2026-09-20: initial plan. Cut from `walking-skeleton-agent-runtime`, whose single contract carried AC-0201 through AC-0232 across nine tasks and six stacked PRs. This spec takes the parent plan's T6, T7 and T8, and keeps the parent's dependency on the decision point: an earlier draft claimed independence from `walking-skeleton-authority-containment` by arguing the parent's T7→T6 edge was sequencing, which an adversarial spec review falsified — the edge that carried the dependency was T5→T4, because AC-0227 requires an approved tool body to run and nothing admits a call without the containment predicate. The three specs are a chain.
 - 2026-09-20: spec approved by eugenelim
 - 2026-09-20: plan approved by eugenelim
+- 2026-09-22: spec and plan returned to `Draft`/`Drafting` to carry an inherited obligation as contract **before this spec's baseline seals**. `walking-skeleton-role-compilation`'s AC-0204 compiles `thinking=False`; its mandatory security review found the value does not reach the provider, and its § Follow-ons routed the new controls to the spec that first issues a provider call. AC-0275 and AC-0276 and task T6 carry it. **Two criteria rather than one**, because the compile-time refusal and the run-path property have different seams and different mutation proofs, and one criterion goes green on whichever half holds. **Both here rather than an amendment to `walking-skeleton-role-compilation`'s compiler**, on three grounds: that spec is `Shipped` and its controlled-amendment transition is unavailable, as the closed `tools-array-elements-unchecked` register entry already records for the same compiler; its own § Follow-ons routes the controls here; and the adapter-rendering half cannot be decided without an adapter, which that spec does not ship. The refusal's code still lands in the compiler it built — the contract moves, not the module. **AC-0204 is not reworded**: its carve-out describes a `prepare_request` drop that is genuinely unreachable on a `supports_thinking`-only profile, and the widened obligation is a superset of it. No engine run was initialised: `loop-engine init` refuses a second `engine-state.json`, so a `spec-plan` run now would force a destructive reset before the code-mode implementation run. **Re-approval of both gates is owed to eugenelim.**
