@@ -12,7 +12,12 @@ No framework import reaches here. `domain/` is not an admitted layer for
 
 from __future__ import annotations
 
-from ced.domain.quarantine.mint import CandidateSet, CandidateSetSealed, mint_candidate_set
+from ced.domain.quarantine.mint import (
+    CandidateSet,
+    CandidateSetSealed,
+    UnmintableFactIdentity,
+    mint_candidate_set,
+)
 from ced.domain.quarantine.parser import AdmittedTypeRefused, admit, parse_integration_result
 from ced.domain.quarantine.vocabulary import (
     ADMITTED_SCALAR_TYPES,
@@ -39,6 +44,7 @@ __all__ = [
     "CandidateSetSealed",
     "ContentLocator",
     "EnumeratedUnit",
+    "UnmintableFactIdentity",
     "admit",
     "mint_candidate_set",
     "parse_integration_result",

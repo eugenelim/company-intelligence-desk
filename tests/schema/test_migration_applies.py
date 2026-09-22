@@ -9,16 +9,45 @@ the exit code is only one of the things it asserts.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
 import sys
+import threading
+import time
+import warnings
+from collections.abc import Iterator
 from pathlib import Path
 
 import psycopg
 import pytest
+from psycopg import sql
 
 from ced.adapters.postgres.dsn import database_url
+
+#: An unjoined copy of the name `migrations/env.py` reads. That module runs
+#: the migration at import time, so it cannot be imported to share a constant.
+#: `test_an_override_that_disables_the_bound_is_refused` is the check that
+#: reds on a rename — the override check cannot, because a renamed variable
+#: simply leaves the default in force, which is a value it has to tolerate.
+_LOCK_TIMEOUT_ENV_VAR = "CED_MIGRATION_LOCK_TIMEOUT"
+
+#: How long a probe reader is held once the run that must outlast it starts.
+#: Above the 5 s default so that default gives up inside the window, and far
+#: below the override under test so the override does not.
+#:
+#: **The window is consumed from process start, not from first lock request.**
+#: `python -m alembic` spends roughly a second booting before it reaches the
+#: lock, so the effective margin over the 5 s default is nearer 2x than 2.4x,
+#: and it shrinks on a loaded machine. The elapsed-time assertion in the
+#: widening leg is what turns an exhausted margin into a red rather than a
+#: pass.
+_RELEASE_AFTER = 12.0
+
+#: A backstop on every probe reader, so a check that dies without releasing
+#: cannot leave a session holding a lock on the substrate.
+_HOLD_CEILING = 300.0
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -123,14 +152,32 @@ def test_each_reading_role_can_open_a_connection_and_read(
     assert conn.execute("SELECT current_setting('deadlock_timeout')").fetchone() == ("200ms",)
 
 
-def _alembic(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    """Run the real `alembic` console script from the project's environment."""
+def _alembic(
+    *args: str,
+    env: dict[str, str] | None = None,
+    unset: tuple[str, ...] = (),
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real `alembic` console script from the project's environment.
+
+    `timeout` is what lets a check assert that a migration *stops*. Without
+    one, a revision waiting on a lock it will never get hangs the suite
+    instead of failing it.
+
+    `unset` removes a variable the runner may have exported. Merging over
+    `os.environ` cannot express absence, so a check asserting a *default*
+    would otherwise certify whatever the developer happened to have set.
+    """
+    child = {**os.environ, **(env or {})}
+    for name in unset:
+        child.pop(name, None)
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        env=None if env is None else {**os.environ, **env},
+        env=None if env is None and not unset else child,
+        timeout=timeout,
     )
 
 
@@ -386,30 +433,8 @@ def test_the_migration_applies_to_a_database_at_no_revision(
     creates a throwaway database, migrates it from nothing, and asserts the
     tables are there — so a revision that commits nothing reds.
     """
-    name = "ced_migration_probe"
-    _require_local_substrate()
-    # CREATE DATABASE cannot run inside a transaction block.
-    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-        admin.execute(f"DROP DATABASE IF EXISTS {name}")
-        admin.execute(f"CREATE DATABASE {name}")
-    try:
-        probe_url = database_url("migration").rsplit("/", 1)[0] + "/" + name
-        # The roles are cluster-wide, but the schema owner's grants are not:
-        # replay the provisioning file so the migration has an owner to
-        # SET ROLE to, exactly as the container init hook does.
-        init_sql = (REPO_ROOT / "deploy" / "postgres-init" / "01-roles.sql").read_text()
-        # Strip comment lines *before* splitting. Splitting first leaves each
-        # comment attached to the statement that follows it, which Postgres
-        # then tries to parse as SQL.
-        bare = "\n".join(
-            line
-            for line in init_sql.splitlines()
-            if line.strip() and not line.strip().startswith("--")
-        )
-        statements = [s.strip() for s in bare.split(";") if s.strip()]
-        with psycopg.connect(probe_url, autocommit=True) as probe:
-            for statement in statements:
-                probe.execute(_classify_provisioning(statement))
+    with _probe_database("ced_migration_probe") as probe_url:
+        _replay_provisioning(probe_url)
 
         before = _table_names(probe_url)
         assert before == set(), f"the probe database was not empty: {before}"
@@ -422,9 +447,307 @@ def test_the_migration_applies_to_a_database_at_no_revision(
             f"upgrade head exited 0 but left {sorted(after)} — the "
             "commit-nothing defect this check exists for"
         )
-    finally:
-        with psycopg.connect(database_url("migration"), autocommit=True) as admin:
-            admin.execute(f"DROP DATABASE IF EXISTS {name}")
+
+
+def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
+    require_substrate: None,
+) -> None:
+    """The bounded lock wait `migrations/env.py` sets, observed end to end.
+
+    Revision 0003 takes `ACCESS EXCLUSIVE` on `integration_registry`. With no
+    `lock_timeout` that statement queues behind any open reader for as long
+    as the reader lives, and because a pending `ACCESS EXCLUSIVE` request
+    blocks everything behind it, the whole table stalls with it. The
+    behaviour that replaces it has three parts and each is asserted: the
+    migration stops, it says contention rather than a schema fault, and it
+    leaves the database exactly where it started.
+
+    **The subprocess timeout is the assertion, not a safety net.** Remove the
+    bounded wait and this check does not fail on a wrong value — it hangs on
+    a reader the check itself is holding, which is precisely the production
+    symptom, so the timeout is what turns that symptom into a red.
+    """
+    with _probe_database("ced_lock_timeout_probe") as probe_url:
+        _replay_provisioning(probe_url)
+
+        at_0002 = _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url})
+        assert at_0002.returncode == 0, at_0002.stderr
+        assert "tools" not in _column_names(probe_url, "integration_registry")
+
+        with psycopg.connect(probe_url) as reader:
+            # An ordinary read. `ACCESS SHARE` is the weakest table lock there
+            # is and conflicts with nothing except `ACCESS EXCLUSIVE`, so this
+            # is the cheapest thing a live system could be doing that revision
+            # 0003 has to wait for.
+            # The connection is not in autocommit, so the read below opens
+            # the transaction and holds ACCESS SHARE until this block exits.
+            # An explicit BEGIN here only draws "there is already a
+            # transaction in progress" from Postgres.
+            reader.execute("SELECT count(*) FROM integration_registry")
+
+            try:
+                blocked = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url},
+                    # The shipped default is what this check certifies, so the
+                    # runner's own value must not stand in for it.
+                    unset=(_LOCK_TIMEOUT_ENV_VAR,),
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                pytest.fail(
+                    "alembic upgrade head did not return while a reader held "
+                    "ACCESS SHARE — the migration is queueing on the lock "
+                    "instead of giving up, which is the stalled deploy "
+                    "migrations/env.py's lock_timeout exists to prevent"
+                )
+
+            assert blocked.returncode != 0, (
+                "the migration succeeded while a reader held ACCESS SHARE, "
+                "which revision 0003's ADD COLUMN cannot do"
+            )
+            # Named, because an operator has to tell this apart from a schema
+            # fault: the two need opposite responses, a retry and a fix.
+            assert "lock timeout" in blocked.stderr.lower(), blocked.stderr
+
+            # Nothing half-applied. `env.py` runs the whole upgrade in one
+            # transaction it commits explicitly, so the abort takes every
+            # revision in flight with it. Both halves are read: the recorded
+            # revision, and a column 0003 adds — a stamp without the DDL and
+            # DDL without the stamp are different failures.
+            assert _current_revision(probe_url) == "0002"
+            assert "tools" not in _column_names(probe_url, "integration_registry")
+
+        retried = _alembic(
+            "upgrade",
+            "head",
+            env={"CED_DATABASE_URL": probe_url},
+            unset=(_LOCK_TIMEOUT_ENV_VAR,),
+        )
+        assert retried.returncode == 0, retried.stderr
+        assert _current_revision(probe_url) == "0003"
+        assert "tools" in _column_names(probe_url, "integration_registry"), (
+            "the retry exited 0 without applying 0003 — a bounded wait that "
+            "makes the migration unrunnable rather than retryable is not the "
+            "bargain env.py records"
+        )
+
+
+def test_the_lock_timeout_override_reaches_the_migration_session(
+    require_substrate: None,
+) -> None:
+    """`CED_MIGRATION_LOCK_TIMEOUT` is documented to operators, so it is held.
+
+    `AGENTS.md` § The local substrate tells an operator to reach for this
+    variable when a maintenance migration needs a longer window than the
+    default. A misspelt name, a misread of `os.environ`, or a value clamped
+    on the way to the session would leave that guidance pointing at nothing
+    while every other gate stayed green.
+
+    **The reader is retired on a clock that starts when the widening run
+    does**, and that is what isolates the variable. Both runs meet a reader
+    already holding the lock; the reader then goes away after
+    `_RELEASE_AFTER`, which is longer than the 5 s default and far shorter
+    than the override. So the default must give up and the override must
+    wait it out, and a build that ignores the variable fails the second leg.
+
+    Two earlier versions of this check did not isolate anything. The first
+    retired the reader *before* the widening run, so that run succeeded
+    whatever the variable did. The second retired it on a fixed deadline
+    from the start of the check, so a slow first leg could consume the whole
+    window and hand the second leg an uncontended lock.
+    """
+    with _probe_database("ced_lock_override_probe") as probe_url:
+        _replay_provisioning(probe_url)
+        assert _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url}).returncode == 0
+
+        holding = threading.Event()
+        release = threading.Event()
+        retired = threading.Event()
+
+        def hold() -> None:
+            with psycopg.connect(probe_url) as reader:
+                reader.execute("SELECT count(*) FROM integration_registry")
+                holding.set()
+                release.wait(timeout=_HOLD_CEILING)
+            retired.set()
+
+        keeper = threading.Thread(target=hold, daemon=True)
+        keeper.start()
+        try:
+            assert holding.wait(timeout=30), "the probe reader never took its lock"
+
+            # Leg 1, the control: the shipped default against a reader that
+            # outlives it must give up. Without this the second leg could be
+            # succeeding because the contention was never real.
+            try:
+                impatient = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url},
+                    unset=(_LOCK_TIMEOUT_ENV_VAR,),
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                pytest.fail(
+                    "the default run did not return while a reader held "
+                    "ACCESS SHARE — the bounded wait is gone, so the migration "
+                    "is queueing on the lock instead of giving up"
+                )
+            assert not retired.is_set(), (
+                "the probe reader went away before the default run finished, "
+                "so this leg proved nothing about the default's window"
+            )
+            assert impatient.returncode != 0, (
+                "the shipped default applied the migration through a reader "
+                "held longer than it — the contention this check needs is not "
+                "happening"
+            )
+            assert "lock timeout" in impatient.stderr.lower(), impatient.stderr
+            assert _current_revision(probe_url) == "0002"
+
+            # Leg 2: the same held reader, retired on a timer that starts now.
+            # The default would abort inside that window; the override must
+            # not, so the variable is the only difference between the legs.
+            assert not release.is_set(), (
+                "the reader was already retired before the widening run "
+                "started, so that run would succeed whatever the override did"
+            )
+            timer = threading.Timer(_RELEASE_AFTER, release.set)
+            timer.start()
+            started = time.monotonic()
+            try:
+                patient = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "30min"},
+                    timeout=120,
+                )
+            finally:
+                timer.cancel()
+            waited = time.monotonic() - started
+
+            # What this witnesses is that the run outlasted half the hold
+            # window, which the round-3 race could not: a run starting after
+            # the reader retired returned in about a second. It is not proof
+            # that the migration session blocked on the lock — a boot slow
+            # enough to overrun the window would satisfy it too — and the
+            # margin is wide enough today that the difference is theoretical.
+            assert waited >= _RELEASE_AFTER * 0.5, (
+                f"the widening run returned in {waited:.1f} s, well inside the "
+                f"{_RELEASE_AFTER:.0f} s the reader was held, so it never "
+                f"waited on the lock and this leg proved nothing"
+            )
+            assert patient.returncode == 0, (
+                "the override did not widen the window: this run met the same "
+                "reader the default gave up on, and gave up too, so the value "
+                f"is not reaching the migration session.\n{patient.stderr}"
+            )
+            assert _current_revision(probe_url) == "0003"
+        finally:
+            release.set()
+            keeper.join(timeout=30)
+
+
+@pytest.mark.parametrize("disabling", ["0", "0s", "0ms"])
+def test_an_override_that_disables_the_bound_is_refused(
+    require_substrate: None, disabling: str
+) -> None:
+    """`0` means *disabled* to Postgres, not *no wait*, and that is the trap.
+
+    An operator reaching for the usual "0 is unlimited" convention, or a
+    deploy template filling an empty variable with a zero, would restore the
+    unbounded wait the timeout exists to remove — and Postgres would accept
+    it silently, because the syntax is valid. The refusal names the variable,
+    and it fires before any revision runs.
+
+    Every spelling Postgres normalises to zero is covered, because refusing
+    the literal `"0"` alone would be a string test wearing a rule's clothes.
+    """
+    refused = _alembic(
+        "upgrade",
+        "head",
+        env={_LOCK_TIMEOUT_ENV_VAR: disabling},
+        timeout=120,
+    )
+
+    assert refused.returncode != 0
+    assert _LOCK_TIMEOUT_ENV_VAR in refused.stderr, refused.stderr
+    assert "disabled lock timeout" in refused.stderr, refused.stderr
+
+
+def test_the_disabling_refusal_fires_before_the_migration_takes_a_lock(
+    require_substrate: None,
+) -> None:
+    """Ordering, observed rather than inferred.
+
+    "Refused before any revision runs" is the whole value of the guard: a
+    refusal that arrives *after* the upgrade has queued on `ACCESS EXCLUSIVE`
+    has already taken the unbounded wait the setting exists to remove, and on
+    a populated database that is the stalled deploy, refusal or no refusal.
+
+    Exit code and message cannot see the difference — a guard moved below
+    `run_migrations()` still exits non-zero with the same text, because the
+    transaction rolls back. What separates them is whether the run *returns*
+    while a reader holds the lock. So this holds one and gives the subprocess
+    a budget far below any wait it could otherwise sit in.
+    """
+    with _probe_database("ced_lock_ordering_probe") as probe_url:
+        _replay_provisioning(probe_url)
+        assert _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url}).returncode == 0
+
+        holding = threading.Event()
+        release = threading.Event()
+
+        def hold() -> None:
+            with psycopg.connect(probe_url) as reader:
+                reader.execute("SELECT count(*) FROM integration_registry")
+                holding.set()
+                release.wait(timeout=_HOLD_CEILING)
+
+        keeper = threading.Thread(target=hold, daemon=True)
+        keeper.start()
+        try:
+            assert holding.wait(timeout=30), "the probe reader never took its lock"
+            try:
+                refused = _alembic(
+                    "upgrade",
+                    "head",
+                    env={"CED_DATABASE_URL": probe_url, _LOCK_TIMEOUT_ENV_VAR: "0"},
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired:
+                pytest.fail(
+                    "the disabling refusal did not return while a reader held "
+                    "the lock: the upgrade reached a revision and queued on "
+                    "ACCESS EXCLUSIVE before refusing, which is the unbounded "
+                    "wait the refusal exists to prevent"
+                )
+
+            assert refused.returncode != 0
+            assert "disabled lock timeout" in refused.stderr, refused.stderr
+            assert _current_revision(probe_url) == "0002"
+        finally:
+            release.set()
+            keeper.join(timeout=30)
+
+
+def _current_revision(url: str) -> str | None:
+    """The revision Alembic records for a database, or `None` if it has none."""
+    with psycopg.connect(url) as conn:
+        row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+    return None if row is None else str(row[0])
+
+
+def _column_names(url: str, table: str) -> set[str]:
+    """Every column on one table, for asserting a revision did or did not land."""
+    with psycopg.connect(url) as conn:
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            (table,),
+        ).fetchall()
+    return {row[0] for row in rows}
 
 
 def _table_names(url: str) -> set[str]:
@@ -452,6 +775,131 @@ _SCHEMA_SCOPED_PREFIXES = (
     "GRANT USAGE ON SCHEMA",
     "GRANT CED_OWNER TO",
 )
+
+
+def _abandoned_probes(admin: psycopg.Connection, stem: str) -> list[str]:
+    """Probe databases for `stem` whose owning run is provably gone.
+
+    Two conditions, and both are needed. No backend may be connected — a
+    connected one is a run using it. And the pid encoded in the name must not
+    be a live process, which is decidable because the substrate is loopback
+    only and every run is on this machine; without it, a run that has created
+    its database but not yet connected would be reclaimed out from under
+    itself.
+
+    A pid recycled onto an unrelated live process leaves the database behind
+    rather than risking a stranger's, which is the safe direction: the volume
+    teardown in `AGENTS.md` § The local substrate reclaims it.
+    """
+    pattern = stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    rows = admin.execute(
+        """
+        SELECT d.datname
+          FROM pg_database d
+         WHERE d.datname LIKE %s ESCAPE '\\'
+           AND NOT EXISTS (
+                   SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname
+               )
+        """,
+        (f"{pattern}\\_%",),
+    ).fetchall()
+
+    abandoned = []
+    for (candidate,) in rows:
+        suffix = candidate.rsplit("_", 1)[-1]
+        if not suffix.isdigit():
+            continue
+        try:
+            os.kill(int(suffix), 0)
+        except ProcessLookupError:
+            abandoned.append(candidate)
+        except PermissionError:  # pragma: no cover - a live process we cannot signal
+            continue
+    return abandoned
+
+
+@contextlib.contextmanager
+def _probe_database(stem: str) -> Iterator[str]:
+    """Create a throwaway database for one check, and reclaim it afterwards.
+
+    **The name carries the process id**, because several worktrees share one
+    local Postgres and two `pytest` sessions on it is an ordinary state. Two
+    runs must not name the same database, and neither may reclaim the
+    other's.
+
+    **A leftover carrying our own pid is ours**, so it is dropped outright:
+    no other live process can own this pid. **Any other leftover is
+    reclaimed only when its owner is provably gone** — the pid in its name is
+    not a live process *and* no session is connected to it. Matching on the
+    stem alone is not enough: an earlier version did
+    that, to reclaim a database orphaned by a hard kill, and reintroduced
+    exactly the mid-check drop the pid was added to prevent. A concurrent
+    run's probe now survives, and so does one whose pid has been recycled
+    onto an unrelated live process — that leftover waits for the volume
+    teardown rather than being taken from a stranger.
+
+    **Our own teardown drop is forced**, because `DROP DATABASE` is refused
+    while any session is connected and these checks hold readers on purpose.
+    Without it a reader that outlives its join turns teardown into an
+    `ObjectInUse` raised from a `finally`, which replaces whatever actually
+    failed — losing the diagnosis and leaking the database for the next run.
+    """
+    name = f"{stem}_{os.getpid()}"
+    _require_local_substrate()
+    with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+        # Our own name first, and forced. No other live process can own this
+        # pid, so a leftover carrying it is ours from a run that died — and
+        # `_abandoned_probes` will not return it precisely because the pid is
+        # live, which without this line makes the one database that is
+        # provably safe to drop the one nothing drops.
+        admin.execute(
+            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
+        )
+        for orphan in _abandoned_probes(admin, stem):
+            # Not forced: nothing is connected, and a session that arrived in
+            # the meantime is a run staking a claim, so the refusal is right.
+            with contextlib.suppress(psycopg.Error):
+                admin.execute(
+                    sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(orphan))
+                )
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    try:
+        yield database_url("migration").rsplit("/", 1)[0] + "/" + name
+    finally:
+        try:
+            with psycopg.connect(database_url("migration"), autocommit=True) as admin:
+                admin.execute(
+                    sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+                        sql.Identifier(name)
+                    )
+                )
+        except psycopg.Error as exc:  # pragma: no cover - teardown only
+            # Never from a bare `finally`: an exception here would mask the
+            # assertion that brought us to it.
+            warnings.warn(f"probe database {name} was left behind: {exc}", stacklevel=2)
+
+
+def _replay_provisioning(url: str) -> None:
+    """Give a throwaway database the owner and grants the migration expects.
+
+    The roles are cluster-wide, but the schema owner's grants are not, so a
+    fresh database has no `ced_owner` to `SET ROLE` to until the provisioning
+    file the container init hook runs is replayed into it.
+
+    Comment lines are stripped *before* splitting on `;`. Splitting first
+    leaves each comment attached to the statement that follows it, which
+    Postgres then tries to parse as SQL.
+    """
+    init_sql = (REPO_ROOT / "deploy" / "postgres-init" / "01-roles.sql").read_text()
+    bare = "\n".join(
+        line
+        for line in init_sql.splitlines()
+        if line.strip() and not line.strip().startswith("--")
+    )
+    with psycopg.connect(url, autocommit=True) as probe:
+        for statement in (s.strip() for s in bare.split(";")):
+            if statement:
+                probe.execute(_classify_provisioning(statement))
 
 
 def _classify_provisioning(statement: str) -> str:

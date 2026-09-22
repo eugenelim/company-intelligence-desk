@@ -29,6 +29,33 @@ and length — `FACT_IDENTITY_PATTERN` in `vocabulary.py`, beside the closed
 sets the parser admits by and under the same rule. A filing carrying an
 identity outside it mints nothing and raises.
 
+**No attribute this module reads may be declared more than once.**
+`_INTERPRETED_ATTRIBUTES` is that set — the two identity attributes and
+`xsi:nil` — and a second occurrence of any of them fails the mint rather
+than resolving to one of the two.
+
+The identity attributes carry a second rule the nil flag does not: they must
+also be present and non-empty, because an element with no readable identity
+mints nothing and a skipped element is a dropped fact. `xsi:nil` is optional
+and its absent, empty and unrecognised spellings all mean *not nil*, by the
+deliberate leniency recorded at `_NIL_TRUE_VALUES` — an inert extra candidate
+is the safe direction there, where a dropped fact is not. The nil flag is
+read first for the same reason: a fact reported as nil mints nothing whatever
+its identity says, so there is no candidate to lose and no unreadable
+identity acted on.
+
+Two ways to get that wrong, and this module has had both. Skipping an
+element the reader could not read dropped a fact the filer chose while the
+candidate set still reported itself complete. Collapsing the attribute list
+with `dict()` kept the final occurrence, so a repeated attribute resolved
+last-wins — a document a conformant XBRL processor rejects outright,
+resolved here, on input the filer controls. Both are the same steering
+channel, and a lenient reader that resolves what a strict resolver refuses
+disagrees with every successor built on the strict reading. Refusing keeps
+the two from diverging; picking a precedence rule would settle by fiat, in
+the most lenient place in the stack, a question no ratified document has
+asked.
+
 **The set is per-step in-process state**, by the owner's ruling of
 2026-09-20, and it is sealed before it leaves this module. Sealing is the
 enforcement AC-0250 reads: a mutation attempted while the agent runs raises
@@ -37,6 +64,7 @@ enforcement AC-0250 reads: a mutation attempted while the agent runs raises
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from html.parser import HTMLParser
 from typing import Any, Final
 from uuid import UUID
@@ -54,6 +82,12 @@ __all__ = [
 #: `html.parser` normalises tag and attribute names.
 _NUMERIC_FACT_TAG: Final = "ix:nonfraction"
 
+#: The two attributes carrying a numeric fact's identity. Lower-cased for
+#: the same reason the tag is: `html.parser` normalises attribute names, so
+#: `contextRef` arrives here as `contextref`.
+_CONCEPT_ATTRIBUTE: Final = "name"
+_CONTEXT_ATTRIBUTE: Final = "contextref"
+
 #: A fact reported as nil has no value, so it can never resolve. A candidate
 #: that resolves to nothing is not a candidate.
 _NIL_ATTRIBUTE: Final = "xsi:nil"
@@ -69,16 +103,25 @@ _NIL_ATTRIBUTE: Final = "xsi:nil"
 #: the steering channel this guard exists to close.
 _NIL_TRUE_VALUES: Final = frozenset({"true", "1"})
 
+#: Every attribute this reader interprets, and therefore every attribute the
+#: declare-at-most-once rule covers. Declared rather than implied because the
+#: rule is only as wide as this set: an attribute read past it would resolve
+#: last-wins again, which is the defect the rule exists to close.
+#: `test_the_reader_interprets_no_attribute_outside_the_declared_set` is what
+#: holds the reader to it.
+_INTERPRETED_ATTRIBUTES: Final = (_CONCEPT_ATTRIBUTE, _CONTEXT_ATTRIBUTE, _NIL_ATTRIBUTE)
+
 
 class UnmintableFactIdentity(Exception):
-    """A fact identity the declared alphabet does not permit, so the mint fails.
+    """The mint cannot read a numeric fact element unambiguously.
 
-    Loud rather than skipped, and the direction matters. Dropping the fact
-    would hide the exclusion: the candidate set would still look complete
-    while a fact the filer chose had quietly become uncitable, which is the
-    same steering channel a presence-only nil guard opens. Refusing the mint
-    fails the step instead, and § Boundaries forbids a live fetch, so in
-    Phase 1 only the recorded corpus reaches here.
+    Raised for an identity the declared alphabet does not permit, and for
+    any attribute the reader interprets that the element declares zero times,
+    empty, or more than once — see the read-exactly-once rule in this
+    module's docstring for why each of those refuses rather than skips.
+
+    Refusing the mint fails the step, and § Boundaries forbids a live fetch,
+    so in Phase 1 only the recorded corpus reaches here.
     """
 
 
@@ -160,14 +203,62 @@ class _NumericFactReader(HTMLParser):
         """Record `(concept, context)` for one numeric fact element."""
         if tag != _NUMERIC_FACT_TAG:
             return
-        attributes = dict(attrs)
-        nil = attributes.get(_NIL_ATTRIBUTE)
+        nil = _read_once(attrs, _NIL_ATTRIBUTE)
         if nil is not None and nil.strip() in _NIL_TRUE_VALUES:
             return
-        concept = attributes.get("name")
-        context = attributes.get("contextref")
-        if concept and context:
-            self.identities.add((concept, context))
+        self.identities.add(_identity(attrs))
+
+
+def _read_once(attrs: Sequence[tuple[str, str | None]], attribute: str) -> str | None:
+    """Return the one occurrence of `attribute`, or refuse the mint.
+
+    Takes the attribute list rather than a mapping, and that is the whole
+    point: collapsing to a mapping is what hides a second occurrence.
+    `None` means the element did not declare it, which each caller judges
+    for itself — absent is fatal for an identity attribute and ordinary for
+    `xsi:nil`.
+
+    The refusal names the attribute and the count and echoes neither value,
+    because everything on this element is filer-authored. `_reference` holds
+    the same rule for the same reason — one module, one answer to what a
+    refusal may quote.
+    """
+    if attribute not in _INTERPRETED_ATTRIBUTES:
+        raise ValueError(
+            f"{attribute!r} is not in _INTERPRETED_ATTRIBUTES; add it there so "
+            f"the declare-at-most-once rule covers it before reading it here"
+        )
+    declared = [value for name, value in attrs if name == attribute]
+    if len(declared) > 1:
+        raise UnmintableFactIdentity(
+            f"a {_NUMERIC_FACT_TAG} element declares {attribute!r} "
+            f"{len(declared)} times; nothing ranks the occurrences, so no "
+            f"candidate set is minted for this filing"
+        )
+    return declared[0] if declared else None
+
+
+def _identity(attrs: Sequence[tuple[str, str | None]]) -> tuple[str, str]:
+    """Read one numeric fact element's single identity, or refuse the mint.
+
+    Both attributes are required of `ix:nonFraction` and neither is
+    repeatable, so an element missing one, declaring one empty, or declaring
+    one twice is not a conforming fact element — and under this module's
+    read-exactly-once rule that is a reason to refuse it rather than pass
+    over it.
+    """
+    identity: list[str] = []
+    for attribute in (_CONCEPT_ATTRIBUTE, _CONTEXT_ATTRIBUTE):
+        value = _read_once(attrs, attribute)
+        if not value:
+            raise UnmintableFactIdentity(
+                f"a {_NUMERIC_FACT_TAG} element declares no readable "
+                f"{attribute!r}; it carries no identity to mint a reference "
+                f"from, and no candidate set is minted for this filing"
+            )
+        identity.append(value)
+    concept, context = identity
+    return concept, context
 
 
 def _reference(step_id: UUID, concept: str, context: str) -> str:
@@ -190,12 +281,14 @@ def _reference(step_id: UUID, concept: str, context: str) -> str:
     alone. Excluding the `/` separator from that alphabet is also what makes
     this function injective over `(concept, context)`.
     """
-    for component in (concept, context):
+    for role, component in ((_CONCEPT_ATTRIBUTE, concept), (_CONTEXT_ATTRIBUTE, context)):
         if FACT_IDENTITY_PATTERN.fullmatch(component) is None:
             raise UnmintableFactIdentity(
-                f"fact identity component {component!r} is not permitted by the "
-                f"declared pattern {FACT_IDENTITY_PATTERN.pattern}; no reference "
-                f"is minted for step {step_id}"
+                f"the {role!r} component of a fact identity is {len(component)} "
+                f"characters and is not permitted by the declared pattern "
+                f"{FACT_IDENTITY_PATTERN.pattern}; its content is filer-authored "
+                f"and is not reproduced here. No reference is minted for step "
+                f"{step_id}"
             )
     return f"{REFERENCE_PREFIX}{step_id}/xbrl/{concept}/{context}"
 
@@ -208,9 +301,11 @@ def mint_candidate_set(step_id: UUID, filing_html: str) -> CandidateSet:
     pipeline and nothing can be minted lazily once the agent is running.
 
     **Not total.** A filing carrying a fact identity outside the declared
-    alphabet raises `UnmintableFactIdentity` and yields no set, because the
-    alternative — returning a set that silently omits it — would report a
-    complete candidate set that is not one.
+    alphabet, or a numeric fact element that carries no readable identity at
+    all or more than one, raises `UnmintableFactIdentity` and yields no set,
+    because the alternative — returning a set that silently omits it, or one
+    built on an arbitrary pick — would report a complete candidate set that
+    is not one.
     """
     reader = _NumericFactReader()
     reader.feed(filing_html)

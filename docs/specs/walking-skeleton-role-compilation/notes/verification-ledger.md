@@ -1704,6 +1704,16 @@ is set here**: the adjudication rules that an owner decision and not owed
 before the merge gate. The inline comment at the widened key (`:166`) repeats
 no rewrite claim, so it needed no companion repair.
 
+> **Forward note, 2026-09-22.** The two statements above are the round-3
+> record and are left as written; they are no longer true of the repository.
+> The owner took the decision they defer, and `migrations/env.py` now sets a
+> bounded `lock_timeout` with `CED_MIGRATION_LOCK_TIMEOUT` as the operator
+> override. Revision 0003's paragraph was rewritten in the same change, so the
+> text this item describes is not the text there now. See
+> `test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing` in
+> `tests/schema/test_migration_applies.py` for what holds it, and
+> `workspace.toml [backlog].closed` for the decision and its reasons.
+
 ### Statements walked backwards and repaired
 
 * `src/ced/agents/toolsets/trust_class.py` — "no test here observes a parse"
@@ -1729,7 +1739,8 @@ no rewrite claim, so it needed no companion repair.
   entering `call_tool` would need the predicate that arrives in
   `walking-skeleton-authority-containment`.
 * **A `lock_timeout` in `migrations/env.py`.** **Rung 1**: an owner decision
-  the adjudication explicitly does not owe here.
+  the adjudication explicitly does not owe here. **Closed 2026-09-22**, see
+  the forward note in Item 3 above.
 
 ### Gates, run unfiltered from the worktree root
 
