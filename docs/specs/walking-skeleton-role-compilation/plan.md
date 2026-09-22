@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — role compilation and the quarantine boundary
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Done <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 2 Structural Model ("An agent role compiles to an agent", "The toolset stack, innermost to outermost", the three responsibility catalogues) and § 4 Contracts and Invariants ("The integration registry", "Inputs, outputs, and tool reach"). **No analogous production implementation exists.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection — so it is precedent for the *seam*, not for any persistence mechanism.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
