@@ -20,6 +20,7 @@ from uuid import UUID
 import psycopg
 
 from ced.domain.events import (
+    RUN_REQUESTED,
     EventEnvelope,
     derived_idempotency_key,
 )
@@ -27,9 +28,11 @@ from ced.domain.events import (
 __all__ = [
     "DEADLOCK_ATTEMPTS",
     "DEADLOCK_BACKOFF_SECONDS",
+    "TERMINATED_STEP_STATE",
     "Fenced",
     "MALFORMED_EVENT_TYPE_SQLSTATE",
     "MalformedEventType",
+    "PrincipalNotRecorded",
     "StepRunMismatch",
     "RunAlreadyTerminal",
     "append_policy_decision",
@@ -37,9 +40,15 @@ __all__ = [
     "append_step_event",
     "derived_idempotency_key",
     "read_events",
+    "read_run_principal",
     "retry_on_deadlock",
     "start_run",
+    "terminate_step",
 ]
+
+#: The state a step reaches when the worker could not record its authorization
+#: decision. `failed` and not `cancelled`: nobody asked for it to stop.
+TERMINATED_STEP_STATE = "failed"
 
 #: The private SQLSTATE `append_step_event` raises when a type fails the
 #: canonical shape, matched by code rather than by a `psycopg` exception class
@@ -100,6 +109,17 @@ class Fenced(Exception):
     Not a retryable condition. A fenced worker aborts without *additional*
     side effects; it may already have invoked a tool, and attribution is at the
     logical-invocation level with idempotency keys deduping re-execution.
+    """
+
+
+class PrincipalNotRecorded(Exception):
+    """The run has no `run.requested` row, so its initiating principal is unreadable.
+
+    Not a missing-value case to default around. `events.principal` on that row is
+    the only durable source of the initiating principal — `steps` and `runs`
+    carry no such column — so a worker that cannot read it cannot evaluate the
+    entitlements half of the authorization predicate. Failing here is what stops
+    the half that is unreadable from being skipped.
     """
 
 
@@ -327,6 +347,81 @@ def append_policy_decision(
             raise StepRunMismatch(str(exc).splitlines()[0]) from exc
 
     return retry_on_deadlock(call)
+
+
+def terminate_step(
+    conn: psycopg.Connection,
+    *,
+    step_id: UUID,
+    lease_epoch: int,
+    state: str = TERMINATED_STEP_STATE,
+) -> bool:
+    """End the step, fenced on the caller's own epoch. True if the write matched.
+
+    **The database is the discriminator, which is why there is one path here and
+    no branch above it.** When the worker still holds the lease the `UPDATE`
+    matches and the step terminates, which is what AC-0211, AC-0243 and AC-0252
+    require. When the worker was genuinely evicted the epoch has already moved
+    on, the `UPDATE` matches zero rows, and the step stays with its new owner
+    carrying no terminal state — which is the abandon AC-0239 requires. Branching
+    on the exception type instead cannot work: an injected serialization failure
+    with the lease live and a real eviction both surface as `Fenced`, so a branch
+    would abandon exactly where AC-0211 requires a terminate.
+
+    **Fenced on `(step_id, lease_epoch)` and deliberately not on `owner`.**
+    `claim_one` is the only writer of `lease_epoch` and bumps it in the same
+    statement that sets the owner, so the epoch alone identifies one claim.
+    Adding `owner` would narrow the fence to nothing it does not already exclude
+    while making the call need a value this seam is not given.
+
+    Returns rather than raising on a zero-row match: both outcomes are expected
+    here, and the caller's next move is the same either way.
+    """
+    row = conn.execute(
+        """
+        UPDATE steps
+           SET state = %s, lease_expires_at = NULL
+         WHERE step_id = %s AND lease_epoch = %s
+         RETURNING step_id
+        """,
+        (state, step_id, lease_epoch),
+    ).fetchone()
+    conn.commit()
+    return row is not None
+
+
+def read_run_principal(conn: psycopg.Connection, *, run_id: UUID) -> str:
+    """Return the principal that initiated `run_id`, from its `run.requested` row.
+
+    AC-0319's source of truth, and the only durable one there is: `steps` and
+    `runs` carry no principal column, so this event row is where the initiating
+    identity lives. `app_worker` holds `SELECT` on `events` from revision 0001.
+
+    Read here rather than taken from the call, which is the whole point —
+    an implementation sourcing it from a tool argument or from model-authored
+    content would let the agent select the entitlements ceiling it is judged
+    against.
+
+    **It commits, which a read would not normally need to.** On a connection
+    that is not in autocommit, a bare `SELECT` opens a transaction and holds it,
+    and this read happens on the *worker* connection at step start. An open
+    transaction there takes a row lock on `runs` that the **policy** connection's
+    `next_seq` bump then waits on — so the decision append blocks on the read
+    that prepared it, indefinitely, and the step is wedged rather than failed.
+    `renew` and `release` commit for the same reason; this is that discipline
+    applied to the one read on this path.
+    """
+    row = conn.execute(
+        "SELECT principal FROM events WHERE run_id = %s AND type = %s ORDER BY seq LIMIT 1",
+        (run_id, RUN_REQUESTED),
+    ).fetchone()
+    conn.commit()
+    if row is None:
+        raise PrincipalNotRecorded(
+            f"run {run_id} has no {RUN_REQUESTED} event, so its initiating "
+            "principal cannot be read"
+        )
+    return str(row[0])
 
 
 def read_events(

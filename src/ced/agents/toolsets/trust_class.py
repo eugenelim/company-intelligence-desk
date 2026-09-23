@@ -17,19 +17,20 @@ and passes no candidate set. That is the fail-closed direction and not an
 omission: an integration result is not the minting pipeline's output, so a
 reference arriving through one was minted by nobody and is refused.
 
-**What this does not establish.** No tool body executes anywhere in this spec
-— the decision point refuses every call until the successor's predicate
-arrives — so `call_tool` below is unreached by contract rather than by
-omission, and no test observes a parse made *through this layer*. What is
-asserted is the wiring and the parser either side of it: one check walks the
-compiled stack and holds that `parse_result` **is**
-`parse_integration_result`, and the quarantine suite decides that function's
-refusing and admitting directions by calling it directly. Separately,
+**A tool body does now execute, and this layer is exercised through it.**
+`walking-skeleton-policy-decision-point`'s AC-0247 drives a tool whose return
+is free text and holds that the value reaches neither the step-event layer's
+attribution record nor the agent — which is the position's security property,
+asserted rather than composed. Before that spec no tool body ran anywhere, so
+the layer's wiring was all that could be checked.
+
+**What this still does not establish.**
 [ADR-0006](../../../../docs/adr/0006-four-r5-deviations-for-phase-1.md) D3
 means no Phase 1 role can hold a `free-text` integration at all, so the
-free-text case this layer exists for stays unexercised even after the
-predicate arrives. That is the safe posture and it is deliberate; it also
-means the quarantine criteria establish the admitted-types path only.
+*declared* `free-text` case this layer exists for stays unexercised: AC-0247
+drives free text out of an integration declared `admitted-types`, which is the
+reachable half. That is the safe posture and it is deliberate; the quarantine
+criteria establish the admitted-types path only.
 """
 
 from __future__ import annotations

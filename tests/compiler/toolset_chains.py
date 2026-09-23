@@ -32,6 +32,7 @@ from ced.agents.toolsets import (
 #: § Security considerations asks for letter placeholders for that reason.
 STEP_CONTEXT = StepContext(
     connection=cast(Any, None),
+    policy_connection=cast(Any, None),
     run_id=UUID("aaaaaaaa-0000-4000-8000-00000000000a"),
     step_id=UUID("bbbbbbbb-0000-4000-8000-00000000000b"),
     lease_epoch=1,

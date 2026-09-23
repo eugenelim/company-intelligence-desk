@@ -23,10 +23,15 @@ from __future__ import annotations
 from ced.agents.toolsets.policy import (
     CeilingResolver,
     NoCeilingEntries,
+    PolicyDecisionNotRecorded,
     PolicyDecisionPoint,
     ToolCallDenied,
 )
-from ced.agents.toolsets.step_events import StepContext, StepEventToolset
+from ced.agents.toolsets.step_events import (
+    DuplicateInvocation,
+    StepContext,
+    StepEventToolset,
+)
 from ced.agents.toolsets.structure import (
     EXPECTED_STACK_ORDER,
     StackOrderError,
@@ -37,7 +42,9 @@ from ced.agents.toolsets.trust_class import ResultParser, TrustClassToolset
 __all__ = [
     "EXPECTED_STACK_ORDER",
     "CeilingResolver",
+    "DuplicateInvocation",
     "NoCeilingEntries",
+    "PolicyDecisionNotRecorded",
     "PolicyDecisionPoint",
     "ResultParser",
     "StackOrderError",
