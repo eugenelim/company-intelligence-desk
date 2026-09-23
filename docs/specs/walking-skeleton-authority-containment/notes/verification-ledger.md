@@ -355,8 +355,24 @@ Two more pieces of evidence were weaker than they read:
 **The property test's independence claim was overstated and is corrected.**
 `contains` and the oracle's `admits` share `_in_domain` and `_within_path`,
 so a boundary deleted from either helper moves both sides together and the
-property stays green. The module now says so and names the module that does
-cover those helpers.
+property stays green. The correction sits in
+`test_containment_property.py`'s own docstring, where the claim was made,
+and names the module that covers those two arms. An earlier attempt put the
+retraction only in the covering module, which left the overstated claim in
+the one place a reader goes to size that evidence — the state a false claim
+is worst in, because it stops anyone looking. The plan states the same claim
+in a pinned `Tests` bullet, which is why it is also recorded above as a plan
+error.
+
+**Four more checks that could not fail, found in the same pass and closed the
+same way.** A URL's query could be dropped from the canonical rendering with
+the suite green, which would hand an adapter a different request from the one
+decided. Dot-segment removal's above-root guard could be deleted, turning
+`/../x` into the *relative* path `x`. Its trailing-separator fixup had no
+case. And `contains`'s documented cross-kind refusal — raise, never `False`,
+because two predicates over different components stand in no containment
+relation — was reached by nothing, so the raise could have become the `False`
+a caller reads as a decision. Each now reds under its own mutation.
 
 **Every claim above was checked by mutation**, not by reading: each boundary,
 each new guard, each `contains` arm, and the two fail-closed rules' substitute
@@ -375,5 +391,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 467 passed, 195 deselected in 10.67s
+1 failed, 471 passed, 195 deselected in 12.55s
 ```

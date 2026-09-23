@@ -36,11 +36,13 @@ from decimal import Decimal
 from itertools import product
 from typing import Final
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from ced.domain.containment.canonicaliser import CanonicalUrl, canonicalise
 from ced.domain.containment.domain_types import DomainType
+from ced.domain.containment.errors import ContainmentUndecidable
 from ced.domain.containment.predicates import (
     EXPRESSIBLE_PREDICATES,
     DateRange,
@@ -243,3 +245,20 @@ def test_the_oracle_can_tell_a_non_containing_pair_apart() -> None:
     narrow = HostInDomain("www.sec.gov")
     assert not contains(narrow, wide)
     assert not _admitted(wide, _URL_UNIVERSE) <= _admitted(narrow, _URL_UNIVERSE)
+
+
+def test_contains_refuses_a_pair_drawn_from_different_fields() -> None:
+    """The documented refusal, which nothing generated reaches.
+
+    Pairs are drawn same-kind, so no property above ever calls `contains`
+    across two fields — and the module docstring states that such a pair
+    raises rather than answering `False`, because two predicates over
+    different components stand in no containment relation and a `False`
+    would read as "not contained" to a caller that cannot tell the
+    difference. Without this case the raise can become that `False` with
+    every check green.
+    """
+    with pytest.raises(ContainmentUndecidable, match="different components"):
+        contains(SchemeIn(frozenset({"https"})), HostEq("sec.gov"))
+    with pytest.raises(ContainmentUndecidable, match="different components"):
+        contains(PathWithin("/evidence/"), Within("/evidence"))

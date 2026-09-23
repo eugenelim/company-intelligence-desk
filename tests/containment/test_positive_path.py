@@ -53,3 +53,43 @@ def test_both_arguments_are_admitted_in_one_call() -> None:
     )
     assert isinstance(decision, Admitted)
     assert isinstance(decision.canonical["url"], CanonicalUrl)
+
+
+def test_the_canonical_value_carries_the_query_it_was_given() -> None:
+    """The query is part of the value AC-0214 says the adapter observes.
+
+    No predicate ranges over it — § Follow-ons records that as an
+    unconstrained component, and it is r5's fragment that leaves it so — but
+    the rendering that carries it to the adapter still has to be right.
+    Without this case `CanonicalUrl.__str__` can drop the query entirely and
+    every other check stays green, which would hand the adapter a different
+    request from the one that was decided.
+    """
+    decision = evaluate(
+        sec_ceiling(), url_call("https://www.sec.gov/evidence/report.pdf?cik=320193&type=10-K")
+    )
+    assert isinstance(decision, Admitted)
+    assert str(decision.canonical["url"]) == (
+        "https://www.sec.gov/evidence/report.pdf?cik=320193&type=10-K"
+    )
+
+
+def test_a_traversal_above_the_root_still_yields_an_absolute_path() -> None:
+    """Dot-segment removal may not walk off the front of the path.
+
+    `/../x` has nothing above it to remove, and a removal that pops the
+    leading empty segment yields `x` — a *relative* path handed to an
+    adapter, which resolves it against whatever base the adapter has. The
+    `remove-dot-segments` mutation case drives the escape; this one drives
+    the guard that keeps the result absolute.
+    """
+    decision = evaluate(sec_ceiling(), url_call("https://www.sec.gov/../evidence/x"))
+    assert isinstance(decision, Admitted)
+    assert str(decision.canonical["url"]) == "https://www.sec.gov/evidence/x"
+
+
+def test_a_path_ending_in_a_dot_segment_keeps_its_trailing_separator() -> None:
+    """`/evidence/.` names the directory, and so must its canonical form."""
+    decision = evaluate(sec_ceiling(), url_call("https://www.sec.gov/evidence/2024/."))
+    assert isinstance(decision, Admitted)
+    assert str(decision.canonical["url"]) == "https://www.sec.gov/evidence/2024/"
