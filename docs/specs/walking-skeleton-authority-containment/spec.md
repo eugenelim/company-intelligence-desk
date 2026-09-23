@@ -1,4 +1,4 @@
-# Spec: Walking skeleton — authority containment and the decision point
+# Spec: Walking skeleton — authority containment
 
 - **Status:** Approved <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
@@ -7,58 +7,60 @@
 - **Brief:** none
 - **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
-- **Contract:** none — this spec exposes no interface surface; it is reached through the foundation spec's API and the evidence spec's state machine
+- **Contract:** none — this spec exposes no interface surface; it is a domain library, reached through the decision point `walking-skeleton-policy-decision-point` builds
 - **Shape:** service
 
 > **Spec contract:** this document defines what "done" means. The implementing
 > PR must match this spec, or update it. Verification must be derivable from it.
 >
-> **Not every section is contract.** `Boundaries`, `Testing Strategy` and
+> **Not every section is contract.** `Agent Rules`, `Testing Strategy` and
 > `Acceptance Criteria` are what a completion gate reads, and an amendment
-> changes them. `Objective`, `Durable Outputs`, `Follow-ons` and `Assumptions`
-> are working material, corrected in place without an amendment.
+> changes them. `Outcome`, `What Changes`, `Durable Outputs`, `Follow-ons` and
+> `Assumptions` are working material, corrected in place as the work teaches,
+> without an amendment and without a review round. A review finding against
+> working material is advisory — it cannot block, because nothing gates the text
+> it cites. Marking the tiers is the spec's job; honouring them when a finding
+> is adjudicated is the reviewing surface's.
+>
+> **A recorded threat, fail direction, or residual gap may sit in any section,
+> but removing one always takes an amendment.** § Follow-ons exists to record a
+> known gap, so restricting where such a statement may live would forbid that
+> section its purpose; what needs gating is deletion, not placement. A control's
+> *operative* definition is different and belongs in `Agent Rules` or
+> `Acceptance Criteria`.
 
-## Objective
+## Outcome
 
-The security core of the Phase 1 agent runtime. It builds the containment
-fragment that decides what a tool call may carry, and the policy decision point
-that applies it — the outermost layer of the toolset stack that
-[`walking-skeleton-role-compilation`](../walking-skeleton-role-compilation/spec.md)
-composes.
+An engineer can see a tool argument that passes a string prefix check, but means
+something else to the code that parses it, refused as outside the acting role's
+ceiling. Success is that the refusal is decided over the parsed value rather
+than the raw string, and that a predicate a reviewer cannot decide is rejected
+when the role is authored rather than when the call fires.
 
-Security of the agent-authority boundary is the architecture's second-ranked
-quality attribute and no managed control covers it. This is the spec that makes
-it executable.
+## What Changes
 
-Success is that an unauthorised tool call is refused on its *argument value*
-before the tool body runs, with the refusal recorded as an event; that a value
-which passes a string prefix check but means something else to the callee is
-refused; and that a predicate a reviewer cannot decide cannot be authored in the
-first place. Each of those is currently a design claim with no executable
-evidence.
-
-**Its siblings.** [`walking-skeleton-foundation`](../walking-skeleton-foundation/spec.md)
-owns the schema, both append paths, the privilege split and the pool.
-`walking-skeleton-role-compilation` is a hard dependency: it ships the compiler,
-the four-layer stack and the fail-closed default this spec replaces with a real
-predicate. [`walking-skeleton-step-lifecycle`](../walking-skeleton-step-lifecycle/spec.md)
-follows this spec, because resuming a suspended step means an approved tool body
-runs and nothing can admit a call until this spec's predicate exists.
-[`walking-skeleton-evidence`](../walking-skeleton-evidence/spec.md) consumes all
-three.
+- The containment fragment, deciding whether an argument value falls inside a ceiling over parsed components — a new domain library under `src/ced/domain/containment/`.
+- The canonicaliser each domain type runs before that decision — the same package.
+- Three authoring-time refusals: a prefix predicate on an interpreted type, a domain argument that is a public suffix, and a `url` argument with no host-constraining predicate — the fragment's declaration surface.
+- The containment suite and its property test over generated predicate pairs — `tests/containment/`.
+- The userinfo bypass row, added to the unsafe-prefix table — `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` § 4.
 
 ## Durable Outputs
 
 | Semantic role | Applicability | Destination | Owner | Expected evidence | Closeout condition |
 | --- | --- | --- | --- | --- | --- |
 | Decision rationale | Applicable — the r5 containment table omits a bypass this spec's criteria carry | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` § 4, "Why a prefix predicate is not safe on an interpreted argument" | work-loop | The userinfo row added to the unsafe-prefix table | The criterion's referenced table is complete |
-| Current architecture | Applicable — `docs/architecture/README.md` § What is built is the current map and this spec changes it | `docs/architecture/README.md` § What is built | work-loop | The containment fragment and the decision point moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
-| Current architecture — the `worker-runtime.md` marker | Applicable — r5's STATUS header names the authorization boundary as unbuilt, and this spec builds it | `docs/architecture/pydantic-ai-worker-runtime/worker-runtime.md` header | work-loop | The authorization boundary moved from unbuilt to built, the other clauses untouched | The header's built and unbuilt lists match the repository |
+| Current architecture | Applicable — `docs/architecture/README.md` § What is built is the current map and this spec changes it | `docs/architecture/README.md` § What is built | work-loop | The containment fragment moved out of "designed and not built" | The section names what exists after this spec and nothing it does not |
 | Reusable learning | Applicable — this spec produces the containment evidence Phase 2 plans against | `spikes/README.md` | work-loop | A section stating what was established **and what was not** | Hypothesis checks reported separately from setup |
+| Current architecture — the `worker-runtime.md` marker | Not applicable — r5's STATUS header names the *authorization boundary* as unbuilt, and that clause is only true once the decision point ships; [`walking-skeleton-policy-decision-point`](../walking-skeleton-policy-decision-point/spec.md) owns it | — | — | — | — |
 | Interface compatibility | Not applicable — no interface surface; the API belongs to the foundation spec | — | — | — | — |
 | User-facing promise | Not applicable — nothing user-facing is deployed until Phase 2 | — | — | — | — |
 
-## Boundaries
+## Agent Rules
+
+The three-tier guard that keeps an implementing agent inside the lines.
+*Always do* applies without asking; *Ask first* requires human sign-off
+before proceeding; *Never do* is a hard rule, even under time pressure.
 
 ### Always do
 
@@ -74,67 +76,35 @@ three.
 ### Never do
 
 - **No test-only bypass surface inside a shipped security control.** Mutation evidence is produced by patching in the test process, never by a switch the production canonicaliser carries.
-- **No widening of the fail-closed default.** Replacing "nothing admits" with a real lookup must not turn a lookup miss into a fall-through. AC-0235 is the guard, and `walking-skeleton-role-compilation`'s AC-0234 — a refusal is never `ModelRetry` nor a subclass — stays green across this spec's work.
-- **No `pydantic_ai` import outside `agents/` and `adapters/`.**
+- **No canonicaliser that normalises before it decodes.** Percent-decoding runs before dot-segment removal; the reverse order admits an encoded traversal, which a probe confirmed on 2026-09-18. AC-0216 cannot see a transposition that keeps every rule, so this rule and T1's pinned transposition case are the only things holding the order.
+- **No `pydantic_ai` import in this spec's code.** The containment fragment is a pure domain library with no framework dependency; the repository-wide rule confining `pydantic_ai` to `agents/` and `adapters/` still applies.
 
 ## Testing Strategy
 
 Every criterion sits in exactly one group.
 
-- **TDD (AC-0207, AC-0208, AC-0209, AC-0210, AC-0211, AC-0212, AC-0213, AC-0214, AC-0215, AC-0216, AC-0217, AC-0218, AC-0235, AC-0236, AC-0239, AC-0240, AC-0243, AC-0247, AC-0249, AC-0252)** — all of it, because all of it is a compressible invariant with a cheap oracle and no provider in the loop. The framework ships `TestModel` and `FunctionModel`, so the containment fragment and the decision point are both exercised without a model call. The containment criteria (AC-0213 through AC-0218) additionally carry a *property test* over generated predicate pairs, because the claim is set-theoretic containment over a fragment rather than behaviour at chosen values.
+- **TDD (AC-0213, AC-0214, AC-0215, AC-0216, AC-0217, AC-0218, AC-0240, AC-0315, AC-0316, AC-0317)** — all of it, because all of it is a compressible invariant with a cheap oracle and no provider in the loop. The criteria additionally carry a *property test* over generated predicate pairs, because the claim is set-theoretic containment over a fragment rather than behaviour at chosen values.
 
-No criterion here calls a provider, so this spec needs no cloud credential and
-carries no spend. AC-0209, AC-0211, AC-0212, AC-0236, AC-0239, AC-0243 and AC-0249 reach
-the database, which the foundation spec's local substrate supplies.
+No criterion here calls a provider, and none reaches the database: the fragment
+is a pure domain library, so the whole suite runs under
+`pytest -m 'not substrate'`. This spec needs no cloud credential and carries no
+spend.
 
 ## Acceptance Criteria
 
-Obligations come from `runtime-architecture.md` § 10 Rollout, Phase 1 criterion 6 —
-"attempt a well-typed unauthorised tool call and observe refusal" — and from
-`worker-runtime.md` § 10 Rollout criteria 5 (commit-before-action under failure)
-and 8 (the containment property test with interpreted arguments). Those three
-sources cover AC-0207, AC-0211, AC-0213, AC-0214 and AC-0215. AC-0209 is
-source-derived too, from r5 § 4's gate block — `may_act(call)` is "recorded as
-the `policy.decision`" at call time, on both the admit and the refuse path —
-rather than from a § 10 Rollout criterion, which is why it is not tabled below. Obligations
-**beyond** them are tabled below, and the approval gate rules on each rather
-than inheriting it.
+Obligations come from `worker-runtime.md` § 10 Rollout criterion 8 — the
+containment property test with interpreted arguments — which covers AC-0213,
+AC-0214 and AC-0215. Obligations **beyond** it are tabled below, and the
+approval gate rules on each rather than inheriting it.
 
 | Obligation | Criteria | Why it is here | If cut |
 | --- | --- | --- | --- |
-| Make a denial catchable without swallowing bugs | AC-0208 | r5 § 2 Structural Model, the toolset stack makes the denial terminal, but no § Rollout criterion asserts how a caller tells a denial apart from a defect. That the refusal is not `ModelRetry` is `walking-skeleton-role-compilation`'s AC-0234, which holds from the first refusal; this criterion asserts a different property, that the denial handler is narrow enough not to catch a tool-body bug | A denial handler swallows genuine defects, and the boundary reports a clean refusal where the system is actually broken |
-| Fence the decision append on the caller's own epoch | AC-0239 | r5 § 4 Contracts and Invariants makes the fenced append the control, and the foundation spec built it correctly. Its efficacy rests entirely on the decision point passing the epoch it holds: one that re-reads the current epoch from the database defeats the fence and passes AC-0209, AC-0211 and the foundation's AC-0004 alike. r5 § 4 gives the failure semantics as the fenced worker's decision rolling back, and § 7 prices the consequence as a report published twice | The fence is present, bypassable from the one call site that matters, and green everywhere |
-| Bound a `url` argument by host | AC-0240 | AC-0215 and AC-0217 narrow a predicate's *form*; neither requires the set on a `url` argument to constrain the host. A ceiling of `scheme_in{https}` alone is well-formed and admits the instance metadata endpoint — which AC-0224 requires the container to reach. The compensating control r5 and r8 both name, an egress proxy with a hostname allowlist, is part of the AWS deployment these specs place out of scope. **AC-0240 bounds the name, not the resolved address**; address-level confinement stays with that proxy and is not claimed here | The fragment ships able to express a ceiling that authorises SSRF, and the only thing stopping it is that Phase 1 registers no URL-taking tool |
-| Force the append failure on a call that would otherwise run | AC-0243 | AC-0211 does not say the call under test is one the predicate admits. Forcing the append to fail on a call that was going to be refused anyway leaves the spy unmoved whatever the ordering, so commit-before-action can be unimplemented with AC-0211 green. AC-0218 is the only admit-path criterion and carries no append-failure case | The ratified ordering is asserted by a test that cannot observe it |
-| Decide the undecidable append failure | AC-0252 | AC-0211 and AC-0243 terminate the step, AC-0239 abandons it on an attributable fence loss, and the discriminator is whether the fence was held. That is knowable from the serialization failure `append_policy_decision` raises and not from a connection-level failure, where the worker cannot tell whether the transaction reached the fence at all. Without a stated direction the exception handler picks one by accident. Terminate rather than abandon, because abandoning turns an authorization decision that could not be recorded into a lease-expiry reclaim and a silent re-execution — the denial-becomes-a-retry shape the design forbids everywhere else | The three criteria partition the space they name and leave a real state outside it, decided by catch order |
-| Deny an evaluation that raises | AC-0236 | Three states can reach the decision point: no entry, an entry whose value is outside, and an entry whose evaluation raises — a malformed ceiling row, an unparseable value, a public-suffix dataset that fails to load, an unknown domain type. AC-0235 and AC-0207 cover the first two. Nothing covers the third, and whichever `except` an implementer writes around the predicate silently decides the boundary | The fail direction on an error path is chosen by accident, and no test can go red on the wrong choice |
-| Deny a lookup that finds nothing | AC-0235 | `walking-skeleton-role-compilation`'s AC-0233 covers the interval before any predicate exists and cannot be decided once one does. This is the permanent guard: replacing "nothing admits" with a real lookup is exactly where a miss becomes a fall-through, and no other criterion here reaches it — AC-0207 needs a ceiling entry to fall outside of | The split's cheapest regression ships unobserved: a role with no entry for a tool runs it |
-| Enforce the entitlements conjunct | AC-0210 | `may_act` is a conjunction of ceiling **and** initiating-user entitlements; a criterion covering only the ceiling half leaves the other unbuilt | Half the authorization predicate ships unverified |
-| Assert the grant the split rests on | AC-0249 | r5 § 6 says the privilege split's strength "rests on the database grant rather than on credential separation", and § 4 states the invariant over every runtime identity: no runtime identity holds write on `agent_role` or the integration registry. `0001_base_schema.py` grants the same SELECT to `app_api` as to `app_worker`, so a criterion naming only one covers half the invariant. Every authorization criterion here presumes the identity being constrained cannot rewrite the constraint. That presumption is one `GRANT SELECT` line in `migrations/versions/0001_base_schema.py` that no test would notice losing; the foundation's AC-0005 asserts the adjacent event-type case and not this one | The elevation-of-privilege case the whole design is built against is unasserted, and a migration edit silently removes it |
-| Fail a duplicate invocation loudly | AC-0212 | r5 identifies the derived key plus the index as the sole mechanism making the double-publication hazard fail rather than execute twice | The at-most-once control ships with its behaviour untested |
+| Require a host predicate on a `url` argument | AC-0240 | AC-0215 and AC-0217 narrow a predicate's *form*; neither requires a `url` argument to carry any host constraint at all. A ceiling of `scheme_in{https}` alone is well-formed, satisfies AC-0316 — it does constrain the argument — and admits every host, including the link-local instance-metadata address. This criterion is the `url`-specific strengthening of AC-0316: some predicate is not enough, it has to be one that constrains the host. **AC-0240 requires a host-constraining predicate to be present. It does not constrain which host that predicate admits, and it does not reach the address the host resolves to.** r5 § 4 makes `host_eq(h)` expressible, so `host_eq("169.254.169.254")` satisfies this criterion and still authorises the metadata endpoint; § Follow-ons records that neither gap is owned | A `url` argument ships with no host constraint whatever, which is a strictly larger hole than the one the remaining gaps leave |
 | Prove each canonicalisation rule is load-bearing | AC-0216 | r5 criterion 8 asks for the table rows, the adapter assertion and the public-suffix refusal. It does not ask whether any individual rule in § 4, "Why a prefix predicate is not safe on an interpreted argument"'s "What the canonicalizer must do" list actually carries weight, and a rule nobody's case exercises is indistinguishable from an absent one | A canonicaliser can lose a rule in a refactor with every test still green |
 | Narrow the decidable fragment at authoring time | AC-0217 | This is the narrowed decidable fragment amendment, which narrows the ratified fragment; it is a design change this spec implements rather than a § Rollout criterion | A prefix predicate stays expressible on an interpreted type, which is the one unsound constructor the change exists to remove |
-| Exercise the trust-class layer, not just its position | AC-0247 | r5 § 2 makes that layer's innermost position a security property because it must parse an integration's result *before* any layer above observes the return value. `walking-skeleton-role-compilation` AC-0202 asserts the layer is in the chain and AC-0242 covers the retrieval path; nothing asserts the layer parses a **tool return** — AC-0220 covers the same parser on the retrieval path — and this is the first spec where a tool body runs at all | The layer is composed by one criterion and exercised by none, and free text reaches the attribution record by the one path r5 positions it to block |
 | Admit the positive path | AC-0218 | Every other containment criterion is a refusal, and a canonicaliser that refuses all input satisfies all of them | The fragment ships correct by being useless, and nothing catches it |
-
-**Authorizing a call**
-
-- [ ] **AC-0207.** A well-typed tool call whose argument *value* falls outside the acting role's ceiling is refused, and the tool body does not execute.
-- [ ] **AC-0235.** A tool call for which the acting role holds no ceiling entry at all is refused and the tool body does not execute, asserted with the containment predicate installed, so a lookup that finds nothing denies rather than falling through.
-- [ ] **AC-0239.** A decision point whose step lease has been taken by another worker, observed as the serialization failure the fenced append raises, refuses the call, does not execute the tool body, and leaves no committed `policy.decision`. The evicted worker abandons the step to its new owner rather than failing it.
-- [ ] **AC-0252.** An append failure the worker cannot attribute to fence loss is treated as fence-held: the worker attempts to terminate the step, as AC-0211 and AC-0243 require. Where the worker had in fact been evicted, that termination is itself a fenced write and the database refuses it, leaving the true owner untouched.
-- [ ] **AC-0243.** With the `policy.decision` append forced to fail on its own connection inside the decision point while the fence is still held, on a call the installed predicate **admits**, the tool body does not execute and the step terminates.
-- [ ] **AC-0236.** A predicate evaluation that raises — driven by a fault patched into the predicate **in the test process**, not by a malformed argument and not by a switch the shipped predicate carries — refuses the call, commits the `policy.decision` denial, and does not execute the tool body.
-- [ ] **AC-0208.** A refusal by the decision point raises a domain exception a caller can catch without also catching a programming error, demonstrated by a case in which a genuine bug raised inside a tool body is not caught by the denial handler.
-- [ ] **AC-0209.** A call the containment predicate decides — admitted or refused — commits a `policy.decision` event recording the decision, the acting agent role, and the initiating principal, before the tool body runs or the refusal is raised. AC-0211, AC-0239, AC-0243 and AC-0252 govern the cases where that append does not succeed.
-- [ ] **AC-0210.** A call whose arguments fall inside the acting role's ceiling but outside the initiating user's entitlements is refused.
-- [ ] **AC-0211.** With the `policy.decision` append forced to fail on its own connection inside the decision point while the fence is still held, the tool body does not execute and the step terminates.
-- [ ] **AC-0212.** A second invocation deriving an idempotency key already recorded for the run terminates the step as a duplicate-detected failure, and the tool body executes at most once across both attempts.
-
-**Holding the layers and grants the boundary rests on**
-
-- [ ] **AC-0247.** A tool return from an integration declared `admitted-types` that carries free text is refused by the trust-class layer before any layer above it observes the value, so neither the step-event toolset's attribution record nor the agent ever sees it.
-- [ ] **AC-0249.** A connection on any runtime identity — `app_worker` or `app_api` — attempting to write `agent_role`, `integration_registry` or `entitlements` is refused by the database.
+| Constrain every argument a ceiling entry names | AC-0316, AC-0317 | r5 § 4 defines the fragment as "a conjunction of independent per-argument predicates", and a conjunction over a subset is **vacuously true on every argument outside it**. AC-0240 rescues one case — a `url` with no host constraint — and nothing rescues the rest: an `fs-path` with no `within(root)` admits `/etc/passwd`, and an argument the entry simply omits is decided *inside* by every criterion here. AC-0315 does not reach it, because the fragment can decide such an argument; it just decides wrongly. Two criteria because the failure modes and remedies differ: AC-0316 refuses the declaration, AC-0317 denies at evaluation for an entry that reached the database by some other route — the same relationship `walking-skeleton-role-compilation`'s AC-0233 has to AC-0235 | A default-allow sits under the whole fragment: every criterion is green and a ceiling constrains only the arguments somebody remembered to name |
+| Deny at the seam an input the fragment cannot decide | AC-0315 | The fragment is consumed across a spec boundary: [`walking-skeleton-policy-decision-point`](../walking-skeleton-policy-decision-point/spec.md) installs it and decides what to do with what it returns. Every other criterion here is an authoring-time refusal or a decided call, so an input that reaches evaluation and cannot be decided — an unrecognised domain type, an ambiguous parse, a predicate the fragment cannot evaluate — has no stated answer. Returning "inside" or passing the value through is then a valid implementation, and on the far side of the seam nothing catches it: that spec's AC-0236 fires only on a raise, its AC-0235 needs a missing ceiling entry, and its AC-0207 needs a decidable entry to fall outside of. **This criterion fixes the seam's signal as a raise**, which is what makes AC-0236 the receiving control rather than an assumption about one | A fail-open default sits at the authorization boundary, owned by neither spec, in exactly the shape the AC-0217 follow-on predicts |
 
 **Containing an interpreted argument**
 
@@ -144,33 +114,35 @@ than inheriting it.
 - [ ] **AC-0216.** For every canonicalisation rule `worker-runtime.md` § 4, "Why a prefix predicate is not safe on an interpreted argument" names under "What the canonicalizer must do", the suite holds an input that the canonicaliser refuses and that is admitted when that one rule is disabled by patching the canonicaliser **in the test process**. Disabling one rule reds that rule's case and leaves the others passing. A rule added to that list upstream is an amendment trigger for this criterion.
 - [ ] **AC-0240.** Declaring a `url`-typed argument with no host-constraining predicate is refused at authoring time.
 - [ ] **AC-0217.** Declaring a prefix predicate on an argument whose domain type is `url`, `fs-path`, or `content-locator` is refused, and the same predicate on `opaque-string` is accepted.
-- [ ] **AC-0218.** A canonical in-ceiling `url` and an in-root `fs-path` are admitted against the same ceiling AC-0213 uses, and the tool body executes.
+- [ ] **AC-0218.** A canonical in-ceiling `url` and an in-root `fs-path` each evaluate to an admitting result against the same ceiling AC-0213 uses. The tool-body half of the positive path is [`walking-skeleton-policy-decision-point`](../walking-skeleton-policy-decision-point/spec.md)'s AC-0318, because no tool body runs in this spec.
+- [ ] **AC-0316.** Declaring a ceiling entry that names an argument and attaches no predicate to it is refused at authoring time, and the refusal names both the entry and the unconstrained argument.
+- [ ] **AC-0317.** Evaluating a ceiling entry against a call that supplies an argument the entry attaches no predicate to denies, asserted against an entry installed directly rather than through the authoring surface.
+- [ ] **AC-0315.** Evaluating a ceiling entry the fragment cannot decide — an argument whose declared domain type the fragment does not recognise, an argument whose parse is ambiguous, or a predicate it cannot evaluate against the given value — raises, and returns neither an admitting nor a passthrough result. Asserted at the fragment's evaluation entry point for each of the three cases.
 
 ## Follow-ons
 
-Every item below is a criterion-wording defect a spec-stage shaping or security
-review found in text this spec carries unchanged from the deleted
-`walking-skeleton-agent-runtime`. They were left unreworded by owner decision of
-2026-09-20, so the carry-across stays auditable against the parent; each needs an
-amendment rather than an in-place correction.
+The first group is criterion-wording defects a spec-stage shaping or security
+review found. Most sit in text this spec carries unchanged from the deleted
+`walking-skeleton-agent-runtime`; the AC-0240 entry is the exception and is a
+defect in text this spec authored. They were left unreworded by owner decision of
+2026-09-20, so the wording stays comparable against the parent's; each needs an
+amendment rather than an in-place correction. The parent directory is gone, so
+that comparison is no longer possible against the parent itself — what the
+decision now preserves is that the wording was not quietly changed after the
+defects were found. § Assumptions records the criterion-level provenance.
 
 - eugenelim: this spec § Acceptance Criteria — **AC-0213 double-counts the row its own task files upstream.** T1 amends the r5 unsafe-prefix table to add the userinfo row, after which the criterion's "plus the userinfo case" names a row already in the table and its own amendment trigger fires on the change the task made.
-- eugenelim: this spec § Acceptance Criteria — **AC-0216 proves rule presence, not rule order.** Disabling one canonicalisation rule at a time cannot see a refactor that keeps every rule and transposes percent-decode with dot-segment removal, which the plan's own probe records as load-bearing.
+- eugenelim: this spec § Acceptance Criteria — **AC-0216 proves rule presence, not rule order.** Disabling one canonicalisation rule at a time cannot see a refactor that keeps every rule and transposes percent-decode with dot-segment removal, which the plan's own probe records as load-bearing. Held in the interim by this spec's `Never do` rule on canonicaliser ordering and T1's pinned transposition case, neither of which is a criterion.
 - eugenelim: this spec § Acceptance Criteria — **AC-0217 hand-enumerates three of seven domain types.** r5 states the rule at the level of "not parsed by their consumer"; adding an interpreted type later leaves the criterion green and the fragment unsound.
+- eugenelim: this spec § Acceptance Criteria — **AC-0240 requires a host predicate and constrains neither the host it names nor the address it resolves to.** `host_eq("169.254.169.254")` satisfies the criterion and authorises the instance-metadata endpoint. Two distinct gaps sit behind it and neither is owned. A value-level constraint — refusing a link-local, private-range or metadata host at authoring time — belongs to this fragment and has no criterion. Address-level confinement belongs to a control that does not exist: r8 § 4 specifies the egress proxy as a *hostname* allowlist plus a token bucket, with no private-range or metadata block anywhere in r8 or r5, so the proxy shares the identical blind spot and cannot be the owner. DNS rebinding is unowned for the same reason. Phase 1 registers no URL-taking tool, which is what bounds the exposure today rather than any control.
 - eugenelim: this spec § Acceptance Criteria — **no explicit symlink case.** r5 requires normalisation to resolve symlinks, but AC-0213's enumerated cases are all name-only, so CWE-59 confinement escape rests on an implementer reading one prose clause as a listed rule.
 
-- eugenelim: `worker-runtime.md` r5 § 4 — **`may_exist`, the first of its three containment gates and the authoring-time one.** Designed, not built. The charter holds the substrate single-author in operation until the governance gaps are *built*, and this is one of them; a single operator authors every role here, which is the condition that makes deferring it safe.
-- eugenelim: `worker-runtime.md` r5 § 4 — **`may_run`, the spawn-time containment gate.** Recording `role.ceiling ⊆ parent_role.ceiling` as an event at spawn needs a coordinator that spawns children, which this skeleton's single analysis step does not exercise. Named rather than absent.
+**Deliberately not carried here.**
+
+- eugenelim: `worker-runtime.md` r5 § 4 — **`may_exist`, the first of its three containment gates and the authoring-time one.** Designed, not built. The charter holds the substrate single-author in operation until the governance gaps are *built*, and this is one of them; a single operator authors every role here, which is the condition that makes deferring it safe. The spawn-time gate `may_run` is [`walking-skeleton-policy-decision-point`](../walking-skeleton-policy-decision-point/spec.md)'s follow-on, beside the call-time gate that spec builds.
 
 ## Assumptions
 
-- Technical: `pydantic-ai` is pinned to 2.45.0 rather than ADR-0001 D5's 2.44.0 (source: user decision 2026-09-18). The framework-seam probe that established this is recorded once, in `walking-skeleton-role-compilation/plan.md` § Grounding probe; this spec cites it there rather than repeating it.
-- Technical: refusing a public-suffix argument needs a public-suffix dataset; the standard library has none (source: probe against `urllib`, 2026-09-18).
-- Technical: both rows of the r5 unsafe-prefix table behave as documented, a third bypass exists that the table omits, and decode-before-normalise is load-bearing and order-dependent (source: probe, 2026-09-18, recorded in `plan.md` § Containment probe).
-- Technical: `walking-skeleton-role-compilation` ships the compiler, the four-layer toolset stack and a decision point that admits nothing without a predicate. This spec supplies that predicate and composes no new layer. Its AC-0233 is scoped to the no-predicate configuration and retires with it; AC-0235 here is the permanent replacement, and AC-0234 stays green unchanged (source: `walking-skeleton-role-compilation/spec.md` AC-0202, AC-0233 and AC-0234).
-- Process: three criteria carried into *this spec* have had their wording changed. **AC-0209 and AC-0211** were scoped on 2026-09-20 by owner ruling, after an adversarial review found them universally quantified over refusals while AC-0239 names a refusal that records nothing and a step that is abandoned rather than failed: AC-0209 now covers a call the containment predicate **decides**, admitted or refused, and names the four criteria that govern a failed append; a first attempt scoped it by fence liveness, which two reviewers showed is the variable separating abandon from terminate rather than recorded from unrecorded. AC-0211 covers an append forced to fail **while the fence is still held**. Without those qualifiers no implementation satisfied all four criteria, and no added criterion can repair a false universal claim. Neither scoping widens authority; each narrows a claim to the states it was always meant to cover. **AC-0208** is the third: the parent spec stated both the concrete exception type and the negative "not `ModelRetry` nor any subclass"; the negative moved to `walking-skeleton-role-compilation`'s AC-0234, which holds from the interval onward, so restating it here would give one obligation two homes and two approval-gate rows (source: adversarial spec review round 2, 2026-09-20).
-- Technical: the foundation spec ships the schema, both append paths, the privilege split and the pool. This spec adds no column (source: `walking-skeleton-foundation/plan.md` § Data & schema).
-- Process: this spec is one of three cut from `walking-skeleton-agent-runtime`, whose directory was deleted on 2026-09-20. AC-0207, AC-0210 and AC-0212 through AC-0218 carry across with their wording unchanged. Three are exceptions, each recorded in the entry above: AC-0208, AC-0209 and AC-0211. AC-0235, AC-0236, AC-0239, AC-0240, AC-0243, AC-0247, AC-0249 and AC-0252 are new (source: user decision 2026-09-20; owner rulings of the same date).
-- Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
-- Product: the skeleton carries one analysis role with a single registered tool, over the recorded fixture rather than a live corpus — the thinnest agent set that exercises every criterion (source: assumption stated 2026-09-18, to be confirmed at the approval gate).
-- Governance: r8 and r5 are ratified as of 2026-09-18, r8 with its five accepted limits in § 9 open, and the DR decisions settled (source: both documents' Sign-off and Status headers).
+- Product: the skeleton carries one analysis role with a single registered tool, over the recorded fixture rather than a live corpus — the thinnest agent set that exercises every criterion — and nobody has confirmed it (settled by: the approval gate).
+- Process: six of this spec's ten criteria descend from `walking-skeleton-agent-runtime`, whose directory was deleted on 2026-09-20. AC-0240 was authored on 2026-09-20 in the spec this one was cut from, and AC-0315 on 2026-09-23; neither has a parent there. **The enumeration is recorded here because the parent is gone and cannot be re-derived.** Carried across with their wording unchanged: AC-0213, AC-0214, AC-0215, AC-0216, AC-0217, AC-0218. Authored new on 2026-09-20: AC-0240. Authored new on 2026-09-23: AC-0315, closing a fail-open seam the cut created, and AC-0316 and AC-0317, closing a default-allow that predates the cut and survived three review rounds. None has been re-derived against the parent, and with the parent deleted none now can be; the four defects in § Follow-ons are what review found in the carried text without reworking it.
+- Process: eugenelim approves both the spec and the plan gates. **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.

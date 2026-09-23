@@ -51,19 +51,24 @@ name   = "Inspectable Diligence MVP"
 status = "active"
 
 ["ini-001".work]
-# Phase 1 walking skeleton. Cut into three specs on 2026-09-18 after a single
-# spec did not converge across three review rounds, then the agent-runtime spec
-# was cut into three again on 2026-09-20 because it carried AC-0201 through
-# AC-0232 — about two and a half times either sibling. The dependency chain is
-# real: everything needs the schema and pool, authority-containment and
-# step-lifecycle both need the compiler, and the evidence spec measures a system
-# the other four build. The three runtime specs are a chain: step-lifecycle's
-# resume criterion needs an approved tool body to run, which needs
-# authority-containment's predicate.
+# Phase 1 walking skeleton, now six specs after three cuts. Cut into three on
+# 2026-09-18 after a single spec did not converge across three review rounds;
+# the agent-runtime spec was cut into three again on 2026-09-20 because it
+# carried AC-0201 through AC-0232, about two and a half times either sibling;
+# and authority-containment was cut in two on 2026-09-23, separating the
+# containment fragment from the policy decision point that installs it.
+# The dependency chain below is real and is the authority — this comment is not.
+# Everything else needs the schema and pool. authority-containment is now a pure
+# domain library and needs the compiler no longer, which is why its only edge is
+# the foundation. The decision point needs the compiler, because it extends the
+# toolset stack that spec ships. step-lifecycle's resume criterion needs an
+# approved tool body to run, which needs the decision point's predicate, and the
+# evidence spec measures the system the other five build.
 queue = [
-  { path = "docs/specs/walking-skeleton-authority-containment/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 authority containment: the containment fragment over interpreted arguments, and the policy decision point that refuses on argument value and records the denial", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }] },
-  { path = "docs/specs/walking-skeleton-step-lifecycle/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 step lifecycle: the scoped-role Bedrock call, the step deadline, suspension for approval, and persistence and resume from bytes alone", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }] },
-  { path = "docs/specs/walking-skeleton-evidence/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 evidence: run state machine and publication, browser stream, the four Phase 1 measurements, analytical re-baseline, and the record of what was not established", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-step-lifecycle/spec.md" }] },
+  { path = "docs/specs/walking-skeleton-authority-containment/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 authority containment: the containment fragment over interpreted arguments, its canonicaliser, and the authoring-time refusals that narrow the decidable fragment", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }] },
+  { path = "docs/specs/walking-skeleton-policy-decision-point/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 policy decision point: refusal on argument value, the fenced policy.decision append and its ordering, the duplicate-invocation failure, and the grants the split rests on", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }] },
+  { path = "docs/specs/walking-skeleton-step-lifecycle/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 step lifecycle: the scoped-role Bedrock call, the step deadline, suspension for approval, and persistence and resume from bytes alone", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-policy-decision-point/spec.md" }] },
+  { path = "docs/specs/walking-skeleton-evidence/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 evidence: run state machine and publication, browser stream, the four Phase 1 measurements, analytical re-baseline, and the record of what was not established", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-policy-decision-point/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-step-lifecycle/spec.md" }] },
 ]
 active = []
 shipped = [
