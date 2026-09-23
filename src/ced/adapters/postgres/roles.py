@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 import psycopg
 
@@ -145,6 +145,36 @@ class IntegrationTool:
     tool_name: str
 
 
+#: The values `integration_registry.version` can hold.
+#:
+#: Migration 0003 adds that column as `integer`. **What this bound
+#: prevents**: without it a wider value would reach the pin query's
+#: `::integer[]` cast first, and meet it as `NumericValueOutOfRange` before
+#: `decode_role_record` had run. Withholding the pin keeps the refusal on
+#: the decode seam, and both ends overflow, not only the upper one.
+#:
+#: Written as two comparisons rather than a `range` on purpose. `x in
+#: range(...)` is `O(1)` only for an `int`; for anything else it falls back
+#: to a scan of every value, so a stored object version turned the pin read
+#: into minutes of work that still returned the same answer. Comparison
+#: raises `TypeError` on a non-`int` instead, which is why the type test
+#: guarding these two lines is load-bearing rather than merely faster.
+_PINNED_VERSION_MIN: Final = -(2**31)
+_PINNED_VERSION_MAX: Final = 2**31 - 1
+
+
+_CEILING_BINDING_FIELDS: Final[tuple[tuple[str, type], ...]] = (
+    ("integration_name", str),
+    ("integration_version", int),
+    ("tool_name", str),
+)
+"""The ratified ceiling binding shape, as migration 0003 fixes it.
+
+`predicates` is deliberately absent: that revision assigns its encoding to
+`walking-skeleton-authority-containment`, so this seam does not judge it.
+"""
+
+
 def _row_label(record: Mapping[str, Any]) -> str:
     """Name a registry row for a refusal message.
 
@@ -214,8 +244,9 @@ def _check_integration_record(record: Mapping[str, Any]) -> None:
     # closed defect describes. That is a second rule about what a tool name
     # *is*, and it belongs with the criterion this check already ships
     # without, not ahead of it — recorded in `workspace.toml` rather than
-    # decided here. The sibling gap on `ceiling` — a non-mapping entry that
-    # loads and appends no refusal event — has its own open register entry.
+    # decided here. The sibling gap on `ceiling` is closed too; the rule and
+    # why it takes two seams belong to those seams, `decode_role_record` and
+    # `_ceiling_pins`.
     for position, tool_name in enumerate(tools):
         if not isinstance(tool_name, str):
             raise RoleLoadError(
@@ -261,6 +292,64 @@ def decode_role_record(
             f"an array is required and `[]` is the empty ceiling"
         )
 
+    # Beyond AC-0262, which speaks only to the ceiling being an array. This
+    # judges what is in it, and the position is in the message because a role
+    # may bind many integrations and the operator has to find the one that
+    # failed.
+    #
+    # **It ships with no criterion of its own**, by owner decision of
+    # 2026-09-22 and on the same routing as the `tools` element rule above:
+    # the spec that owns AC-0262 is Shipped with no controlled-amendment
+    # transition available, and no successor spec owns the loader. The
+    # decision, the alternatives it beat and the residual are recorded in
+    # `workspace.toml`, under
+    # `ceiling-element-unchecked-yields-no-refusal-event`.
+    #
+    # Refused here rather than tolerated further down, for the same reason
+    # the `tools` element rule is: this is the seam every record-shape
+    # refusal lives on, and it is the one that raises `RoleLoadError`.
+    #
+    # **What goes wrong without it is a missing event, not a missing
+    # refusal.** A malformed entry clears the array check, is dropped by
+    # `_ceiling_pins`, is read as a real binding by `quarantined = not
+    # ceiling` in the compiler, and then dies in `_bound_integrations` —
+    # `entry.get(...)` on a non-mapping raises `AttributeError`, and an
+    # unhashable `integration_name` or `integration_version` makes the
+    # `by_pin` lookup raise `TypeError`. `append_role_refusal` maps neither
+    # to an event type and refuses to file either, so the record never
+    # becomes an agent and the event log says nothing about why.
+    #
+    # The shape it judges is `_CEILING_BINDING_FIELDS`, which owns the
+    # statement of what a binding is and what this seam therefore leaves
+    # alone. Checking every field rather than only the two the pin is built
+    # from keeps the rule the shape, rather than a list of the values that
+    # happen to crash today.
+    for position, entry in enumerate(ceiling):
+        if not isinstance(entry, Mapping):
+            raise RoleLoadError(
+                f"{role_label} has ceiling[{position}] of type "
+                f"{type(entry).__name__}; every entry must be a binding object"
+            )
+        for field, expected in _CEILING_BINDING_FIELDS:
+            value = entry.get(field)
+            # `isinstance(True, int)` holds, so a bare `int` check would admit
+            # a boolean version as a pinned version.
+            if not isinstance(value, expected) or isinstance(value, bool):
+                raise RoleLoadError(
+                    f"{role_label} has ceiling[{position}].{field} of type "
+                    f"{type(value).__name__}; {expected.__name__} is required"
+                )
+        # Range, not just type. jsonb stores an arbitrarily wide integer and
+        # the pinned column is `integer`, so a wider value is one the registry
+        # cannot hold and therefore pins nothing that exists.
+        version = entry["integration_version"]
+        if not _PINNED_VERSION_MIN <= version <= _PINNED_VERSION_MAX:
+            raise RoleLoadError(
+                f"{role_label} has ceiling[{position}].integration_version "
+                f"{version}, outside the range integration_registry.version "
+                f"can hold"
+            )
+
     for record in integration_records:
         _check_integration_record(record)
 
@@ -284,6 +373,46 @@ def _ceiling_pins(role_record: Mapping[str, Any]) -> tuple[tuple[str, int], ...]
     judgement, so a malformed ceiling yields no pins and the refusal still
     comes from the decode seam with its own message. Raising here would move
     the refusal off the seam the criteria are decided against.
+
+    **Two invariants, and neither is a mirror of the decode seam's refusal
+    rule.** Every pin this keeps is one the query below can carry, and every
+    entry the decode seam accepts is pinned. The seam is free to refuse more
+    than this skips, and it does — there is no `tool_name` test here, because
+    `tool_name` is not part of a pin. Do not read the decode checks as
+    duplicates of these.
+
+    Only the first invariant has checks behind it. The second is a design
+    rule the two seams keep by restating the same name, `int` and `bool`
+    tests in separate code, so widening the decode seam's type rule could
+    break it silently. That is left unpinned deliberately, because breaching
+    it is harmless: an entry the seam accepts but this skips resolves to no
+    registry row, and the compiler raises AC-0260's `RoleCompileError` — a
+    refusal `append_role_refusal` already maps, so the event survives. It is
+    the reverse direction that would return this defect, and that one is
+    checked.
+
+    The first invariant is the load-bearing one. An entry this keeps is one
+    the pin query is about to receive, and an entry that query cannot accept
+    fails *there* — before `decode_role_record` has run, and as an exception
+    `append_role_refusal` cannot classify into an event. So every test here
+    is about what the query can carry, not about taste:
+
+    * the type tests, because a wrongly typed name or version is not a pin;
+    * `bool`, separately, because `isinstance(True, int)` holds. A boolean
+      version would otherwise be kept, and a ceiling pinning one integration
+      at `1` and another at `true` builds the version list `[1, True]`, which
+      psycopg refuses to dump as a mixed-type array;
+    * the range, because `integration_registry.version` is `integer` and the
+      query casts to `::integer[]`, so a wider jsonb integer raises
+      `NumericValueOutOfRange`.
+
+    The type test also guards the two range comparisons, which raise
+    `TypeError` on a value that is not an `int`.
+
+    What stays tolerant is the *response*: a skipped entry yields no pin
+    rather than an exception, so the refusal still arrives from the decode
+    seam with the decode seam's message. Raising here would move a
+    record-shape refusal off the one place record-shape refusals live.
     """
     ceiling = role_record.get("ceiling")
     if not isinstance(ceiling, list):
@@ -294,7 +423,12 @@ def _ceiling_pins(role_record: Mapping[str, Any]) -> tuple[tuple[str, int], ...]
             continue
         name = entry.get("integration_name")
         version = entry.get("integration_version")
-        if isinstance(name, str) and isinstance(version, int):
+        if (
+            isinstance(name, str)
+            and isinstance(version, int)
+            and not isinstance(version, bool)
+            and _PINNED_VERSION_MIN <= version <= _PINNED_VERSION_MAX
+        ):
             pins.append((name, version))
     return tuple(dict.fromkeys(pins))
 
