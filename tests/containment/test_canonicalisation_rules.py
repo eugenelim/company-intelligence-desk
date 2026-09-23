@@ -322,3 +322,31 @@ def _canonical_form(value: str, *, without: str | None) -> str:
         return str(canonicalise(DomainType.URL, value))
     with rule_disabled(without):
         return str(canonicalise(DomainType.URL, value))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://.sec.gov/evidence/x",
+        "https://www.sec..gov/evidence/x",
+        "https://www.sec.gov\u3002\u3002/evidence/x",
+        "https:///evidence/x",
+    ],
+)
+def test_refuse_ambiguous_parse_is_what_refuses_an_empty_label(value: str) -> None:
+    """The empty-label guard is in the rule its docstring says it is in.
+
+    The standard library's IDNA codec happens to reject most of these too, so
+    asserting against the full pipeline would pass whether or not this
+    package had a guard of its own — and the behaviour would then rest on a
+    codec detail nothing here records a dependency on. Removing
+    `idna-normalise-host` takes that incidental refusal away, so what is left
+    refusing is `refuse-ambiguous-parse`.
+    """
+    entry = sec_ceiling()
+    assert _refuses(entry, {"url": value})
+    with rule_disabled("idna-normalise-host"):
+        assert _refuses(entry, {"url": value}), (
+            "with the IDNA rule gone nothing refused an empty-label host, so the "
+            "guard `refuse-ambiguous-parse` documents does not exist"
+        )

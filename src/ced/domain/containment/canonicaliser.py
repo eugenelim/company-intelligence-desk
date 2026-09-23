@@ -62,6 +62,11 @@ _DEFAULT_PORTS: Final[dict[str, int]] = {"http": 80, "https": 443}
 #: still-encoded separator looks like after one decoding round.
 _ENCODED_SEPARATOR: Final[re.Pattern[str]] = re.compile(r"%(?:2[eEfF]|5[cC]|25)")
 
+#: The four characters IDNA treats as a label separator. A host predicate
+#: that knows only the ASCII one is a host predicate with three spare
+#: spellings of every name.
+_LABEL_SEPARATORS: Final[tuple[str, ...]] = ("\u002e", "\uff0e", "\u3002", "\uff61")
+
 #: Characters that make a URL mean different things to different parsers.
 #: `urlsplit` silently strips tab, newline and carriage return, so a value
 #: carrying one has already diverged from what a stricter client would see.
@@ -72,6 +77,22 @@ _AMBIGUOUS_CHARACTERS: Final[frozenset[str]] = frozenset(
 
 def _valid_port(port_text: str) -> bool:
     return port_text.isdigit() and 1 <= int(port_text) <= 65535
+
+
+def _split_labels(host: str) -> str:
+    """Return `host` with every IDNA label separator spelled as a full stop.
+
+    IDNA treats four characters as label separators, and a check that knows
+    only the ASCII one reads `gov\uff0e` as a single label — so a trailing
+    stop written in any of the other three survives a root-label drop and
+    comes back as `.` once the host is encoded. Doing this here rather than
+    reading it off the codec's output keeps the label structure something
+    this package decides, instead of something a standard-library
+    implementation detail decides for it.
+    """
+    for separator in _LABEL_SEPARATORS:
+        host = host.replace(separator, ".")
+    return host
 
 
 def _drop_root_label(host: str) -> str:
@@ -89,6 +110,11 @@ def _drop_root_label(host: str) -> str:
 def _empty_label(host: str) -> bool:
     """Return whether `host` has a label with nothing in it."""
     return host == "" or any(label == "" for label in host.split("."))
+
+
+def _label_structure(host: str) -> str:
+    """Return `host` with its separators regularised and its root label gone."""
+    return _drop_root_label(_split_labels(host))
 
 
 @dataclass(frozen=True)
@@ -191,9 +217,11 @@ def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
             "parsers disagree on which side is the host, so the value has no "
             "single meaning"
         )
-    if not url.host:
+    if _empty_label(url.host):
         raise ContainmentUndecidable(
-            "the URL names no host, so no host predicate can decide it"
+            f"host {url.host!r} has a label with nothing in it — a missing host, a "
+            "leading separator or a doubled one — so it names no single resolvable "
+            "name and no host predicate can decide it"
         )
     if url.port_text and not _valid_port(url.port_text):
         raise ContainmentUndecidable(
@@ -378,7 +406,7 @@ def canonicalise_host(host: str) -> str:
     canonical itself. Comparing a canonical value against a literal somebody
     typed is a string coincidence, not a containment check.
     """
-    bounded = _drop_root_label(host)
+    bounded = _label_structure(host)
     if _empty_label(bounded):
         raise ContainmentUndecidable(
             f"{host!r} has a label with nothing in it, so it names no domain and "
@@ -442,10 +470,11 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
     # prefix check and resolves to `elsewhere`.
     userinfo, _, authority = parts.netloc.rpartition("@")
     host, port_text = _split_authority(authority)
-    # The root label is part of the parse, not of a clause: `sec.gov.` is the
-    # same name as `sec.gov` to every resolver, so a canonical host carries
-    # one spelling of it.
-    host = _drop_root_label(host)
+    # A host's label structure is part of the parse, not of a clause: every
+    # host predicate needs to know where the labels are before any clause
+    # runs, and `sec.gov.` is the same name as `sec.gov` to every resolver,
+    # so a canonical host carries one spelling of it.
+    host = _label_structure(host)
     url = UrlUnderReview(
         raw=value,
         userinfo=userinfo,

@@ -32,7 +32,21 @@ _SEC = HostInDomain("sec.gov")
 
 @pytest.mark.parametrize(
     "suffix",
-    ["gov", "com", "co.uk", "GOV", "github.io", "gov.", "GOV.", "s3.amazonaws.com."],
+    [
+        "gov",
+        "com",
+        "co.uk",
+        "GOV",
+        "github.io",
+        "gov.",
+        "GOV.",
+        "s3.amazonaws.com.",
+        # The other three characters IDNA reads as a label separator. Each
+        # spells the same trailing root label as `gov.` does.
+        "gov\uff0e",
+        "gov\u3002",
+        "gov\uff61",
+    ],
 )
 def test_a_public_suffix_domain_argument_is_refused(suffix: str) -> None:
     with pytest.raises(CeilingDeclarationRefused, match="public suffix"):
@@ -46,7 +60,9 @@ def test_a_registrable_domain_argument_is_accepted(domain: str) -> None:
     assert entry.arguments["url"].predicates == (_HTTPS, HostInDomain(domain.lower()))
 
 
-@pytest.mark.parametrize("domain", ["", ".", "sec..gov", ".sec.gov"])
+@pytest.mark.parametrize(
+    "domain", ["", ".", "sec..gov", ".sec.gov", "\uff0e", "sec\u3002\u3002gov"]
+)
 def test_a_host_argument_with_an_empty_label_is_refused(domain: str) -> None:
     """A name with a hole in it ranges over every host or over none.
 
@@ -64,18 +80,23 @@ def test_the_root_label_is_normalised_on_both_sides() -> None:
     A resolver reads the two identically, so a fragment that does not would
     hand an author a second spelling that the public-suffix refusal does not
     cover: `host_in_domain("gov.")` was authorable and admitted
-    `https://attacker.gov./`. The normalisation has to run on both sides —
-    one that runs on only one of them is a differential, not a canonical
-    form.
+    `https://attacker.gov./`. Two things follow and both are asserted here.
+    The normalisation runs on **both sides**, because one that runs on only
+    one of them is a differential rather than a canonical form. And it runs
+    over **all four** IDNA label separators, because a fix that knew only the
+    ASCII stop left the same bypass reachable through a fullwidth one.
     """
-    entry = declare("fetch", {"url": ("url", (_HTTPS, HostInDomain("sec.gov.")))})
-    assert entry.arguments["url"].predicates[1] == HostInDomain("sec.gov")
+    for spelling in ("sec.gov.", "sec.gov\uff0e", "sec.gov\u3002", "sec.gov\uff61"):
+        entry = declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(spelling)))})
+        assert entry.arguments["url"].predicates[1] == HostInDomain("sec.gov")
 
-    admitted = evaluate(entry, {"url": "https://www.sec.gov./report.pdf"})
-    assert isinstance(admitted, Admitted)
-    assert str(admitted.canonical["url"]) == "https://www.sec.gov/report.pdf"
-
-    assert isinstance(evaluate(entry, {"url": "https://attacker.gov./report.pdf"}), Denied)
+    for stop in (".", "\uff0e", "\u3002", "\uff61"):
+        admitted = evaluate(entry, {"url": f"https://www.sec.gov{stop}/report.pdf"})
+        assert isinstance(admitted, Admitted)
+        assert str(admitted.canonical["url"]) == "https://www.sec.gov/report.pdf"
+        assert isinstance(
+            evaluate(entry, {"url": f"https://attacker.gov{stop}/report.pdf"}), Denied
+        )
 
 
 def test_the_suffix_answer_comes_from_the_dataset_not_a_local_list() -> None:

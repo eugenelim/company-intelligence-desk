@@ -182,12 +182,28 @@ made `host_in_domain("")` authorable, which satisfies AC-0240's
 host-constraining requirement and admits every host written with a root
 label — a default-allow wearing the shape of a constraint.
 
-Two things were needed and both are in. The root label is dropped **in the
-parse**, on the value's host and on a ceiling's host argument alike, because
-a normalisation only one side runs is a differential rather than a canonical
-form. And a host with an empty label — no labels at all, a bare dot, a
-doubled dot, a leading dot — is refused: at authoring time for a predicate
-argument, and by `refuse-ambiguous-parse` for a value.
+Three things were needed and all three are in.
+
+**The label separators are regularised first.** IDNA reads four characters as
+a label separator — the ASCII full stop, U+FF0E, U+3002 and U+FF61 — so a
+first attempt that knew only the ASCII one left the identical bypass
+reachable through a fullwidth stop: `host_in_domain("gov\uff0e")` was
+accepted and stored `HostInDomain("gov.")`, the very value the fix existed to
+eliminate. The four are mapped to one spelling here rather than read off the
+codec's output, so where a name's labels are is something this package
+decides.
+
+**Then the root label is dropped, in the parse**, on the value's host and on
+a ceiling's host argument alike, because a normalisation only one side runs
+is a differential rather than a canonical form.
+
+**Then a host with an empty label is refused** — no labels at all, a bare
+stop, a doubled stop, a leading one. At authoring time for a predicate
+argument, and by `refuse-ambiguous-parse` for a value. That second guard is
+asserted with `idna-normalise-host` removed, because the standard library's
+codec rejects most of these too: against the full pipeline the assertion
+would pass whether or not this package had a guard, and the behaviour would
+rest on a codec detail nothing here records a dependency on.
 
 It sits in the parse rather than in a rule for the same reason the userinfo
 and port splits do: r5's clause list does not name it, and every host
@@ -219,5 +235,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 397 passed, 195 deselected in 16.00s
+1 failed, 406 passed, 195 deselected in 13.35s
 ```
