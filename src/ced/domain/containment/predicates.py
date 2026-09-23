@@ -43,6 +43,7 @@ __all__ = [
     "NumberRange",
     "OneOf",
     "PathWithin",
+    "RESOLVABLE_SCHEMES",
     "Predicate",
     "Prefix",
     "SchemeIn",
@@ -155,6 +156,13 @@ EXPRESSIBLE_PREDICATES: Final[dict[DomainType, frozenset[type]]] = {
     DomainType.NUMBER: frozenset({NumberRange}),
     DomainType.DATE: frozenset({DateRange}),
 }
+
+#: The schemes a `url` argument may name. r8 § 4 puts every outbound request
+#: through an egress proxy that is an HTTP allowlist, so a ceiling admitting
+#: any other scheme describes a destination this system has no path to — and
+#: `file:` in particular turns a host predicate into a constraint on nothing,
+#: because the resolver ignores the authority.
+RESOLVABLE_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
 
 #: The constructors that constrain which host a `url` argument may name.
 #: AC-0240 requires one of these to be present on every `url` argument; it

@@ -49,7 +49,17 @@ input it cannot decide" — and left the type unresolved. Grounding arriving for
 a seam the plan predicted belongs here. Neither approved artifact needs
 changing; the decision-point spec imports the name.
 
-## T1 — how r5's clause list became seven named rules
+## T1 — how r5's clause list became named rules
+
+> **Superseded in part, 2026-09-23.** This section was written when the
+> canonicaliser carried seven rules and settled what counts as one rule for
+> AC-0216's indexing. `refuse-ambiguous-parse` was later split into four,
+> so the rule set is **ten** — nine over `url`, one over `fs-path` — and
+> that rule no longer exists. The section below keeps its original counts
+> and names because the reasoning is what it records; the split and its
+> reason are in *what the evidence proves, and how that was checked*. Where
+> the two disagree on a count, the later one is current, and
+> `canonicaliser.rule_names()` is the answer to both.
 
 **Date:** 2026-09-23. AC-0216 is indexed by *rule*, so what counts as one rule
 had to be settled before the mutation evidence meant anything.
@@ -156,12 +166,14 @@ rule that *is* load-bearing.
 against canonicalised `host_eq`, `host_in_domain` and `path_within` ceilings
 and found zero deny-to-admit flips for either rule.
 
-**Where the gap is recorded for a gate.** AC-0216 carries
-`(deferred: canonicaliser)` in `spec.md`, resolving to the
-`ac-0216-two-clauses-fail-closed` entry in `workspace.toml` `[backlog].open`,
-which `lint-spec-status.py` checks. **T1's pinned `Done when` requires
-AC-0213 through AC-0218 green and is therefore not met**, which is the second
-thing the owner is being asked to rule on.
+**Where the gap was recorded for a gate.** *Superseded on 2026-09-23 by the
+amendment.* While the criterion stood unamended, AC-0216 carried
+`(deferred: canonicaliser)` in `spec.md`, resolving to an
+`ac-0216-two-clauses-fail-closed` entry in `workspace.toml` `[backlog].open`
+that `lint-spec-status.py` checked, and T1's pinned `Done when` was
+therefore unmet. The amendment closed both: the marker and the entry are
+gone and neither resolves any more. The paragraph is kept because it records
+what the gate state was while the decision was open.
 
 **The amendment, recommended here and since taken.** AC-0216 now requires the
 mutation case of every rule whose omission *can* admit, and of the rest a
@@ -224,11 +236,12 @@ predicate needs a single spelling of the name before any clause runs.
 
 ## T1 — four strengthenings beyond the criteria, all fail-closed
 
-**Date:** 2026-09-23. **Status: needs an owner decision.** Found by the
-implementation security and quality reviews. Each closes a default-allow the
-criteria do not reach, each fails closed, and each is reversible in one
-place. They are listed here and in `spec.md` § Follow-ons so the owner can
-ratify or reverse them rather than inherit them.
+**Date:** 2026-09-23. **Status: decided on 2026-09-23 — the first three ratified, the fourth
+reclassified.** Found by the implementation security and quality reviews.
+Each closes a default-allow the criteria do not reach and each fails closed.
+`spec.md` § Follow-ons carries the grounds for the three that are
+strengthenings; the fourth is a defect fix against AC-0315 and needed no
+ratification. The table below is what was put to the owner.
 
 | Strengthening | What was open | Where |
 | --- | --- | --- |

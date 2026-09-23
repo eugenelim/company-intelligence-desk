@@ -28,20 +28,32 @@ the design rests on, and the spec's `Never do` states the same rule in prose.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
 from ced.domain.containment.canonicaliser import (
     FS_PATH_RULES,
     URL_RULES,
+    CanonicalUrl,
     canonicalise,
     rule_names,
 )
 from ced.domain.containment.ceiling import Admitted, CeilingEntry, declare, evaluate
 from ced.domain.containment.domain_types import DomainType
 from ced.domain.containment.errors import ContainmentUndecidable
-from ced.domain.containment.predicates import Within
+from ced.domain.containment.predicates import (
+    EXPRESSIBLE_PREDICATES,
+    HostEq,
+    HostInDomain,
+    PathWithin,
+    Predicate,
+    SchemeIn,
+    Within,
+    admits,
+)
 from tests.containment.fixture import (
     canonicaliser_clauses,
     decode_and_dot_segments_transposed,
@@ -436,3 +448,83 @@ def test_the_default_port_of_each_scheme_is_dropped() -> None:
         assert str(canonicalise(DomainType.URL, f"{scheme}://h.example:{other}/x")) == (
             f"{scheme}://h.example:{other}/x"
         )
+
+
+# AC-0216's fail-closed limb is entered on a premise about the *predicate*
+# table, and the criterion's amendment trigger names that table as well as
+# r5's clause list. These two checks derive the premise from
+# `EXPRESSIBLE_PREDICATES` rather than letting `_FAIL_CLOSED_RULES` assert
+# it, so adding a constructor that ranges over a port, or one that reads a
+# host case-sensitively, reds here and forces the rule back into the
+# mutation limb where it belongs.
+
+
+#: One predicate per `url` constructor, built from canonical arguments the
+#: way `declare` builds them. Keyed by constructor so the two premise checks
+#: below iterate the predicate table itself: a constructor added to
+#: `EXPRESSIBLE_PREDICATES[url]` and not given a probe reds the coverage
+#: check, and one given a probe is then judged by both premises.
+_PROBES: Mapping[type, tuple[Predicate, ...]] = {
+    SchemeIn: (SchemeIn(frozenset({"https"})), SchemeIn(frozenset({"https", "http"}))),
+    HostEq: (HostEq("www.sec.gov"), HostEq("attacker.example")),
+    HostInDomain: (HostInDomain("sec.gov"), HostInDomain("attacker.example")),
+    PathWithin: (PathWithin("/evidence/"), PathWithin("/other/")),
+}
+
+
+def test_every_url_constructor_has_a_probe() -> None:
+    """Setup check: a premise asserted over a constructor nobody probes is no premise."""
+    assert set(_PROBES) == set(EXPRESSIBLE_PREDICATES[DomainType.URL])
+
+
+def _url(value: str) -> CanonicalUrl:
+    canonical = canonicalise(DomainType.URL, value)
+    assert isinstance(canonical, CanonicalUrl)
+    return canonical
+
+
+@pytest.mark.parametrize(
+    "constructor", sorted(EXPRESSIBLE_PREDICATES[DomainType.URL], key=lambda t: t.__name__)
+)
+def test_no_url_predicate_ranges_over_a_port(constructor: type) -> None:
+    """`drop-default-ports` is fail-closed only while this holds.
+
+    The rule normalises a component nothing reads, so removing it cannot
+    change a decision. That is a fact about the predicate table, not about
+    the canonicaliser, and r5 closes the fragment over numeric ranges — so a
+    later phase adding a port-ranging constructor makes the rule
+    load-bearing while its fail-closed evidence stays green. This is what
+    reds when that happens.
+    """
+    for predicate in _PROBES[constructor]:
+        for base in ("https://www.sec.gov/evidence/x", "https://attacker.example/other/y"):
+            without = _url(base)
+            with_port = replace(without, port=8443)
+            assert admits(predicate, without) == admits(predicate, with_port), (
+                f"{constructor.__name__} reads the port, so drop-default-ports is "
+                "load-bearing and cannot sit in AC-0216's fail-closed limb"
+            )
+
+
+@pytest.mark.parametrize(
+    "constructor", sorted(EXPRESSIBLE_PREDICATES[DomainType.URL], key=lambda t: t.__name__)
+)
+def test_folding_a_host_never_removes_an_admission(constructor: type) -> None:
+    """`lowercase-host-not-path` is fail-closed only while this holds.
+
+    Its ground is not that nothing reads the host — `host_eq` and
+    `host_in_domain` both do — but that folding is *monotone* against a
+    ceiling argument that is already folded: every value admitted unfolded
+    is admitted folded, so removing the rule can only shrink the admitted
+    set. A constructor that read a host case-sensitively would break that,
+    and this is what reds.
+    """
+    for predicate in _PROBES[constructor]:
+        for base in ("https://WWW.SEC.GOV/evidence/x", "https://Www.Sec.Gov/EVIDENCE/y"):
+            unfolded = replace(_url(base), host=urlsplit(base).netloc)
+            folded = replace(unfolded, host=unfolded.host.lower())
+            assert admits(predicate, folded) or not admits(predicate, unfolded), (
+                f"{constructor.__name__} admits a value unfolded that it refuses "
+                "folded, so lowercase-host-not-path can remove an admission and "
+                "cannot sit in AC-0216's fail-closed limb"
+            )
