@@ -27,6 +27,7 @@ the design rests on, and the spec's `Never do` states the same rule in prose.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -459,17 +460,87 @@ def test_the_default_port_of_each_scheme_is_dropped() -> None:
 # mutation limb where it belongs.
 
 
-#: One predicate per `url` constructor, built from canonical arguments the
-#: way `declare` builds them. Keyed by constructor so the two premise checks
-#: below iterate the predicate table itself: a constructor added to
-#: `EXPRESSIBLE_PREDICATES[url]` and not given a probe reds the coverage
-#: check, and one given a probe is then judged by both premises.
-_PROBES: Mapping[type, tuple[Predicate, ...]] = {
-    SchemeIn: (SchemeIn(frozenset({"https"})), SchemeIn(frozenset({"https", "http"}))),
-    HostEq: (HostEq("www.sec.gov"), HostEq("attacker.example")),
-    HostInDomain: (HostInDomain("sec.gov"), HostInDomain("attacker.example")),
+#: One predicate per `url` constructor, **read back from `declare`** rather
+#: than written canonical here. That is the difference between deriving the
+#: monotonicity ground and assuming half of it: the ground is that folding a
+#: host cannot remove an admission, which holds only if the predicates are
+#: insensitive to host case *and* the declaration surface folds a ceiling's
+#: host argument. Probes written lowercase by hand assert the first and
+#: assume the second, and a regression that stopped folding `host_eq`'s
+#: argument was measured suite-green under exactly that shape.
+#:
+#: The arguments below are deliberately mixed-case so the readback is
+#: evidence about `declare`.
+_MIXED_CASE_ARGUMENTS: Mapping[type, tuple[Predicate, ...]] = {
+    SchemeIn: (SchemeIn(frozenset({"https"})),),
+    HostEq: (HostEq("WWW.SEC.GOV"), HostEq("Attacker.Example")),
+    HostInDomain: (HostInDomain("SEC.GOV"), HostInDomain("Attacker.Example")),
     PathWithin: (PathWithin("/evidence/"), PathWithin("/other/")),
 }
+
+
+def _declared(predicate: Predicate) -> Predicate:
+    """Return `predicate` as the authoring surface stores it."""
+    entry = declare(
+        "probe",
+        {"u": ("url", (SchemeIn(frozenset({"https"})), HostInDomain("sec.gov"), predicate))},
+    )
+    stored = [p for p in entry.arguments["u"].predicates if type(p) is type(predicate)]
+    return stored[-1]
+
+
+_PROBES: Mapping[type, tuple[Predicate, ...]] = {
+    constructor: tuple(_declared(p) for p in written)
+    for constructor, written in _MIXED_CASE_ARGUMENTS.items()
+}
+
+
+#: Which derivation grounds each fail-closed rule, by test name. A rule
+#: entering the weak limb without one is refused here rather than admitted
+#: by whoever added its reason string.
+_DERIVED_GROUNDS: Mapping[str, tuple[str, ...]] = {
+    "drop-default-ports": ("test_no_url_predicate_ranges_over_a_port",),
+    "lowercase-host-not-path": (
+        "test_folding_a_host_never_removes_an_admission",
+        "test_the_declaration_surface_folds_a_host_argument",
+    ),
+}
+
+
+def test_every_fail_closed_rule_names_a_derivation_that_exists() -> None:
+    """AC-0216's weak limb is entered by evidence, not by declaration.
+
+    Adding a rule to `_FAIL_CLOSED_RULES` with only a reason string leaves
+    both existing derivations passing — they are about the port and about
+    host case — so without this the third rule's limb membership would be
+    an author's assertion again.
+    """
+    assert set(_DERIVED_GROUNDS) == set(_FAIL_CLOSED_RULES)
+    module = sys.modules[__name__]
+    for rule, names in _DERIVED_GROUNDS.items():
+        for name in names:
+            assert callable(getattr(module, name, None)), (
+                f"{rule!r} names the derivation {name!r}, which does not exist"
+            )
+
+
+def test_the_declaration_surface_folds_a_host_argument() -> None:
+    """The half of the monotonicity ground that lives in `declare`.
+
+    `lowercase-host-not-path` is fail-closed because folding a value's host
+    cannot remove an admission — and that holds only against a ceiling
+    argument already folded. This is what reds if `declare` stops folding
+    one, instead of the failure showing up as a neighbouring criterion's
+    suffix-lookup case or not at all.
+    """
+    for written in (*_MIXED_CASE_ARGUMENTS[HostEq], *_MIXED_CASE_ARGUMENTS[HostInDomain]):
+        stored = _declared(written)
+        rendered = stored.host if isinstance(stored, HostEq) else stored.domain
+        assert rendered == rendered.lower(), (
+            f"declare stored {stored!r} unfolded, so a host predicate is compared "
+            "against an argument that is not canonical and folding a value's host "
+            "can remove an admission"
+        )
 
 
 def test_every_url_constructor_has_a_probe() -> None:

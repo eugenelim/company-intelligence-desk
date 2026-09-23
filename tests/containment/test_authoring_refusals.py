@@ -417,7 +417,7 @@ def test_a_predicate_outside_its_row_is_refused(domain_type: str, predicate: Pre
         declare("fetch", {"a": (domain_type, (predicate,))})
 
 
-@pytest.mark.parametrize("scheme", ["file", "gopher", "ftp", "dict", "jar"])
+@pytest.mark.parametrize("scheme", ["file", "gopher", "ftp", "dict", "jar", "http"])
 def test_a_url_argument_may_not_name_a_scheme_the_egress_path_cannot_carry(
     scheme: str,
 ) -> None:
@@ -427,9 +427,11 @@ def test_a_url_argument_may_not_name_a_scheme_the_egress_path_cannot_carry(
     where the resolver ignores the authority and the host predicate beside
     it decides nothing. A check that required only *some* `scheme_in` left
     `scheme_in{file}` authorable — the very case the refusal is recorded as
-    closing — so the set is bounded as well as required. r8 § 4 puts every
-    outbound request through an egress proxy that is an HTTP allowlist, so
-    any other scheme names a destination this system has no path to.
+    closing — so the set is bounded as well as required. r8 § 2's trust table
+    names HTTPS for this system's one egress edge, and r8 § 3 and § 4 call
+    that proxy a *hostname* allowlist naming no scheme set — so `http` is
+    refused too. An earlier version of this check admitted it, citing an
+    "HTTP allowlist" in r8 § 4 that r8 does not contain.
     """
     with pytest.raises(CeilingDeclarationRefused, match="outside"):
         declare(
@@ -438,11 +440,11 @@ def test_a_url_argument_may_not_name_a_scheme_the_egress_path_cannot_carry(
         )
 
 
-def test_a_url_argument_may_name_the_schemes_the_egress_path_carries() -> None:
+def test_a_url_argument_may_name_the_scheme_the_egress_path_carries() -> None:
     """The other direction: refusing every scheme would satisfy the test above."""
-    for schemes in (frozenset({"https"}), frozenset({"http"}), frozenset({"http", "https"})):
-        entry = declare("fetch", {"url": ("url", (SchemeIn(schemes), HostInDomain("sec.gov")))})
-        assert entry.arguments["url"].predicates[0] == SchemeIn(schemes)
+    schemes = frozenset({"https"})
+    entry = declare("fetch", {"url": ("url", (SchemeIn(schemes), HostInDomain("sec.gov")))})
+    assert entry.arguments["url"].predicates[0] == SchemeIn(schemes)
 
 
 def test_one_bad_scheme_spoils_the_set() -> None:
