@@ -381,3 +381,25 @@ def test_refuse_ambiguous_parse_is_what_refuses_an_empty_label(value: str) -> No
             "with the IDNA rule gone nothing refused an empty-label host, so the "
             "guard `refuse-ambiguous-parse` documents does not exist"
         )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://\uff05\uff10\uff10.example/evidence/x",
+        "http://\uff05\uff12\uff45.sec.gov/evidence/x",
+    ],
+)
+def test_a_canonical_host_may_not_carry_a_percent_escape(value: str) -> None:
+    """The residual-separator refusal ranges over the path, not the host.
+
+    The host reaches its canonical form by the encoder, whose NFKC pass can
+    turn a fullwidth sequence into a literal `%` escape:
+    `http://\uff05\uff10\uff10.example/` used to canonicalise to host
+    `%00.example` and hand the adapter exactly that. A client that decodes
+    the authority then resolves a name this check never compared, which is
+    the differential the path's refusal exists to prevent, on the component
+    it does not reach.
+    """
+    with pytest.raises(ContainmentUndecidable, match="percent escape"):
+        canonicalise(DomainType.URL, value)

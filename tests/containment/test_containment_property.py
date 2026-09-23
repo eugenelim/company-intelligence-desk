@@ -4,12 +4,21 @@ The claim this spec makes about the fragment is set-theoretic — one
 predicate's admitted set is a subset of another's — so behaviour at chosen
 values is the wrong shape of evidence for it.
 
-**The oracle does not share the implementation under test.** `contains`
-answers symbolically: it compares two predicates' *arguments* and never parses
-a URL. The oracle answers extensionally: it runs a universe of concrete values
+**The oracle is a different computation from the one under test, and for two
+of the ten arms it is not independent of it.** `contains` answers
+symbolically: it compares two predicates' *arguments* and never parses a URL.
+The oracle answers extensionally: it runs a universe of concrete values
 through the real canonicaliser and `admits`, and asks whether one admitted set
-sits inside the other. The two computations meet only at their answer, which
-is what makes disagreement informative rather than circular.
+sits inside the other.
+
+What that does not cover: `contains(HostInDomain, …)` and
+`admits(HostInDomain, …)` both call `_in_domain`, and `contains(PathWithin, …)`
+and `admits(PathWithin, …)` both call `_within_path`. A boundary deleted from
+either helper moves both sides of the comparison together and every check in
+this module stays green — measured, not supposed. Those two arms are covered
+by `test_boundaries_are_load_bearing.py` instead, with direct fixtures on both
+sides of a label break and a segment break. This module is not evidence about
+them and does not claim to be.
 
 **The universe carries a witness for every predicate generated**, because
 every predicate is built from the same pools the universe is built from. That

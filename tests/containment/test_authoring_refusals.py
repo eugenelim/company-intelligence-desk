@@ -337,3 +337,16 @@ def test_the_suffix_dataset_records_the_day_it_was_published() -> None:
         "the snapshot now carries a suffix it did not; update the recorded "
         "as-of date and the ledger entry that reasons from it"
     )
+
+
+@pytest.mark.parametrize("root", ["", "relative/dir", "evidence", "./evidence"])
+def test_a_relative_filesystem_root_is_refused(root: str) -> None:
+    """A root that is not absolute resolves against the worker's directory.
+
+    The declaration's text then does not say what it admits, and two workers
+    started in different directories enforce different ceilings from the
+    same role record. Same grounds as the `within(/)` refusal, and beyond
+    any criterion in the same way.
+    """
+    with pytest.raises(CeilingDeclarationRefused, match="no absolute root"):
+        declare("fetch", {"path": ("fs-path", (Within(root),))})

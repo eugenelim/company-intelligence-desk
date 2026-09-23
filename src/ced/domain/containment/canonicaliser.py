@@ -75,7 +75,15 @@ _AMBIGUOUS_CHARACTERS: Final[frozenset[str]] = frozenset(
 
 
 def _valid_port(port_text: str) -> bool:
-    return port_text.isdigit() and 1 <= int(port_text) <= 65535
+    """Return whether `port_text` is a port exactly as the URL grammar has one.
+
+    ASCII digits, and not `str.isdigit`. That predicate is true of 128
+    characters `int()` refuses — U+00B2 SUPERSCRIPT TWO among them, which
+    made this function's caller crash rather than refuse — and true of the
+    Arabic-Indic digits, which `int()` accepts, so an authority RFC 3986 does
+    not admit would have been rewritten into one that looks valid.
+    """
+    return port_text.isascii() and port_text.isdecimal() and 1 <= int(port_text) <= 65535
 
 
 def _drop_root_label(host: str) -> str:
@@ -107,6 +115,19 @@ def _canonical_labels(host: str) -> str:
     which is the spelling the resolver will answer for.
     """
     encoded = _drop_root_label(_idna(host))
+    if "%" in encoded:
+        # The residual-separator refusal ranges over the path, and the host
+        # reaches its canonical form by another route: the codec's NFKC pass
+        # can turn a fullwidth sequence into a literal percent escape, so
+        # a host written in fullwidth digits can canonicalise to `%00.example`.
+        # A client that decodes the authority then resolves something this
+        # check never compared, which is the differential the path's refusal
+        # exists to prevent, on the component it does not reach.
+        raise ContainmentUndecidable(
+            f"host {host!r} encodes to {encoded!r}, which carries a percent "
+            "escape; a client that decodes the authority resolves a different "
+            "name than this check compared"
+        )
     if _empty_label(encoded):
         raise ContainmentUndecidable(
             f"host {host!r} encodes to {encoded!r}, which has a label with "
@@ -515,7 +536,17 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
         raise ContainmentUndecidable(
             f"a {type(value).__name__} is not a URL, so no URL predicate can decide it"
         )
-    parts = urlsplit(value)
+    try:
+        parts = urlsplit(value)
+    except ValueError as error:
+        # `urlsplit` raises for an unclosed IPv6 literal and for an authority
+        # carrying a character NFKC turns into a URL delimiter. Both are
+        # values a model can choose, and both are refusals rather than
+        # defects, so they leave here as one.
+        raise ContainmentUndecidable(
+            f"{value!r} does not parse as a URL, so what the callee would "
+            f"resolve is undecided here: {error}"
+        ) from error
     if not parts.scheme:
         raise ContainmentUndecidable(f"{value!r} declares no scheme, so it is not a URL")
     # The userinfo is split off before any rule runs: it is not a

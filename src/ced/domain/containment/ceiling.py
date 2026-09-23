@@ -39,6 +39,8 @@ from ced.domain.containment.predicates import (
     EXPRESSIBLE_PREDICATES,
     HostEq,
     HostInDomain,
+    InMintedSet,
+    OneOf,
     PathWithin,
     Predicate,
     Prefix,
@@ -148,6 +150,41 @@ class Denied:
 type Decision = Admitted | Denied
 
 
+#: How much of a model-chosen value a denial reason may carry. A denial is
+#: what the consumer writes as a `policy.decision`, so an unbounded reason
+#: lets one refused call write an event row as large as the caller cares to
+#: make it, repeatedly and for free. Enough to see which value was refused
+#: and where it diverged; not enough to be a write amplifier.
+_REASON_VALUE_BUDGET: Final[int] = 160
+
+
+def _for_the_record(value: object) -> str:
+    """Return `value` bounded for a denial reason, saying what was left out."""
+    rendered = str(value)
+    if len(rendered) <= _REASON_VALUE_BUDGET:
+        return repr(rendered)
+    return f"{rendered[:_REASON_VALUE_BUDGET]!r}… ({len(rendered)} characters)"
+
+
+def _describe(predicate: Predicate) -> str:
+    """Return a denial-safe description of `predicate`.
+
+    A set-valued predicate is summarised rather than enumerated. An
+    `in_minted_set` denial would otherwise write every reference the runtime
+    minted for that step into the event log, which is a disclosure the
+    denial does not need to be legible.
+    """
+    match predicate:
+        case InMintedSet(members=members):
+            return f"in_minted_set over {len(members)} minted reference(s)"
+        case OneOf(members=members):
+            return f"one_of over {len(members)} member(s)"
+        case SchemeIn(schemes=schemes):
+            return f"scheme_in{sorted(schemes)}"
+        case _:
+            return repr(predicate)
+
+
 def _refuse(entry_name: str, argument: str, why: str) -> CeilingDeclarationRefused:
     return CeilingDeclarationRefused(
         f"ceiling entry {entry_name!r}, argument {argument!r}: {why}"
@@ -176,6 +213,13 @@ def _canonicalise_predicate(predicate: Predicate) -> Predicate:
         case PathWithin(prefix=prefix):
             return PathWithin(prefix=canonicalise_url_path(prefix))
         case Within(root=root):
+            if not os.path.isabs(root):
+                raise ContainmentUndecidable(
+                    f"within({root!r}) names no absolute root, so it resolves "
+                    "against whatever directory the worker started in: the "
+                    "declaration's text does not say what it admits, and two "
+                    "workers enforce different ceilings from it"
+                )
             return Within(root=canonicalise_fs_root(root))
         case _:
             return predicate
@@ -342,10 +386,13 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
                 # `policy.decision` in the event log that records a refusal
                 # and not why the value did not match, which in a system
                 # whose event log is its inspection surface is half a record.
+                # Both halves are bounded: the value because the caller
+                # chooses its length, the predicate because a set-valued one
+                # would otherwise enumerate itself into the log.
                 return Denied(
-                    f"argument {argument!r} is outside {predicate!r} on ceiling "
-                    f"entry {entry.name!r}: the canonical value is "
-                    f"{str(canonical_value)!r}"
+                    f"argument {argument!r} is outside {_describe(predicate)} on "
+                    f"ceiling entry {entry.name!r}: the canonical value is "
+                    f"{_for_the_record(canonical_value)}"
                 )
         canonical[argument] = canonical_value
     return Admitted(canonical=canonical)

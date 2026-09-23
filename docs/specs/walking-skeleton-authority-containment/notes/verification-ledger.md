@@ -266,6 +266,52 @@ lookup, a test asserts it and reds if the snapshot moves, and
 nothing can pin. Choosing a dataset with a refresh path is a dependency
 change and so an Ask-first for the owner.
 
+## T1 — the plan's independence claim about the property test is too strong
+
+**Date:** 2026-09-23. **Plan error, corrected here rather than in the plan.**
+
+`plan.md` § Approach and T1's pinned `Tests` bullet both say the property
+test's "oracle computes set containment independently of the implementation
+under test", and § Construction tests adds that "a property test whose oracle
+shares the implementation's parser proves only that the parser agrees with
+itself". The oracle does not share the parser. It does share two comparison
+helpers: `contains(HostInDomain, …)` and `admits(HostInDomain, …)` both call
+`_in_domain`, and the `PathWithin` arms both call `_within_path`.
+
+**Measured, not supposed.** Replacing `_in_domain` with `host.endswith(domain)`
+and `_within_path` with a bare `startswith` leaves every check in
+`test_containment_property.py` green while the rest of the suite reds. Those
+two arms are covered by `tests/containment/test_boundaries_are_load_bearing.py`
+instead, which puts direct fixtures on both sides of a label break and a
+segment break.
+
+The `Tests` bullet is pinned, so this is recorded rather than edited; the
+module's own docstring now states what it shares and names the module that
+covers those arms. The claim is true of the other eight arms and of the
+parser, which is what the bullet was reaching for.
+
+## T1 — two failures from one predicate, and a review target that moved
+
+**Date:** 2026-09-23. Two notes, both worth keeping.
+
+**`str.isdigit` is not "is a port".** `_valid_port` used it. It is true of 128
+characters `int()` refuses — U+00B2 SUPERSCRIPT TWO among them — so
+`https://sec.gov:\xb2/x` crashed the guard with a `ValueError` instead of
+refusing, which is a builtin out of `evaluate` for a value a model can
+choose. And it is true of the Arabic-Indic digits, which `int()` accepts, so
+`https://h.example:\u0664\u0664\u0663/a` was admitted and normalised into
+`https://h.example/a` — an authority RFC 3986 does not admit, rewritten into
+one that looks valid. The predicate is now ASCII digits in range, and the
+escape property's generator draws ports from an alphabet that includes both
+classes, because the earlier generator could not build a port at all.
+
+**A review target has to be a stable object.** Three reviewers were
+dispatched in parallel and then the tree was edited while they read it, so
+one of them reviewed a state that existed in no commit and reported gate
+numbers that described neither. That is a process error, not a finding
+against the code: fixes now land in a commit before any reviewer is
+re-dispatched.
+
 ## T1 — what AC-0214 does not close
 
 **Date:** 2026-09-23. Recorded because the plan asks for it in T1's `Tests`
@@ -329,5 +375,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 453 passed, 195 deselected in 11.06s
+1 failed, 467 passed, 195 deselected in 10.67s
 ```
