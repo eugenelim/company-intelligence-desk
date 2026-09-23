@@ -14,6 +14,7 @@ from ced.domain.containment.ceiling import declare, is_public_suffix
 from ced.domain.containment.domain_types import DomainType
 from ced.domain.containment.errors import CeilingDeclarationRefused
 from ced.domain.containment.predicates import (
+    HostEq,
     HostInDomain,
     OneOf,
     PathWithin,
@@ -104,8 +105,6 @@ def test_the_criterion_does_not_constrain_which_host_the_predicate_admits() -> N
     unowned; the egress proxy cannot own the second, because r8 § 4 specifies
     it as a hostname allowlist with no private-range or metadata block.
     """
-    from ced.domain.containment.predicates import HostEq
-
     assert declare("fetch", {"url": ("url", (_HTTPS, HostEq("169.254.169.254")))}).arguments
 
 
@@ -126,6 +125,41 @@ def test_an_argument_with_no_predicate_is_refused_naming_entry_and_argument() ->
 def test_an_unknown_domain_type_is_refused_at_authoring_time() -> None:
     with pytest.raises(CeilingDeclarationRefused, match="not a declared domain type"):
         declare("fetch", {"query": ("graphql-query", (Prefix("{"),))})
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        HostInDomain("a" * 64 + ".gov"),
+        HostEq("a" * 64 + ".gov"),
+        HostInDomain("\u202e.example"),
+        HostEq("\u202e.example"),
+        PathWithin("/evidence/%252e%252e/"),
+    ],
+    ids=lambda predicate: type(predicate).__name__ + repr(predicate)[:24],
+)
+def test_declare_never_leaks_the_undecidable_signal(predicate: Predicate) -> None:
+    """Every refusal the authoring surface produces is an authoring refusal.
+
+    `ContainmentUndecidable` is what the decision point reads as a *denied
+    call*. A declaration whose argument has no canonical form must not
+    produce it, or an unauthorable role would arrive one spec over looking
+    like a call that was refused. The assertion is the property and not the
+    exception's parentage, because parentage does not catch a leak: this test
+    fails if `ContainmentUndecidable` escapes, since `pytest.raises` does not
+    catch it.
+    """
+    predicates = (
+        (_HTTPS, predicate)
+        if not isinstance(predicate, PathWithin)
+        else (
+            _HTTPS,
+            _SEC,
+            predicate,
+        )
+    )
+    with pytest.raises(CeilingDeclarationRefused, match="no canonical form"):
+        declare("fetch", {"url": ("url", predicates)})
 
 
 def test_a_predicate_outside_its_types_row_is_refused() -> None:

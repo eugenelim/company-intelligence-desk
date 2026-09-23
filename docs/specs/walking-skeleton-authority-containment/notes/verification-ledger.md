@@ -33,6 +33,15 @@ produces;
 `tests/containment/test_undecidable_input_raises.py::test_the_seam_exception_is_not_one_a_programming_error_raises`
 is what holds that, and it reds if either type is ever reparented.
 
+**One consequence worth stating, because it is easy to undo.** `declare`
+raises `CeilingDeclarationRefused` on *every* path, including where a
+predicate argument turned out to have no canonical form. Letting
+`ContainmentUndecidable` out of the authoring surface would hand the decision
+point the signal it reads as a denied call for a declaration that is simply
+not authorable — the exact confusion the two types exist to keep apart.
+`tests/containment/test_authoring_refusals.py` asserts the property, not just
+the exception parentage, because parentage alone does not catch a leak.
+
 **Why this is a ledger entry and not an amendment.** The plan predicted this
 seam — § Design (LLD) *Interfaces & contracts* names "the `CeilingResolver`
 shape the decision point consumes — including the exception it raises on an
@@ -127,9 +136,29 @@ green:
 1. The rule does its job — the host comes back folded and the path does not;
    `:443` is dropped and `:8443` is kept.
 2. Removing the rule admits nothing the full pipeline refuses, asserted over
-   every other rule's case and over the positive path.
+   a universe built for these two rules — hosts differing in case, a punycode
+   host, and authorities carrying a default port, a non-default port and none
+   — spanning both sides of the ceiling, plus every other rule's case.
 3. Removing the rule leaves every other rule's case refused, exactly as for
    the five rules that do have a mutation case.
+
+Check 2 carries an anti-vacuity guard of its own, because a substitute for a
+missing mutation case is exactly where a test that cannot fail hides: a
+separate check asserts the rule changes the canonical form of at least two
+universe members, and both checks were confirmed to red when pointed at a
+rule that *is* load-bearing.
+
+**Corroborated independently.** An adversarial reviewer ran a
+7,488-combination sweep over uppercase, punycode, IDN and ported hosts
+against canonicalised `host_eq`, `host_in_domain` and `path_within` ceilings
+and found zero deny-to-admit flips for either rule.
+
+**Where the gap is recorded for a gate.** AC-0216 carries
+`(deferred: canonicaliser)` in `spec.md`, resolving to the
+`ac-0216-two-clauses-fail-closed` entry in `workspace.toml` `[backlog].open`,
+which `lint-spec-status.py` checks. **T1's pinned `Done when` requires
+AC-0213 through AC-0218 green and is therefore not met**, which is the second
+thing the owner is being asked to rule on.
 
 **Recommended amendment**, for the owner to rule on. Reword AC-0216 so the
 mutation case is required of every rule whose omission *can* admit, and the
@@ -167,5 +196,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 382 passed, 195 deselected in 16.89s
+1 failed, 389 passed, 195 deselected in 16.45s
 ```

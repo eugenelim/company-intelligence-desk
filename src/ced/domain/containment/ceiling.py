@@ -160,6 +160,12 @@ def declare(
 
     `arguments` maps an argument name to its declared domain type and the
     predicates over it. Every refusal names the entry and the argument.
+
+    **Every refusal is a `CeilingDeclarationRefused`**, including one that
+    began as a value the canonicaliser could not decide. Letting
+    `ContainmentUndecidable` out of here would hand the decision point the
+    signal it reads as a denied call, for a declaration that is simply not
+    authorable — the confusion the two types exist to keep apart.
     """
     declared: dict[str, CeilingArgument] = {}
     for argument, (domain_type_name, predicates) in arguments.items():
@@ -181,8 +187,19 @@ def declare(
                 "arguments somebody remembered to name is vacuously true on the rest",
             )
 
+        # Canonicalising first is what keeps every later check working on the
+        # form it compares against — and it is what keeps `declare` from
+        # leaking `ContainmentUndecidable`, which the decision point reads as
+        # a call denial rather than as an unauthorable declaration.
+        try:
+            canonical = tuple(_canonicalise_predicate(p) for p in predicates)
+        except ContainmentUndecidable as error:
+            raise _refuse(
+                name, argument, f"a predicate argument has no canonical form: {error}"
+            ) from error
+
         expressible = EXPRESSIBLE_PREDICATES[domain_type]
-        for predicate in predicates:
+        for predicate in canonical:
             if isinstance(predicate, Prefix) and not prefix_expressible(domain_type):
                 raise _refuse(
                     name,
@@ -197,9 +214,7 @@ def declare(
                     argument,
                     f"{type(predicate).__name__} is not expressible on {domain_type.value!r}",
                 )
-            if isinstance(predicate, HostInDomain) and is_public_suffix(
-                canonicalise_host(predicate.domain)
-            ):
+            if isinstance(predicate, HostInDomain) and is_public_suffix(predicate.domain):
                 raise _refuse(
                     name,
                     argument,
@@ -207,7 +222,7 @@ def declare(
                     "it silently admits the internet",
                 )
 
-        if domain_type is DomainType.URL and not any(map(constrains_host, predicates)):
+        if domain_type is DomainType.URL and not any(map(constrains_host, canonical)):
             raise _refuse(
                 name,
                 argument,
@@ -215,12 +230,6 @@ def declare(
                 "host is admitted, including the link-local metadata address",
             )
 
-        try:
-            canonical = tuple(_canonicalise_predicate(p) for p in predicates)
-        except ContainmentUndecidable as error:
-            raise _refuse(
-                name, argument, f"a predicate argument has no canonical form: {error}"
-            ) from error
         declared[argument] = CeilingArgument(
             domain_type=domain_type.value, predicates=canonical
         )

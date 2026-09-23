@@ -81,6 +81,26 @@ _FAIL_CLOSED_RULES: Mapping[str, str] = {
     ),
 }
 
+#: The universe the two fail-closed rules are judged over. Every member is a
+#: value at least one of them acts on — hosts differing in case, a punycode
+#: host, and authorities carrying a default port, a non-default port and
+#: none — and the set spans both sides of the ceiling, so a rule that started
+#: admitting something would have somewhere to show it.
+_FAIL_CLOSED_UNIVERSE: tuple[str, ...] = (
+    "https://www.sec.gov/evidence/report.pdf",
+    "https://WWW.SEC.GOV/evidence/report.pdf",
+    "https://Www.Sec.Gov/EVIDENCE/report.pdf",
+    "https://www.sec.gov:443/evidence/report.pdf",
+    "https://WWW.SEC.GOV:443/evidence/report.pdf",
+    "https://www.sec.gov:8443/evidence/report.pdf",
+    "https://www.sec.gov:80/evidence/report.pdf",
+    "https://WWW.SEC.GOV.ATTACKER.EXAMPLE/evidence/report.pdf",
+    "https://attacker.example:443/evidence/report.pdf",
+    "https://xn--sec-vma.gov/evidence/report.pdf",
+    "https://XN--SEC-VMA.GOV:443/evidence/report.pdf",
+    "https://www.sec.gov:443/other/report.pdf",
+)
+
 #: The input that pins the order of the two rules AC-0216 cannot reorder.
 #: Singly encoded: correct order decodes it into a traversal and removes it;
 #: the transposed order removes nothing and then decodes into one.
@@ -217,6 +237,28 @@ def test_percent_decoding_runs_before_dot_segment_removal() -> None:
 
 
 @pytest.mark.parametrize("rule", sorted(_FAIL_CLOSED_RULES))
+def test_a_fail_closed_rule_acts_on_the_universe_it_is_judged_over(rule: str) -> None:
+    """Setup check: the fail-closed proof below is judged over live values.
+
+    A universe the rule never touches would make that proof pass against any
+    implementation, which is the vacuity a substitute for a missing mutation
+    case most easily falls into. So this asserts the rule changes the
+    canonical form of several members before the next test reads anything
+    into their decisions.
+    """
+    changed = [
+        value
+        for value in _FAIL_CLOSED_UNIVERSE
+        if _canonical_form(value, without=None) != _canonical_form(value, without=rule)
+    ]
+    assert len(changed) >= 2, (
+        f"{rule!r} changes the canonical form of {len(changed)} of "
+        f"{len(_FAIL_CLOSED_UNIVERSE)} universe members, so the fail-closed "
+        "proof over that universe would hold whatever the rule did"
+    )
+
+
+@pytest.mark.parametrize("rule", sorted(_FAIL_CLOSED_RULES))
 def test_a_fail_closed_rule_admits_nothing_when_it_is_removed(
     rule: str, tmp_path: Path
 ) -> None:
@@ -224,18 +266,24 @@ def test_a_fail_closed_rule_admits_nothing_when_it_is_removed(
 
     AC-0216 asks for an input the removal admits. For these two there is
     none, and this is the assertion that says so rather than leaving the
-    claim in prose: nothing the full pipeline refuses becomes admitted, over
-    every case in this module and over the positive path as well.
+    claim in prose. It runs over a universe built for these rules — hosts
+    that differ in case, punycode, and authorities carrying a default and a
+    non-default port — plus every other rule's case, and asserts that nothing
+    the full pipeline refuses becomes admitted.
     """
+    for value in _FAIL_CLOSED_UNIVERSE:
+        call = {"url": value}
+        refused_with = _refuses(sec_ceiling(), call)
+        with rule_disabled(rule):
+            refused_without = _refuses(sec_ceiling(), call)
+        assert not (refused_with and not refused_without), (
+            f"removing {rule!r} admitted {value!r}, which the full pipeline "
+            f"refuses: {_FAIL_CLOSED_RULES[rule]}"
+        )
     for other in _mutated_rules():
         entry, call = _case(other, tmp_path / f"{rule}-{other}")
         with rule_disabled(rule):
             assert _refuses(entry, call), _FAIL_CLOSED_RULES[rule]
-    with rule_disabled(rule):
-        assert isinstance(
-            evaluate(sec_ceiling(), {"url": "https://www.sec.gov/evidence/report.pdf"}),
-            Admitted,
-        )
 
 
 def test_lowercase_host_not_path_folds_the_host_and_leaves_the_path() -> None:
@@ -266,3 +314,11 @@ def test_drop_default_ports_drops_the_default_and_keeps_the_rest() -> None:
         assert str(canonicalise(DomainType.URL, "https://www.sec.gov:443/a")) == (
             "https://www.sec.gov:443/a"
         )
+
+
+def _canonical_form(value: str, *, without: str | None) -> str:
+    """Return the canonical rendering of `value`, optionally without one rule."""
+    if without is None:
+        return str(canonicalise(DomainType.URL, value))
+    with rule_disabled(without):
+        return str(canonicalise(DomainType.URL, value))

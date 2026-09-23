@@ -70,6 +70,10 @@ _AMBIGUOUS_CHARACTERS: Final[frozenset[str]] = frozenset(
 )
 
 
+def _valid_port(port_text: str) -> bool:
+    return port_text.isdigit() and 1 <= int(port_text) <= 65535
+
+
 @dataclass(frozen=True)
 class CanonicalUrl:
     """A URL reduced to the components a predicate may range over.
@@ -114,7 +118,19 @@ class UrlUnderReview:
     query: str
 
     def canonical(self) -> CanonicalUrl:
-        """Return the value the adapter receives, leaving the parse behind."""
+        """Return the value the adapter receives, leaving the parse behind.
+
+        `refuse-ambiguous-parse` is what establishes that `port_text` is a
+        port. The check is repeated here rather than assumed, so that a
+        pipeline missing that rule still fails in this fragment's own
+        vocabulary instead of letting a `ValueError` out of a security
+        control.
+        """
+        if self.port_text and not _valid_port(self.port_text):
+            raise ContainmentUndecidable(
+                f"{self.port_text!r} is not a port, and the canonical value of "
+                f"{self.raw!r} cannot be built without one"
+            )
         return CanonicalUrl(
             scheme=self.scheme,
             host=self.host,
@@ -134,10 +150,6 @@ class CanonicalisationRule[T]:
     name: str
     clause: str
     apply: Callable[[T], T]
-
-
-def _valid_port(port_text: str) -> bool:
-    return port_text.isdigit() and 1 <= int(port_text) <= 65535
 
 
 def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
@@ -181,7 +193,11 @@ def _drop_default_port(url: UrlUnderReview) -> UrlUnderReview:
     changes the value handed on and never changes a decision. Its omission is
     therefore fail-closed, which the suite proves rather than assuming.
     """
-    if url.port_text and int(url.port_text) == _DEFAULT_PORTS.get(url.scheme):
+    if not _valid_port(url.port_text):
+        # Not this rule's judgment to make. `refuse-ambiguous-parse` owns it,
+        # and a port it has not passed is left exactly as written.
+        return url
+    if int(url.port_text) == _DEFAULT_PORTS.get(url.scheme):
         return replace(url, port_text="")
     return url
 
