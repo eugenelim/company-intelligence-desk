@@ -12,14 +12,24 @@ the ratified design's own inspectability verification: "one `SELECT` on
 `agent_role` returns the model id, the four declarable limits, the
 output-contract name and the ceiling".
 
-**It also drives one malformed record through the real `load_role`.**
+**It also drives malformed records through the real `load_role`.**
 AC-0251's omitted-`model_id` clause, AC-0262, AC-0266 and AC-0273's bound-row
 shapes all say *fails to load* and are otherwise decided only on the decode
 seam, so a `load_role` that parsed inline and never called that seam would ship
-with all four green. The malformed record is a ceiling that is a JSON object —
-a shape the query accepts and returns, so its refusal can only have come from
-the decode seam. A shape the query itself rejects would never reach the seam
-and would establish nothing.
+with all four green. The delegation check stores a ceiling that is a JSON
+object — a shape the query accepts and returns, so its refusal can only have
+come from the decode seam.
+
+**A shape the query itself rejects is the other half, and it is not
+establishing nothing.** `load_role` reads the ceiling's pins and queries the
+registry *before* it calls the decode seam, so an entry that query cannot
+carry fails there, with a database error `append_role_refusal` maps to no
+event type — the record never becomes an agent and the event log says nothing
+about why. What no offline check can reach is the query's own rejection: the
+offline checks can assert that `_ceiling_pins` withholds such a value, and
+one does, but only a real query establishes that withholding it was
+necessary, and only the real `load_role` runs the pin read and the decode
+seam in their shipped order. That is checked here.
 
 **And it carries AC-0273's unbound-row case**, which no offline check can
 reach. A registry row no ceiling binds is absent from every record the decode
@@ -28,6 +38,8 @@ seam is handed, so the only seam that can see it is `list_integration_tools()`
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import psycopg
 import pytest
@@ -38,6 +50,7 @@ from ced.adapters.postgres.roles import (
     list_roles,
     load_role,
 )
+from ced.agents.compiler import ROLE_REFUSAL_EVENT_TYPES
 from tests.fixtures.registry_seed import (
     SEED_PREFIX,
     VALID_MODEL_SETTINGS,
@@ -210,3 +223,91 @@ def test_an_unbound_registry_row_with_null_tools_is_refused(
     assert UNBOUND in message
     assert "3" in message
     assert "tools" in message
+
+
+@pytest.mark.parametrize(
+    "ceiling",
+    [
+        pytest.param([1], id="non-mapping-entry"),
+        pytest.param(
+            [{"integration_name": ["a"], "integration_version": 1, "tool_name": "t"}],
+            id="unhashable-name",
+        ),
+        pytest.param(
+            [{"integration_name": "a", "integration_version": {"v": 1}, "tool_name": "t"}],
+            id="unhashable-version",
+        ),
+        pytest.param(
+            [{"integration_name": "a", "integration_version": 2**31, "tool_name": "t"}],
+            id="version-above-int32",
+        ),
+        pytest.param(
+            [
+                {
+                    "integration_name": "a",
+                    "integration_version": -(2**31) - 1,
+                    "tool_name": "t",
+                }
+            ],
+            id="version-below-int32",
+        ),
+        pytest.param(
+            [
+                {"integration_name": "a", "integration_version": 1, "tool_name": "t"},
+                {"integration_name": "b", "integration_version": True, "tool_name": "t"},
+            ],
+            id="bool-version-beside-an-int-pin",
+        ),
+    ],
+)
+def test_a_malformed_ceiling_entry_refuses_in_a_way_the_log_can_record(
+    owner_conn: psycopg.Connection, ceiling: Any
+) -> None:
+    """Every malformed ceiling entry reaches a refusal that can become an event.
+
+    `append_role_refusal` maps an exception to an event type by the
+    exception's own type and raises on anything else, so a refusal outside
+    `ROLE_REFUSAL_EVENT_TYPES` appends nothing — and the event log is this
+    system's inspection surface.
+
+    **What this asserts is that the refusal is one the log can record** —
+    membership of `ROLE_REFUSAL_EVENT_TYPES`, not a particular class, because
+    that mapping is exactly what decides whether an event is appended. Today
+    every shape here reaches it as a `RoleLoadError` from
+    `decode_role_record`; a `RoleCompileError` would satisfy the assertion
+    too, and rightly, since it is equally appendable.
+
+    The two escape routes below are what the loader now prevents, not what
+    it does.
+
+    Each would otherwise leave by one of two routes.
+    `version-above-int32` and `bool-version-beside-an-int-pin` would die
+    *inside* `load_role`: reading the pins and querying the registry happens
+    before the decode seam, so a version wider than
+    `integration_registry.version` raises `NumericValueOutOfRange` from the
+    `::integer[]` cast, and a boolean version beside an `int` one makes the
+    version list mixed-type, which psycopg refuses to dump. `_ceiling_pins`
+    withholds both, so the query never receives them.
+    `non-mapping-entry`, `unhashable-name` and `unhashable-version` never
+    reach that query — `_ceiling_pins` was already tolerant of them — and
+    would instead survive the loader and die in the compiler's
+    `_bound_integrations` as `AttributeError` and `TypeError`.
+
+    **What needs the substrate is the query's rejection, not the shapes.**
+    `test_a_pin_the_query_cannot_carry_is_never_built` in
+    `test_role_loader.py` asserts offline that `_ceiling_pins` withholds
+    every value the query cannot carry; only a real query can show what
+    would happen if it did not, and only the real `load_role` runs the pin
+    read and the decode seam in their shipped order.
+
+    Asserting the exception's membership of the mapping, rather than its
+    message, is what makes this a check about the event.
+    """
+    with seeded(owner_conn) as conn:
+        insert_role(conn, role_name=ROLE, ceiling=ceiling)
+        conn.commit()
+
+        with pytest.raises(Exception) as caught:
+            load_role(ROLE, 1)
+
+    assert isinstance(caught.value, tuple(t for t, _ in ROLE_REFUSAL_EVENT_TYPES))
