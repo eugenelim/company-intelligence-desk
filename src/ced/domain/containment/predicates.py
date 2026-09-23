@@ -32,7 +32,7 @@ from typing import Final
 
 from ced.domain.containment.canonicaliser import CanonicalUrl
 from ced.domain.containment.domain_types import DomainType
-from ced.domain.containment.errors import ContainmentUndecidable
+from ced.domain.containment.errors import ContainmentUndecidable, for_the_record
 
 __all__ = [
     "EXPRESSIBLE_PREDICATES",
@@ -178,8 +178,9 @@ def _within_path(path: str, prefix: str) -> bool:
 
 def _undecidable(predicate: Predicate, value: object) -> ContainmentUndecidable:
     return ContainmentUndecidable(
-        f"{type(predicate).__name__} cannot be evaluated against a "
-        f"{type(value).__name__}, so whether the value is inside is undecided"
+        f"{for_the_record(type(predicate).__name__)} cannot be evaluated against "
+        f"a {for_the_record(type(value).__name__)}, so whether the value is "
+        "inside is undecided"
     )
 
 
@@ -246,7 +247,8 @@ def contains(outer: Predicate, inner: Predicate) -> bool:
     """
     if type(outer) is not type(inner):
         raise ContainmentUndecidable(
-            f"{type(outer).__name__} and {type(inner).__name__} range over different "
+            f"{for_the_record(type(outer).__name__)} and "
+            f"{for_the_record(type(inner).__name__)} range over different "
             "components, so neither contains the other"
         )
     match outer, inner:
@@ -272,4 +274,6 @@ def contains(outer: Predicate, inner: Predicate) -> bool:
         case DateRange(low=wide_low, high=wide_high), DateRange(low=low, high=high):
             return low > high or (wide_low <= low and high <= wide_high)
         case _:  # pragma: no cover — the type check above makes this unreachable
-            raise ContainmentUndecidable(f"no containment rule for {type(outer).__name__}")
+            raise ContainmentUndecidable(
+                f"no containment rule for {for_the_record(type(outer).__name__)}"
+            )

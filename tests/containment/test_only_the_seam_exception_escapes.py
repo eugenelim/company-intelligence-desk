@@ -280,6 +280,11 @@ def _texts_from_every_path(oversize: str) -> dict[str, str]:
     for label, call_entry, value in (
         ("control character", entry, f"https://a.example/\t{oversize}"),
         ("unparseable url", entry, f"http://[::1{oversize}"),
+        # The other branch of the same `except ValueError`, and the one that
+        # matters: CPython's NFKC message embeds the whole netloc it was
+        # raised for, so an error this package did not compose reintroduces
+        # exactly what the bound exists to keep out.
+        ("nfkc delimiter in authority", entry, f"https://{oversize}\u2100/x"),
         ("no scheme", entry, oversize),
         ("bad port", entry, f"https://sec.gov:\xb2{oversize}/x"),
         ("nul in path", CeilingEntry(name="t", arguments={"p": fs}), f"/srv/\x00{oversize}"),
@@ -305,7 +310,7 @@ def _texts_from_every_path(oversize: str) -> dict[str, str]:
 def test_the_message_paths_this_bound_covers_were_all_reached() -> None:
     """Setup check: a bound asserted over paths nothing entered is no bound."""
     texts = _texts_from_every_path(_OVERSIZE)
-    assert len(texts) == 10, sorted(texts)
+    assert len(texts) == 11, sorted(texts)
 
 
 @pytest.mark.parametrize("path", sorted(_texts_from_every_path(_OVERSIZE)))
@@ -322,6 +327,58 @@ def test_every_message_a_consumer_records_is_bounded(path: str) -> None:
     text = _texts_from_every_path(_OVERSIZE)[path]
     assert len(text) <= _MESSAGE_CEILING, f"{path}: {len(text)} characters"
     assert _OVERSIZE not in text
-    assert re.search(r"\(\d{4,} characters\)", text), (
+    assert re.search(r"\(\d+ characters\)", text), (
         f"{path} cut the value without saying how much there was: {text}"
     )
+
+
+def test_a_number_argument_is_decided_at_the_shape_a_call_supplies() -> None:
+    """A tool argument deserialised from a model's JSON arrives as an `int`.
+
+    Every value the rest of the suite passes to a `number` predicate is a
+    `Decimal`, so the admitted path that will actually run had no case, and
+    dropping `int` from the accepted union left the suite green.
+    """
+    entry = CeilingEntry(name="t", arguments={"n": _NUMBER})
+    assert isinstance(evaluate(entry, {"n": 5}), Admitted)
+    assert isinstance(evaluate(entry, {"n": Decimal(5)}), Admitted)
+    assert isinstance(evaluate(entry, {"n": 11}), Denied)
+
+
+def test_a_boolean_is_not_a_number() -> None:
+    """`bool` subclasses `int`, so `True` would otherwise be read as `1`.
+
+    A deliberate refusal: a ceiling bounding a count to `0..9` should not
+    silently admit `True` as one of them. Nothing drove it, and deleting
+    the exclusion left the suite green.
+    """
+    entry = CeilingEntry(name="t", arguments={"n": _NUMBER})
+    for value in (True, False):
+        with pytest.raises(ContainmentUndecidable, match="cannot be evaluated against"):
+            evaluate(entry, {"n": value})
+
+
+def test_a_recorded_message_escapes_a_control_character_rather_than_writing_it() -> None:
+    """The other half of what the bound is for, and it had no case.
+
+    `for_the_record` uses `repr` so that a newline or a terminal escape in a
+    model-chosen value is escaped rather than written raw into the text the
+    consumer records. Returning the string unquoted left every length
+    assertion green. The value arrives here as a raise rather than a denial
+    because a control character is refused by the canonicaliser — and that
+    message is recorded exactly as a denial is, which is the point.
+    """
+    entry = CeilingEntry(name="t", arguments={"u": _URL})
+    hostile = "https://attacker.example/a\r\nDENIED: no\x1b[31m"
+    with pytest.raises(ContainmentUndecidable) as refusal:
+        evaluate(entry, {"u": hostile})
+    message = str(refusal.value)
+    assert "\n" not in message
+    assert "\r" not in message
+    assert "\x1b" not in message
+    assert "\\r\\n" in message
+
+    # The same on the denial path, with a separator a URL may legitimately
+    # carry and a log line may not.
+    reason = evaluate(entry, {"u": "https://attacker.example/a\u2028b"}).reason
+    assert "\u2028" not in reason

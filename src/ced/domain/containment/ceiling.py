@@ -182,12 +182,26 @@ def _describe(predicate: Predicate) -> str:
                 return f"scheme_in over {len(schemes)} scheme(s)"
             return f"scheme_in{sorted(schemes)}"
         case _:
-            return repr(predicate)
+            # Bounded like the named arms. A `prefix` argument is
+            # author-controlled rather than model-chosen, so nobody can grow
+            # it on purpose — but the text is still recorded once per refused
+            # call, and a constructor added later inherits the bound here
+            # rather than needing somebody to remember this arm.
+            return for_the_record(predicate)
 
 
 def _refuse(entry_name: str, argument: str, why: str) -> CeilingDeclarationRefused:
+    """Return the refusal, with the two fields this function owns bounded.
+
+    `why` arrives already composed and is not bounded again here: bounding
+    it a second time would cut the prose rather than the value, and
+    `tests/containment/test_every_message_is_bounded_by_construction.py`
+    is what holds that every interpolation inside a caller's `why` went
+    through `for_the_record` first.
+    """
     return CeilingDeclarationRefused(
-        f"ceiling entry {entry_name!r}, argument {argument!r}: {why}"
+        f"ceiling entry {for_the_record(entry_name)}, argument "
+        f"{for_the_record(argument)}: {why}"
     )
 
 
@@ -248,8 +262,9 @@ def declare(
             raise _refuse(
                 name,
                 argument,
-                f"{domain_type_name!r} is not a declared domain type; the seven are "
-                f"{sorted(member.value for member in DomainType)}",
+                f"{for_the_record(domain_type_name)} is not a declared domain type; the "
+                "seven are "
+                f"{for_the_record(sorted(member.value for member in DomainType))}",
             ) from error
 
         if not predicates:
@@ -268,7 +283,9 @@ def declare(
             canonical = tuple(_canonicalise_predicate(p) for p in predicates)
         except ContainmentUndecidable as error:
             raise _refuse(
-                name, argument, f"a predicate argument has no canonical form: {error}"
+                name,
+                argument,
+                f"a predicate argument has no canonical form: {for_the_record(error)}",
             ) from error
 
         expressible = EXPRESSIBLE_PREDICATES[domain_type]
@@ -277,21 +294,24 @@ def declare(
                 raise _refuse(
                     name,
                     argument,
-                    f"a string prefix is not expressible on {domain_type.value!r}; the "
-                    "callee parses it, and a prefix corresponds to no containment "
-                    "relation in the parsed domain",
+                    "a string prefix is not expressible on "
+                    f"{for_the_record(domain_type.value)}; the callee parses it, "
+                    "and a prefix corresponds to no containment relation in the "
+                    "parsed domain",
                 )
             if type(predicate) not in expressible:
                 raise _refuse(
                     name,
                     argument,
-                    f"{type(predicate).__name__} is not expressible on {domain_type.value!r}",
+                    f"{for_the_record(type(predicate).__name__)} is not expressible on "
+                    f"{for_the_record(domain_type.value)}",
                 )
             if isinstance(predicate, HostInDomain) and is_public_suffix(predicate.domain):
                 raise _refuse(
                     name,
                     argument,
-                    f"{predicate.domain!r} is a public suffix, so host_in_domain over "
+                    f"{for_the_record(predicate.domain)} is a public suffix, so host_in_domain "
+                    "over "
                     "it silently admits the internet",
                 )
             # The filesystem twin of the line above, and refused on the same
@@ -358,7 +378,7 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
     missing = sorted(set(entry.arguments) - set(call))
     if missing:
         return Denied(
-            f"ceiling entry {entry.name!r} constrains "
+            f"ceiling entry {for_the_record(entry.name)} constrains "
             f"{for_the_record(', '.join(missing))}, and the call supplies neither "
             "a value for them nor anything this fragment could decide in their "
             "place"
@@ -369,7 +389,7 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
         constraint = entry.arguments.get(argument)
         if constraint is None or not constraint.predicates:
             return Denied(
-                f"ceiling entry {entry.name!r} attaches no predicate to argument "
+                f"ceiling entry {for_the_record(entry.name)} attaches no predicate to argument "
                 f"{for_the_record(argument)}, so nothing bounds the value the "
                 "call supplies"
             )
@@ -377,7 +397,7 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
             domain_type = DomainType(constraint.domain_type)
         except ValueError as error:
             raise ContainmentUndecidable(
-                f"ceiling entry {entry.name!r} declares argument "
+                f"ceiling entry {for_the_record(entry.name)} declares argument "
                 f"{for_the_record(argument)} as "
                 f"{for_the_record(constraint.domain_type)}, which this fragment "
                 "does not recognise"
@@ -397,7 +417,7 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
                 return Denied(
                     f"argument {for_the_record(argument)} is outside "
                     f"{_describe(predicate)} on "
-                    f"ceiling entry {entry.name!r}: the canonical value is "
+                    f"ceiling entry {for_the_record(entry.name)}: the canonical value is "
                     f"{for_the_record(canonical_value)}"
                 )
         canonical[argument] = canonical_value

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import encodings.idna
 import unicodedata
+from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -26,8 +28,12 @@ from ced.domain.containment.ceiling import (
 from ced.domain.containment.domain_types import DomainType
 from ced.domain.containment.errors import CeilingDeclarationRefused
 from ced.domain.containment.predicates import (
+    EXPRESSIBLE_PREDICATES,
+    DateRange,
     HostEq,
     HostInDomain,
+    InMintedSet,
+    NumberRange,
     OneOf,
     PathWithin,
     Predicate,
@@ -350,3 +356,59 @@ def test_a_relative_filesystem_root_is_refused(root: str) -> None:
     """
     with pytest.raises(CeilingDeclarationRefused, match="no absolute root"):
         declare("fetch", {"path": ("fs-path", (Within(root),))})
+
+
+#: r5 § 4's per-type expressibility table, restated as the suite's
+#: expectation. Restated and not read from the implementation on purpose:
+#: `EXPRESSIBLE_PREDICATES` is the thing under test, so a check that read it
+#: would agree with whatever it said. Widening any single row is what this
+#: catches — the union of the rows is not enough, because a constructor added
+#: to one row usually appears in another already.
+_EXPECTED_ROWS: dict[str, set[type]] = {
+    "opaque-string": {Prefix, OneOf},
+    "url": {SchemeIn, HostEq, HostInDomain, PathWithin},
+    "fs-path": {Within},
+    "content-locator": {InMintedSet},
+    "enum": {OneOf},
+    "number": {NumberRange},
+    "date": {DateRange},
+}
+
+
+def test_each_domain_type_admits_exactly_the_predicates_r5_gives_it() -> None:
+    """Per row, not per union.
+
+    The union check this replaces could not see a row being widened, and the
+    widening that bites is `one_of` on `content-locator`: r5 makes that type
+    "membership in the runtime-minted set for this step", so a ceiling
+    bounded by a set its author typed instead is the whole content of that
+    row, gone, with every criterion green.
+    """
+    actual = {
+        domain_type.value: set(row) for domain_type, row in EXPRESSIBLE_PREDICATES.items()
+    }
+    assert actual == _EXPECTED_ROWS
+
+
+@pytest.mark.parametrize(
+    ("domain_type", "predicate"),
+    [
+        ("content-locator", OneOf(frozenset({"ref:author-chose-this"}))),
+        ("content-locator", Prefix("ref:")),
+        ("enum", Prefix("a")),
+        ("enum", InMintedSet(frozenset({"a"}))),
+        ("url", Within("/evidence")),
+        ("url", OneOf(frozenset({"https://sec.gov/"}))),
+        ("fs-path", PathWithin("/evidence/")),
+        ("fs-path", OneOf(frozenset({"/evidence/x"}))),
+        ("number", DateRange(date(2024, 1, 1), date(2024, 12, 31))),
+        ("date", NumberRange(Decimal(0), Decimal(1))),
+        ("opaque-string", InMintedSet(frozenset({"a"}))),
+        ("date", OneOf(frozenset({"a"}))),
+    ],
+    ids=lambda value: value if isinstance(value, str) else type(value).__name__,
+)
+def test_a_predicate_outside_its_row_is_refused(domain_type: str, predicate: Predicate) -> None:
+    """One negative per row, so no single row can be widened unnoticed."""
+    with pytest.raises(CeilingDeclarationRefused):
+        declare("fetch", {"a": (domain_type, (predicate,))})

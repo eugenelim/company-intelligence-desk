@@ -222,7 +222,7 @@ def _refuse_control_characters(url: UrlUnderReview) -> UrlUnderReview:
     if offending:
         raise ContainmentUndecidable(
             f"{for_the_record(url.raw)} carries the control character "
-            f"{min(offending)!r}; parsers disagree on whether it terminates the "
+            f"{for_the_record(min(offending))}; parsers disagree on whether it terminates the "
             "URL, strips out, or stays"
         )
     return url
@@ -297,7 +297,7 @@ def _idna(host: str) -> str:
     except UnicodeError as error:
         raise ContainmentUndecidable(
             f"host {for_the_record(host)} is not IDNA-encodable, so what the "
-            f"callee resolves is undecided here: {error}"
+            f"callee resolves is undecided here: {for_the_record(error)}"
         ) from error
 
 
@@ -337,7 +337,7 @@ def _decode_once_then_refuse_residual(path: str) -> str:
     if residual is not None:
         raise ContainmentUndecidable(
             f"path {for_the_record(path)} still contains the encoded separator "
-            f"{residual.group()!r} after decoding, so the callee will read a "
+            f"{for_the_record(residual.group())} after decoding, so the callee will read a "
             "different path than this check does"
         )
     return decoded
@@ -379,9 +379,16 @@ def _resolve_fs_symlinks(path: str) -> str:
     try:
         return os.path.realpath(path)
     except (OSError, RuntimeError, ValueError) as error:
+        # `ValueError` is the reachable one — a NUL in the name — and has a
+        # case. `OSError` and `RuntimeError` are kept and are not reachable
+        # on this platform, because `realpath` runs non-strict: a symlink
+        # loop and an over-long path both return normally rather than
+        # raising. They stay because the platform, not this package, decides
+        # that, and a handler removed on one platform's behaviour is how a
+        # security control learns to crash on another.
         raise ContainmentUndecidable(
             f"the filesystem cannot resolve {for_the_record(path)}, so where it points is "
-            f"undecided here: {error}"
+            f"undecided here: {for_the_record(error)}"
         ) from error
 
 
@@ -488,8 +495,8 @@ def canonicalise_host(host: str) -> str:
     written = _drop_root_label(host)
     if _empty_label(written):
         raise ContainmentUndecidable(
-            f"{host!r} has a label with nothing in it, so it names no domain and "
-            "a predicate over it would range over every host or none"
+            f"{for_the_record(host)} has a label with nothing in it, so it names "
+            "no domain and a predicate over it would range over every host or none"
         )
     return _canonical_labels(written).lower()
 
@@ -520,18 +527,16 @@ def _split_authority(authority: str) -> tuple[str, str]:
     that is not one.
     """
     if authority.startswith("["):
-        closing = authority.find("]")
-        if closing == -1:
-            raise ContainmentUndecidable(
-                f"authority {for_the_record(authority)} opens an IPv6 literal it never closes"
-            )
+        # An unclosed bracket, and trailing text after a closed one, are both
+        # rejected by `urlsplit` before this function runs — `_canonicalise_url`
+        # translates that `ValueError` into a refusal. So the only bracketed
+        # authority reaching here is well-formed, and the two guards that used
+        # to stand where this comment does were unreachable: deleting either
+        # left the whole suite green, which is what an unreachable guard looks
+        # like. The parse owns the case.
+        closing = authority.index("]")
         host, remainder = authority[: closing + 1], authority[closing + 1 :]
-        if remainder and not remainder.startswith(":"):
-            raise ContainmentUndecidable(
-                f"authority {for_the_record(authority)} has trailing text after "
-                "the IPv6 literal"
-            )
-        return host, remainder[1:]
+        return host, remainder[1:] if remainder else ""
     host, separator, port_text = authority.partition(":")
     return host, port_text if separator else ""
 
@@ -539,7 +544,8 @@ def _split_authority(authority: str) -> tuple[str, str]:
 def _canonicalise_url(value: object) -> CanonicalUrl:
     if not isinstance(value, str):
         raise ContainmentUndecidable(
-            f"a {type(value).__name__} is not a URL, so no URL predicate can decide it"
+            f"a {for_the_record(type(value).__name__)} is not a URL, so no URL "
+            "predicate can decide it"
         )
     try:
         parts = urlsplit(value)
@@ -548,9 +554,14 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
         # carrying a character NFKC turns into a URL delimiter. Both are
         # values a model can choose, and both are refusals rather than
         # defects, so they leave here as one.
+        #
+        # The error's own text is bounded too, and not only the value: the
+        # NFKC branch of this `ValueError` embeds the whole netloc in its
+        # message, so an error this package did not compose reintroduces
+        # exactly what the bound exists to keep out.
         raise ContainmentUndecidable(
             f"{for_the_record(value)} does not parse as a URL, so what the callee would "
-            f"resolve is undecided here: {error}"
+            f"resolve is undecided here: {for_the_record(error)}"
         ) from error
     if not parts.scheme:
         raise ContainmentUndecidable(
@@ -595,7 +606,7 @@ def canonicalise(domain_type: DomainType, value: object) -> object:
         case DomainType.FS_PATH:
             if not isinstance(value, str):
                 raise ContainmentUndecidable(
-                    f"a {type(value).__name__} is not a filesystem path"
+                    f"a {for_the_record(type(value).__name__)} is not a filesystem path"
                 )
             return _run_fs_rules(value)
         case _:

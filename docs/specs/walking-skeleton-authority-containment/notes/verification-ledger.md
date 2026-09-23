@@ -344,10 +344,27 @@ set-valued constructor, listing a small scheme set and counting a large one.
 can carry a model-chosen fragment, with a setup check that all ten were
 reached — because a bound asserted over paths nothing enters is no bound.
 
+Then it was found half-installed a fourth time, on paths nobody had thought
+to look at: `_refuse`'s own entry and argument names, the domain-type name,
+and — the one that mattered — `{error}`, the text of an exception this
+package did not compose. CPython's NFKC branch of `urlsplit`'s `ValueError`
+embeds the entire netloc in its own message, so bounding the value and then
+appending the error reintroduced exactly what the bound existed to remove.
+
+**So the rule is now structural, because four call-site fixes were not
+enough.** `tests/containment/test_every_message_is_bounded_by_construction.py`
+reads the package's syntax tree and requires every value interpolated into
+any message to pass through `for_the_record`. A new raise site cannot pass
+without it, whether or not anyone remembers the rule exists. One exemption,
+named in the test with its reason: `_refuse`'s `why`, which arrives already
+composed by a caller whose own interpolations the same scan checks.
+
 **The lesson is the one the canonicaliser taught earlier.** A control
 installed on the path where the defect was found, rather than on the class
-the defect belongs to, looks installed and is not. Both times the fix was to
-move the rule to the lowest place every path passes through.
+the defect belongs to, looks installed and is not — and "I checked the other
+paths" is not the same as a check. Both times the fix was to move the rule
+to the lowest place every path passes through; this time it also needed a
+test that reads the code rather than its behaviour.
 
 ## T1 — three more checks that could not fail
 
@@ -362,6 +379,36 @@ witness.
   either edge of the set could move silently — after which a space or a DEL
   reached the adapter inside a canonical path. Both edges have a case.
 - `_valid_port`'s lower bound had none, so `:0` was admissible as a port.
+
+And a fifth pass found five more of the same shape, of which one was a hole
+rather than only weak evidence:
+
+- **`EXPRESSIBLE_PREDICATES` was pinned by the union of its rows**, so any
+  single row could be widened silently. The one that bites is `one_of` on
+  `content-locator`: r5 makes that type "membership in the runtime-minted
+  set for this step", so a ceiling bounded by a set its author typed instead
+  is that row's whole content gone, with every criterion green. The suite
+  now compares the table row by row against r5's, restated in the test
+  rather than read from the implementation under test, with a negative case
+  per row.
+- `_ENCODED_SEPARATOR` had a case per alternative and not per member of its
+  character classes, all of them lowercase. Percent-encoding is
+  case-insensitive, so `%252E%252E` walked out of the path root while the
+  gates stayed green.
+- The `number` type was only ever driven with a `Decimal`, and a tool
+  argument deserialised from a model's JSON arrives as an `int` — the
+  admitted path that will actually run had no case. Its `bool` exclusion,
+  which stops `True` being read as `1`, had none either.
+- `_DEFAULT_PORTS` has two entries and one witness.
+- `for_the_record`'s `repr` is there so a control character is escaped
+  rather than written into a log line, and only the length half was
+  asserted.
+
+Two branches were found unreachable rather than untested, and are recorded
+as such in the code: the bracket guards in `_split_authority`, which
+`urlsplit` now rejects first, are deleted; the `OSError` and `RuntimeError`
+arms of the `realpath` translation are kept, because the platform and not
+this package decides whether they can fire.
 
 ## T1 — what AC-0214 does not close
 
@@ -442,5 +489,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 485 passed, 195 deselected in 9.93s
+1 failed, 510 passed, 195 deselected in 17.27s
 ```

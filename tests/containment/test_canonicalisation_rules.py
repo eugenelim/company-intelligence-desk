@@ -89,6 +89,14 @@ _URL_CASES: Mapping[str, tuple[str, ...]] = {
         "https://www.sec.gov/evidence/%252f..%252f..%252fetc/passwd",
         "https://www.sec.gov/evidence/%255c..%255cetc/passwd",
         "https://www.sec.gov/evidence/%2525/etc/passwd",
+        # Percent-encoding is case-insensitive by RFC 3986, so each member
+        # of the pattern's character classes needs a witness and not each
+        # alternative: with only the lowercase spellings driven, narrowing
+        # `[eEfF]` to `[ef]` leaves every gate green and `%252E%252E` walks
+        # out of the path root.
+        "https://www.sec.gov/evidence/%252E%252E/etc/passwd",
+        "https://www.sec.gov/evidence/%252F..%252F..%252Fetc/passwd",
+        "https://www.sec.gov/evidence/%255C..%255Cetc/passwd",
     ),
     # A literal traversal, which needs no decoding to escape the path root.
     "remove-dot-segments": ("https://www.sec.gov/evidence/../etc/passwd",),
@@ -411,3 +419,20 @@ def test_a_canonical_host_may_not_carry_a_percent_escape(value: str) -> None:
     """
     with pytest.raises(ContainmentUndecidable, match="percent escape"):
         canonicalise(DomainType.URL, value)
+
+
+def test_the_default_port_of_each_scheme_is_dropped() -> None:
+    """`_DEFAULT_PORTS` has two entries and needs two witnesses.
+
+    Deleting the `http` entry used to leave the suite green, after which
+    `http://h.example/x` and `http://h.example:80/x` canonicalise to
+    different values and a ceiling comparison separates two spellings of one
+    address.
+    """
+    for scheme, default, other in (("https", "443", "8443"), ("http", "80", "8080")):
+        assert str(canonicalise(DomainType.URL, f"{scheme}://h.example:{default}/x")) == (
+            f"{scheme}://h.example/x"
+        )
+        assert str(canonicalise(DomainType.URL, f"{scheme}://h.example:{other}/x")) == (
+            f"{scheme}://h.example:{other}/x"
+        )
