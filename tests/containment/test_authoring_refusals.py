@@ -8,6 +8,9 @@ a working one until the wrong argument arrives.
 
 from __future__ import annotations
 
+import encodings.idna
+import unicodedata
+
 import pytest
 
 from ced.domain.containment.ceiling import Admitted, Denied, declare, evaluate, is_public_suffix
@@ -27,26 +30,44 @@ _HTTPS = SchemeIn(frozenset({"https"}))
 _SEC = HostInDomain("sec.gov")
 
 
+def _separator_characters() -> tuple[str, ...]:
+    """Return every character the IDNA encoder turns into a label separator.
+
+    **Derived from the encoder, not enumerated.** This defect was found three
+    times and each earlier repair closed it by lengthening a hand-kept list,
+    which is a snapshot of one codec version rather than the rule. Two
+    sources, and both are read from the standard library: the characters the
+    codec splits on directly, and the characters its own NFKC pass turns into
+    a full stop inside a label.
+    """
+    direct = {character for character in encodings.idna.dots.pattern if character not in "[]"}
+    folded = {
+        chr(code) for code in range(0x110000) if unicodedata.normalize("NFKC", chr(code)) == "."
+    }
+    return tuple(sorted(direct | folded))
+
+
+SEPARATORS: tuple[str, ...] = _separator_characters()
+
+
+def test_the_separator_set_was_derived_and_is_not_empty() -> None:
+    """Setup check: every parametrisation below rests on this set.
+
+    An empty or ASCII-only result would make each of them pass vacuously,
+    which is how a derived list quietly becomes no list at all.
+    """
+    assert "." in SEPARATORS
+    assert [character for character in SEPARATORS if character != "."], (
+        "no non-ASCII separator was derived; encodings.idna may have changed shape"
+    )
+
+
 # AC-0215 — a domain argument that is a public suffix.
 
 
 @pytest.mark.parametrize(
     "suffix",
-    [
-        "gov",
-        "com",
-        "co.uk",
-        "GOV",
-        "github.io",
-        "gov.",
-        "GOV.",
-        "s3.amazonaws.com.",
-        # The other three characters IDNA reads as a label separator. Each
-        # spells the same trailing root label as `gov.` does.
-        "gov\uff0e",
-        "gov\u3002",
-        "gov\uff61",
-    ],
+    ["gov", "com", "co.uk", "GOV", "github.io", *(f"gov{c}" for c in SEPARATORS)],
 )
 def test_a_public_suffix_domain_argument_is_refused(suffix: str) -> None:
     with pytest.raises(CeilingDeclarationRefused, match="public suffix"):
@@ -61,7 +82,15 @@ def test_a_registrable_domain_argument_is_accepted(domain: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "domain", ["", ".", "sec..gov", ".sec.gov", "\uff0e", "sec\u3002\u3002gov"]
+    "domain",
+    [
+        "",
+        ".",
+        "sec..gov",
+        ".sec.gov",
+        *(f"{c}sec.gov" for c in SEPARATORS),
+        *(f"sec{c}{c}gov" for c in SEPARATORS),
+    ],
 )
 def test_a_host_argument_with_an_empty_label_is_refused(domain: str) -> None:
     """A name with a hole in it ranges over every host or over none.
@@ -69,8 +98,18 @@ def test_a_host_argument_with_an_empty_label_is_refused(domain: str) -> None:
     `host_in_domain("")` would pass a public-suffix lookup, satisfy AC-0240's
     host-constraining requirement, and admit every host — a default-allow
     wearing the shape of a constraint.
+
+    Two refusal paths reach the same answer and the test accepts either,
+    because which one fires is a property of the spelling rather than of the
+    rule. A separator the encoder splits on directly leaves it with an empty
+    label to encode, and it refuses the host outright; one the encoder's own
+    normalisation produces survives into the output, where the label check
+    sees it. What must not happen is a third outcome, and that is what this
+    asserts: no spelling of an empty label is authorable.
     """
-    with pytest.raises(CeilingDeclarationRefused, match="label with nothing in it"):
+    with pytest.raises(
+        CeilingDeclarationRefused, match="label with nothing in it|not IDNA-encodable"
+    ):
         declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(domain)))})
 
 
@@ -83,14 +122,15 @@ def test_the_root_label_is_normalised_on_both_sides() -> None:
     `https://attacker.gov./`. Two things follow and both are asserted here.
     The normalisation runs on **both sides**, because one that runs on only
     one of them is a differential rather than a canonical form. And it runs
-    over **all four** IDNA label separators, because a fix that knew only the
-    ASCII stop left the same bypass reachable through a fullwidth one.
+    over every character the encoder reads as a separator, derived from the
+    encoder rather than listed here, because each earlier repair that listed
+    them left the same bypass reachable through a character the list had not
+    reached yet.
     """
-    for spelling in ("sec.gov.", "sec.gov\uff0e", "sec.gov\u3002", "sec.gov\uff61"):
-        entry = declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(spelling)))})
+    for stop in SEPARATORS:
+        entry = declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(f"sec.gov{stop}")))})
         assert entry.arguments["url"].predicates[1] == HostInDomain("sec.gov")
 
-    for stop in (".", "\uff0e", "\u3002", "\uff61"):
         admitted = evaluate(entry, {"url": f"https://www.sec.gov{stop}/report.pdf"})
         assert isinstance(admitted, Admitted)
         assert str(admitted.canonical["url"]) == "https://www.sec.gov/report.pdf"

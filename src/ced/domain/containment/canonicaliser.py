@@ -62,11 +62,6 @@ _DEFAULT_PORTS: Final[dict[str, int]] = {"http": 80, "https": 443}
 #: still-encoded separator looks like after one decoding round.
 _ENCODED_SEPARATOR: Final[re.Pattern[str]] = re.compile(r"%(?:2[eEfF]|5[cC]|25)")
 
-#: The four characters IDNA treats as a label separator. A host predicate
-#: that knows only the ASCII one is a host predicate with three spare
-#: spellings of every name.
-_LABEL_SEPARATORS: Final[tuple[str, ...]] = ("\u002e", "\uff0e", "\u3002", "\uff61")
-
 #: Characters that make a URL mean different things to different parsers.
 #: `urlsplit` silently strips tab, newline and carriage return, so a value
 #: carrying one has already diverged from what a stricter client would see.
@@ -77,22 +72,6 @@ _AMBIGUOUS_CHARACTERS: Final[frozenset[str]] = frozenset(
 
 def _valid_port(port_text: str) -> bool:
     return port_text.isdigit() and 1 <= int(port_text) <= 65535
-
-
-def _split_labels(host: str) -> str:
-    """Return `host` with every IDNA label separator spelled as a full stop.
-
-    IDNA treats four characters as label separators, and a check that knows
-    only the ASCII one reads `gov\uff0e` as a single label — so a trailing
-    stop written in any of the other three survives a root-label drop and
-    comes back as `.` once the host is encoded. Doing this here rather than
-    reading it off the codec's output keeps the label structure something
-    this package decides, instead of something a standard-library
-    implementation detail decides for it.
-    """
-    for separator in _LABEL_SEPARATORS:
-        host = host.replace(separator, ".")
-    return host
 
 
 def _drop_root_label(host: str) -> str:
@@ -112,9 +91,24 @@ def _empty_label(host: str) -> bool:
     return host == "" or any(label == "" for label in host.split("."))
 
 
-def _label_structure(host: str) -> str:
-    """Return `host` with its separators regularised and its root label gone."""
-    return _drop_root_label(_split_labels(host))
+def _canonical_labels(host: str) -> str:
+    """Return the host as the encoder spells it, with its root label gone.
+
+    **Label structure is decided on the encoder's output, not on its input.**
+    IDNA reads four characters as a separator directly, and its own
+    normalisation turns two more into one — NFKC maps U+2024 and U+FE52 to a
+    full stop inside a label — so any list of separators kept here is a
+    snapshot of one codec version rather than the rule. Encoding first and
+    splitting afterwards makes the guard hold for whatever the encoder maps,
+    which is the spelling the resolver will answer for.
+    """
+    encoded = _drop_root_label(_idna(host))
+    if _empty_label(encoded):
+        raise ContainmentUndecidable(
+            f"host {host!r} encodes to {encoded!r}, which has a label with "
+            "nothing in it, so it names no single resolvable name"
+        )
+    return encoded
 
 
 @dataclass(frozen=True)
@@ -204,6 +198,12 @@ def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
     which names no single resolvable name; and an authority whose port is not
     a port, where a reader that splits on the first colon and a reader that
     parses the authority see different hosts.
+
+    The empty-label test here reads the spelling the caller wrote, which is
+    the half that does not depend on the IDNA codec. A character the encoder
+    *turns into* a separator is caught in `idna-normalise-host`, against the
+    encoded spelling, because only the encoder knows which characters those
+    are.
     """
     offending = _AMBIGUOUS_CHARACTERS & set(url.raw)
     if offending:
@@ -265,8 +265,15 @@ def _idna_host(url: UrlUnderReview) -> UrlUnderReview:
     A host carrying a character IDNA prohibits — a bidirectional override, say
     — is one no two clients agree on. Refusing beats guessing, and guessing is
     what a host predicate over the raw string does.
+
+    The encoder is also what settles where the labels are, because its own
+    normalisation can turn a character into a separator. So the root label is
+    dropped and an empty label refused **against the encoded spelling**, here
+    rather than earlier. `refuse-ambiguous-parse` makes the same refusal
+    against the spelling the caller wrote, which is the half that does not
+    depend on this codec.
     """
-    return replace(url, host=_idna(url.host))
+    return replace(url, host=_canonical_labels(url.host))
 
 
 def _lowercase_host_not_path(url: UrlUnderReview) -> UrlUnderReview:
@@ -406,13 +413,13 @@ def canonicalise_host(host: str) -> str:
     canonical itself. Comparing a canonical value against a literal somebody
     typed is a string coincidence, not a containment check.
     """
-    bounded = _label_structure(host)
-    if _empty_label(bounded):
+    written = _drop_root_label(host)
+    if _empty_label(written):
         raise ContainmentUndecidable(
             f"{host!r} has a label with nothing in it, so it names no domain and "
             "a predicate over it would range over every host or none"
         )
-    return _idna(bounded).lower()
+    return _canonical_labels(written).lower()
 
 
 def canonicalise_url_path(path: str) -> str:
@@ -470,11 +477,10 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
     # prefix check and resolves to `elsewhere`.
     userinfo, _, authority = parts.netloc.rpartition("@")
     host, port_text = _split_authority(authority)
-    # A host's label structure is part of the parse, not of a clause: every
-    # host predicate needs to know where the labels are before any clause
-    # runs, and `sec.gov.` is the same name as `sec.gov` to every resolver,
-    # so a canonical host carries one spelling of it.
-    host = _label_structure(host)
+    # The root label goes here for the spelling the caller wrote; the
+    # encoded spelling is settled in `idna-normalise-host`, because the
+    # encoder is what decides where a name's labels are.
+    host = _drop_root_label(host)
     url = UrlUnderReview(
         raw=value,
         userinfo=userinfo,

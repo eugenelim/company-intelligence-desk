@@ -184,26 +184,36 @@ label — a default-allow wearing the shape of a constraint.
 
 Three things were needed and all three are in.
 
-**The label separators are regularised first.** IDNA reads four characters as
-a label separator — the ASCII full stop, U+FF0E, U+3002 and U+FF61 — so a
-first attempt that knew only the ASCII one left the identical bypass
-reachable through a fullwidth stop: `host_in_domain("gov\uff0e")` was
-accepted and stored `HostInDomain("gov.")`, the very value the fix existed to
-eliminate. The four are mapped to one spelling here rather than read off the
-codec's output, so where a name's labels are is something this package
-decides.
+**Label structure is decided on the encoder's output.** This defect was
+found three times, and the first two repairs each closed it by lengthening a
+hand-kept list of separator characters. IDNA splits on four characters
+directly, and its own NFKC pass turns two more — U+2024 and U+FE52 — into a
+full stop *inside* a label, so a list kept here is a snapshot of one codec
+version rather than the rule. The host is encoded first and split afterwards,
+which makes the guard hold for whatever the encoder maps, and the encoder's
+answer is the spelling the resolver will see.
 
-**Then the root label is dropped, in the parse**, on the value's host and on
-a ceiling's host argument alike, because a normalisation only one side runs
-is a differential rather than a canonical form.
+**Then the root label is dropped**, on the value's host and on a ceiling's
+host argument alike, because a normalisation only one side runs is a
+differential rather than a canonical form. The written spelling's root label
+goes in the parse and the encoded spelling's in `idna-normalise-host`.
 
-**Then a host with an empty label is refused** — no labels at all, a bare
-stop, a doubled stop, a leading one. At authoring time for a predicate
-argument, and by `refuse-ambiguous-parse` for a value. That second guard is
-asserted with `idna-normalise-host` removed, because the standard library's
-codec rejects most of these too: against the full pipeline the assertion
-would pass whether or not this package had a guard, and the behaviour would
-rest on a codec detail nothing here records a dependency on.
+**Then a host with an empty label is refused.** Two paths reach that answer
+and both are refusals: a separator the encoder splits on directly leaves it
+an empty label to encode and it refuses the host outright, while one the
+encoder's normalisation produces survives into the output where the label
+check sees it. `refuse-ambiguous-parse` makes the same refusal against the
+spelling the caller wrote, which is the half that does not depend on the
+codec — asserted with `idna-normalise-host` removed, because against the
+full pipeline that assertion would pass whether or not this package had a
+guard.
+
+**The suite derives the separator set rather than listing it.**
+`tests/containment/test_authoring_refusals.py` reads the characters the codec
+splits on from the codec, and computes the rest by scanning for characters
+whose NFKC form is a full stop, with a setup check that the derived set is
+non-empty and not ASCII-only. A list written by hand is what let this defect
+survive two repairs.
 
 It sits in the parse rather than in a rule for the same reason the userinfo
 and port splits do: r5's clause list does not name it, and every host
@@ -235,5 +245,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 406 passed, 195 deselected in 13.35s
+1 failed, 417 passed, 195 deselected in 12.14s
 ```
