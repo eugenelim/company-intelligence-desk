@@ -559,6 +559,42 @@ Three outcomes and no fourth, the documented bypasses refused over the parsed
 value, and the positive path admitted with a canonical value carrying no
 userinfo, no default port and no dot segments.
 
+## T2 — one file beyond the pinned `Touches`, and why
+
+**Date:** 2026-09-23. Recorded because a completion gate and a later reader
+see an undeclared surface otherwise, and the reason should not live only in
+a session.
+
+T2's `Touches` is pinned to `spikes/README.md` and
+`docs/architecture/README.md`. Its diff also edits
+`docs/specs/walking-skeleton-authority-containment/spec.md` § Follow-ons, in
+one entry.
+
+**What the edit is.** The `within(root)` follow-on recorded that T1 refuses
+`within("/")` and said nothing about a relative or empty root, which T1 also
+refuses and no criterion requires. One fail-closed refusal beyond the
+criteria was therefore reaching the owner with nothing to ratify or reverse.
+The entry now covers all three roots.
+
+**Why it was made here rather than deferred.** The spec's own contract note
+puts § Follow-ons in working material, "corrected in place as the work
+teaches, without an amendment and without a review round". The edit adds a
+recorded gap and removes none, which is the direction that note permits and
+the one the spec gates on — removing a recorded gap always takes an
+amendment. It fires no risk trigger, and T2's whole purpose is that the
+record says what is true.
+
+**Why it is T1's omission and not T2's scope creep.** The refusal it records
+shipped in T1; the omission was in T1's own § Follow-ons write-up. T2 found
+it while writing the summary that reads from it, and the two tasks are
+stacked branches in one delivery.
+
+The comparable widening earlier in this spec — T1's `Touches` gaining the r5
+architecture file — went into the plan's changelog before approval. That
+route is closed now: the plan is approved and pinned, so a changelog edit
+would be an amendment for a working-material correction. This ledger is
+where an approved plan's execution observations belong, so it is here.
+
 ## T1 — a pre-existing gate failure, carried not fixed
 
 **Date:** 2026-09-23.
