@@ -15,12 +15,14 @@ context is `None` — the compiler still builds the layer, because the stack's
 order is fixed, and an unbound layer refuses a call rather than appending
 nowhere.
 
-**What this does not establish.** Nothing in this spec executes a tool body —
-the decision point refuses every call until the successor spec's predicate
-arrives — so `call_tool` below is unreached by contract rather than by
-omission. No test here observes an append. The first one runs under
-`walking-skeleton-authority-containment`, against the step path
-`walking-skeleton-step-lifecycle` builds.
+**The appends are observed, and the duplicate is decided here.**
+`walking-skeleton-policy-decision-point` supplies this layer's append behaviour:
+its AC-0209 drives an admitted call through to `tool.invoked`, and its AC-0212
+drives a second invocation deriving a key already recorded, which the partial
+unique index refuses and this layer turns into a terminated step rather than a
+second execution. The step path that will inject a `StepContext` in production
+is still `walking-skeleton-step-lifecycle`'s; until it exists the context is
+bound by the caller, and an unbound layer refuses.
 
 **A second limit, recorded rather than designed around.** r5 wants
 `tool.completed` to carry the parse outcome, so a result the trust-class layer

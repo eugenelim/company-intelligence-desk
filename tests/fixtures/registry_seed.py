@@ -115,10 +115,11 @@ def ceiling_entry(
 ) -> dict[str, Any]:
     """One ceiling entry in the ratified binding shape.
 
-    `predicates` is present and empty: the ratified design fixes the three
-    binding fields and leaves the predicate encoding to
-    `walking-skeleton-authority-containment`, so a value with any structure
-    would be inventing one.
+    `predicates` is present and empty, which is the encoding for "no
+    predicates" and not a placeholder: `ced.agents.ceilings` installs **no**
+    resolver entry for such a row, so a call to that tool denies by lookup
+    miss. A seeded value with structure would put a real ceiling behind every
+    check in this file that does not want one.
     """
     return {
         "integration_name": integration_name,

@@ -85,9 +85,10 @@ ROLE_LOAD_FAILED: Final = "role.load.failed"
 ROLE_COMPILE_REFUSED: Final = "role.compile.refused"
 
 #: The step-scoped **vocabulary** is deliberately not enumerated here or in the
-#: schema. `walking-skeleton-authority-containment` adds the types its toolset emits,
-#: and an enum frozen now would make each one a migration against a shipped
-#: spec. What the database enforces instead is the negative rule that matters:
+#: schema. `walking-skeleton-policy-decision-point` gives the step-event toolset
+#: the behaviour that emits `tool.invoked` and `tool.completed`, and an enum
+#: frozen now would make each later type a migration against a shipped spec.
+#: What the database enforces instead is the negative rule that matters:
 #: the worker path refuses the reserved type, and the run-lifecycle path
 #: accepts only the two names above.
 #:

@@ -265,8 +265,10 @@ def test_a_binding_field_of_the_wrong_type_fails_to_load(field: str, value: Any)
     """The ratified binding shape is three typed fields, not just an object.
 
     Migration 0003 fixes `integration_name`, `integration_version` and
-    `tool_name`; `predicates` is left to
-    `walking-skeleton-authority-containment` and is not judged here.
+    `tool_name`; `predicates` is judged by `ced.agents.ceilings`, on the
+    compile path, and not by this seam. The split is deliberate — this seam
+    judges a binding's shape, and the containment fragment's authoring surface
+    is what can refuse an encoding it cannot express.
 
     **The bad entry is third, and the message is asserted whole.** An
     operator reading this refusal has to find one entry among many, so the

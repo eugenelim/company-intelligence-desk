@@ -1,8 +1,14 @@
 """AC-0006 — a duplicate derived idempotency key is refused by the index.
 
 The SQL-level half only. The *behavioural* half — a duplicate terminating the
-step — belongs to `walking-skeleton-authority-containment`, which owns the toolset that
-appends. r7 change 2's disposition says so, and this suite stops at the index.
+step — is `walking-skeleton-policy-decision-point`'s AC-0212, which gives the
+step-event toolset its append behaviour. r7 change 2's disposition routes it to
+the spec that owns that toolset, and this suite stops at the index.
+
+**The raw `psycopg.errors.UniqueViolation` asserted below is load-bearing for
+both.** The adapter deliberately does not remap it, so this criterion observes
+the index and the toolset one layer up catches the same exception to decide the
+duplicate. Remapping it would move this observation rather than add one.
 """
 
 from __future__ import annotations

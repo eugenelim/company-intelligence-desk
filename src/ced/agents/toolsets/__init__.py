@@ -10,12 +10,12 @@ The compiler is the only constructor of the stack and calls `check_stack_order`
 on what it built. That checker is a function over a chain rather than a
 parameter on the compiler, so stack order never reaches a caller's hands.
 
-**What this package does not establish.** Nothing here executes a tool body.
-The decision point refuses every call until
-`walking-skeleton-authority-containment` supplies the containment predicate,
-so the two inner layers' `call_tool` bodies are unreached by contract rather
-than by omission, and this package's suite asserts composition and refusal
-only.
+**A tool body does execute, and the two inner layers are reached.**
+`walking-skeleton-authority-containment` ships the decidable fragment and
+`walking-skeleton-policy-decision-point` decodes a stored ceiling into it,
+installs the result on the decision point and supplies the step-event layer's
+append behaviour. Composition and refusal are still asserted here; what an
+admitted call does is asserted in `tests/authorization/`.
 """
 
 from __future__ import annotations

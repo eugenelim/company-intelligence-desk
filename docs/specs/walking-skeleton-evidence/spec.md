@@ -41,9 +41,9 @@ plainly what was established, what was substituted, and what was not
 established at all.
 
 **Its siblings.** `walking-skeleton-foundation`,
-`walking-skeleton-role-compilation`, `walking-skeleton-authority-containment`
-and `walking-skeleton-step-lifecycle` are all hard dependencies: this spec
-measures a system they build.
+`walking-skeleton-role-compilation`, `walking-skeleton-authority-containment`,
+`walking-skeleton-policy-decision-point` and `walking-skeleton-step-lifecycle`
+are all hard dependencies: this spec measures a system they build.
 
 ## Durable Outputs
 

@@ -61,9 +61,10 @@ def test_the_trust_class_layer_holds_the_real_parser() -> None:
 
     An identity assertion, not a behavioural one. `TrustClassToolset.call_tool`
     is unentered by contract in this spec, so nothing else here would notice
-    the compiler passing a pass-through in place of the boundary; the seam is
-    live in `walking-skeleton-authority-containment`, which inherits this
-    suite.
+    the compiler passing a pass-through in place of the boundary. The seam is
+    driven in `walking-skeleton-policy-decision-point`'s AC-0247, which is the
+    first criterion anywhere to run a tool body and read what the layer does
+    with its return.
     """
     compiled = a_compiled_agent()
 

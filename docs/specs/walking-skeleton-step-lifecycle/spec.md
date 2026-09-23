@@ -43,9 +43,15 @@ owns the schema, both append paths, the privilege split and the pool this runs
 inside. [`walking-skeleton-role-compilation`](../walking-skeleton-role-compilation/spec.md)
 is a hard dependency: it ships the compiler whose output this executes.
 [`walking-skeleton-authority-containment`](../walking-skeleton-authority-containment/spec.md)
-is a hard dependency too: AC-0227 requires a resumed step to apply an approval
-decision, which means the previously gated tool body runs, and nothing can admit
-a call until that spec's containment predicate exists.
+and
+[`walking-skeleton-policy-decision-point`](../walking-skeleton-policy-decision-point/spec.md)
+are hard dependencies too, and the pair is one edge rather than two: AC-0227
+requires a resumed step to apply an approval decision, which means the
+previously gated tool body runs, and nothing can admit a call until the first
+spec's containment fragment exists **and** the second installs it in the
+decision point. The 2026-09-23 cut separated the fragment from the decision
+point that reads it, so naming only the first would name the half that admits
+nothing on its own.
 [`walking-skeleton-evidence`](../walking-skeleton-evidence/spec.md) consumes all
 three to produce the Phase 1 measurements and the browser stream.
 
@@ -234,7 +240,7 @@ amendment rather than an in-place correction.
 - Technical: `walking-skeleton-role-compilation` ships the compiler whose output this spec executes, and pins the framework including the `[bedrock]` extra. This spec adds no framework dependency (source: `walking-skeleton-role-compilation/plan.md` § Dependencies & integration).
 - Process: ADR-0006 D1's and D2's return conditions were added on 2026-09-21, first as acceptance criteria AC-0271 and AC-0272 and then, the same day, as owned follow-ons with register entries. The first shape was wrong and the reason is worth keeping: a criterion that cannot be green while its deviation stands is an unchecked `- [ ]` line, and `lint-spec-status.py` makes every one of those a HARD violation at a `Shipped` transition with no deferral exemption, so the spec could not ship without either failing the gate or checking a box for something known false. ADR-0006 § Confirmation was amended to admit the follow-on carrier `spec-and-plan-contract.md` already prescribes. **Neither withdrawn identifier is reallocated.** The alternative considered and rejected was exempting return-condition criteria in the lint, which would have weakened a gate for every spec in the repository to fit two lines in this one (source: owner decision 2026-09-21, on adjudicated adversarial and quality-engineer findings).
 - Process: AC-0229 is the one criterion carried into *this spec* whose wording changed. The parent said a resumed step is prompted by "the current role compilation", which reads as the latest version and contradicts `worker-runtime.md` r5 § 3 — the resuming worker constructs from the same role version — and therefore contradicted AC-0241, which pins the ceiling that way. The criterion now says a fresh compilation of the suspended version, which keeps its original security property, that instruction text must not come from the persisted bytes, and resolves the split (source: owner ruling 2026-09-20 after an adversarial spec review).
-- Technical: `walking-skeleton-authority-containment` ships the containment predicate, and without it the decision point admits no call. AC-0227 needs an approved tool body to run, so that spec is a hard dependency rather than a peer (source: `walking-skeleton-role-compilation/spec.md` AC-0233; adversarial spec review, 2026-09-20).
+- Technical: `walking-skeleton-authority-containment` ships the containment fragment and `walking-skeleton-policy-decision-point` installs it, and without both the decision point admits no call. AC-0227 needs an approved tool body to run, so both are hard dependencies rather than peers (source: `walking-skeleton-role-compilation/spec.md` AC-0233, retired by `walking-skeleton-policy-decision-point` T1; adversarial spec review, 2026-09-20; the fragment and the decision point were separated by the cut of 2026-09-23).
 - Technical: the foundation spec ships the schema, both append paths, the privilege split and the pool. This spec adds no column; it writes the Phase 1 runtime's first payload object, which is why object keys become scope-qualified here (source: `walking-skeleton-foundation/plan.md` § Data & schema).
 - Technical: the IAM shape established by spike 1 admits the call — inference-profile ARN pinned to the calling region, foundation-model ARN region-wildcarded, no requested-region condition — and both plausible tightenings deny it outright (source: `spikes/README.md` § Spike 1).
 - Process: this spec is one of three cut from `walking-skeleton-agent-runtime`, whose directory was deleted on 2026-09-20. AC-0223 through AC-0228 and AC-0230 through AC-0232 carry across with their wording unchanged; AC-0229 is the single exception, reworded as the entry above records (source: user decision 2026-09-20).
