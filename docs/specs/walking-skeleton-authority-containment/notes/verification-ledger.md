@@ -410,6 +410,61 @@ as such in the code: the bracket guards in `_split_authority`, which
 arms of the `realpath` translation are kept, because the platform and not
 this package decides whether they can fire.
 
+## T1 — a guard deleted as unreachable, on the wrong evidence
+
+**Date:** 2026-09-23. **The one regression this work introduced, and the
+reason it happened is worth more than the fix.**
+
+A quality finding reported two refusals in `_split_authority` as unreachable,
+on the evidence that "deleting either leaves the suite green". That evidence
+was accepted and one of them was deleted. It was wrong: **a green suite is
+evidence about the suite, not about the parser.**
+
+`urlsplit` validates the *netloc*. `_canonicalise_url` then splits the
+userinfo off with `rpartition("@")` and hands `_split_authority` a substring
+the parser never validated. So a `]` before the last `@` satisfies CPython's
+bracket check while the `[` after it goes unclosed in the slice that arrives
+— `http://]@[::1/` and `https://a]@[::1/p` both pass the parse — and
+`authority.index("]")` then raised a bare `ValueError` out of `evaluate`, for
+a value a model can choose. That is the fail direction AC-0315 exists to fix,
+reopened.
+
+Two reviewers found it independently, one by fuzzing with `]@[` in its
+alphabet and one by re-deriving the composition it had reasoned about the
+first time. Neither this package's own generated check nor either reviewer's
+earlier sweep reached the ordering, which is why the repair is a **named
+case** rather than a wider generator: some shapes are found by construction
+and not by search.
+
+The guard is back, with the parser predicate that makes the *other* deletion
+sound written beside it — `urlsplit` does refuse trailing text after a closed
+literal, checked against CPython rather than inferred. **The rule this
+leaves: a guard may be removed as unreachable only against the upstream
+predicate that makes it so, read from the thing that enforces it.**
+
+## T1 — the structural rule had the reach its own objection warns about
+
+**Date:** 2026-09-23.
+
+`test_every_message_is_bounded_by_construction.py` was written because four
+call-site fixes in a row had missed a sibling path. Its first version walked
+for f-string interpolations inside a call to a bare-named message builder —
+which is a rule that lists the shapes it knows, one level up from the
+mistake it exists to stop. Five ordinary spellings reported nothing while
+interpolating raw: a message composed into a local first, `%`-formatting,
+`str.format`, concatenation, and a builder reached as an attribute.
+
+It now **rejects by shape rather than detecting by shape**: a message
+builder's argument must be a literal, a bounded call, or an f-string whose
+every interpolation is bounded, and anything else fails — including a shape
+nobody anticipated. It also scans the helpers its own allowlist trusts,
+because an allowlisted helper that nothing checks is the hole the allowlist
+creates; `_describe`'s fall-through arm, which handles seven of the ten
+constructors, was exactly that.
+
+All five evading spellings were checked against the hardened rule and each
+is caught.
+
 ## T1 — what AC-0214 does not close
 
 **Date:** 2026-09-23. Recorded because the plan asks for it in T1's `Tests`
@@ -489,5 +544,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 510 passed, 195 deselected in 17.27s
+1 failed, 514 passed, 195 deselected in 12.57s
 ```

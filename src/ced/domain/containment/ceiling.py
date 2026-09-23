@@ -180,7 +180,10 @@ def _describe(predicate: Predicate) -> str:
             # this text is recorded.
             if len(schemes) > _SET_LISTING_BUDGET:
                 return f"scheme_in over {len(schemes)} scheme(s)"
-            return f"scheme_in{sorted(schemes)}"
+            # Bounded as a whole and not only in number: a small set of very
+            # long schemes is the same recorded text as a large set of short
+            # ones.
+            return f"scheme_in{for_the_record(sorted(schemes))}"
         case _:
             # Bounded like the named arms. A `prefix` argument is
             # author-controlled rather than model-chosen, so nobody can grow

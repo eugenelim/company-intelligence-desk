@@ -44,6 +44,7 @@ from ced.domain.containment.predicates import (
     NumberRange,
     OneOf,
     Predicate,
+    Prefix,
     SchemeIn,
     Within,
 )
@@ -382,3 +383,51 @@ def test_a_recorded_message_escapes_a_control_character_rather_than_writing_it()
     # carry and a log line may not.
     reason = evaluate(entry, {"u": "https://attacker.example/a\u2028b"}).reason
     assert "\u2028" not in reason
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://]@[::1/",
+        "https://a]@[::1/p",
+        "https://sec.gov]@[fe80::1/evidence/x",
+    ],
+)
+def test_an_unclosed_bracket_after_the_userinfo_split_is_refused(value: str) -> None:
+    """A named case, because no generator here reaches the ordering.
+
+    `urlsplit` validates the **netloc**, and `_canonicalise_url` then splits
+    the userinfo off with `rpartition("@")` and hands the authority
+    substring on — a string `urlsplit` never validated. A `]` before the
+    last `@` satisfies the parser's bracket check while the `[` after it
+    goes unclosed in the slice that reaches `_split_authority`.
+
+    An earlier revision deleted that guard on the grounds that removing it
+    left the suite green, and a bare `ValueError` then left `evaluate` for a
+    value a model can choose. The evidence for removing a guard has to be
+    the upstream predicate that makes it unreachable, read from the parser;
+    a green suite is evidence about the suite.
+    """
+    entry = CeilingEntry(name="t", arguments={"u": _URL})
+    with pytest.raises(ContainmentUndecidable, match="never closes"):
+        evaluate(entry, {"u": value})
+
+
+def test_the_fallback_arm_of_a_denial_description_is_bounded_too() -> None:
+    """The arm the structural rule's allowlist rests on, and it had no case.
+
+    `_describe`'s three named arms were driven and its `case _` was not —
+    and that arm handles seven of the ten constructors, including the one
+    its own comment says it exists for: a constructor added later inherits
+    the bound rather than needing anybody to remember the arm. Reverting it
+    to a bare `repr` left the suite green, so the allowlist that exempts
+    `_describe` from the structural rule rested on an unchecked premise.
+    """
+    entry = CeilingEntry(
+        name="t",
+        arguments={"a": CeilingArgument("opaque-string", (Prefix("P" * 9000),))},
+    )
+    reason = evaluate(entry, {"a": "nope"}).reason
+    assert len(reason) <= _MESSAGE_CEILING, len(reason)
+    assert "P" * 500 not in reason
+    assert re.search(r"\(\d+ characters\)", reason)

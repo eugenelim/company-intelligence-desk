@@ -48,28 +48,99 @@ _MESSAGE_BUILDERS: Final[frozenset[str]] = frozenset(
 _COMPOSED_ELSEWHERE: Final[frozenset[tuple[str, str]]] = frozenset({("ceiling.py", "why")})
 
 
+#: Which arguments of a builder are message *text*. `_refuse` takes an entry
+#: name and an argument name as fields it bounds itself — its own body is
+#: scanned like any other builder — and only its third argument is a message.
+#: Everything not listed here has all of its arguments checked.
+_MESSAGE_ARGUMENTS: Final[dict[str, tuple[int, ...]]] = {"_refuse": (2,)}
+
+#: Helpers a message may interpolate directly. Each returns bounded text and
+#: is scanned itself, below — an allowlisted helper that nothing checks is
+#: the hole the allowlist creates.
+_BOUNDED_HELPERS: Final[frozenset[str]] = frozenset({"_describe"})
+
+
+def _builder_name(node: ast.Call) -> str | None:
+    """Return the name a call resolves to, attribute-qualified or not.
+
+    `errors.ContainmentUndecidable(...)` is the same message as
+    `ContainmentUndecidable(...)`, and reading only `ast.Name` would skip it.
+    """
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
+
+def _bounded_call(node: ast.expr) -> bool:
+    return isinstance(node, ast.Call) and _builder_name(node) in _BOUNDED_CALLS
+
+
+def _unbounded_in(expression: ast.expr, path: Path) -> list[str]:
+    """Return why `expression` is not an acceptable message, if it is not.
+
+    **Rejected by shape, not detected by shape.** An earlier version walked
+    for `ast.FormattedValue` nodes, so five ordinary spellings reported
+    nothing while interpolating raw: a message built into a local first,
+    `%`-formatting, `.format()`, `+` concatenation, and a builder reached as
+    an attribute. A rule that lists the shapes it knows is a rule that a new
+    shape walks past, which is the mistake this whole check exists to stop
+    repeating one level up.
+    """
+    where = f"{path.name}:{expression.lineno}"
+    if isinstance(expression, ast.Constant):
+        return []
+    if _bounded_call(expression):
+        return []
+    if isinstance(expression, ast.JoinedStr):
+        found: list[str] = []
+        for part in expression.values:
+            if isinstance(part, ast.Constant):
+                continue
+            if isinstance(part, ast.FormattedValue) and _bounded_call(part.value):
+                continue
+            if isinstance(part, ast.FormattedValue):
+                rendered = ast.unparse(part.value)
+                if (path.name, rendered) in _COMPOSED_ELSEWHERE:
+                    continue
+                found.append(f"{where}: raw {{{rendered}}}")
+            else:  # pragma: no cover — a JoinedStr holds only these two
+                found.append(f"{where}: unrecognised f-string part")
+        return found
+    return [
+        f"{where}: a message must be a literal, a bounded call, or an f-string "
+        f"whose every interpolation is bounded, not {type(expression).__name__} "
+        f"({ast.unparse(expression)[:60]})"
+    ]
+
+
 def _raw_interpolations(path: Path) -> list[str]:
-    """Return every message interpolation in `path` that is not bounded."""
+    """Return every message in `path` that is not bounded by construction."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     found: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+    for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if not isinstance(node.func, ast.Name) or node.func.id not in _MESSAGE_BUILDERS:
+        if _builder_name(node) not in _MESSAGE_BUILDERS:
             continue
+        builder = _builder_name(node)
+        positions = _MESSAGE_ARGUMENTS.get(str(builder))
         arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+        if positions is not None:
+            arguments = [arguments[index] for index in positions if index < len(arguments)]
         for argument in arguments:
-            for inner in ast.walk(argument):
-                if not isinstance(inner, ast.FormattedValue):
-                    continue
-                value = inner.value
-                bounded = (
-                    isinstance(value, ast.Call)
-                    and isinstance(value.func, ast.Name)
-                    and value.func.id in _BOUNDED_CALLS
-                )
-                exempt = (path.name, ast.unparse(value)) in _COMPOSED_ELSEWHERE
-                if not bounded and not exempt:
-                    found.append(f"{path.name}:{inner.lineno}: {{{ast.unparse(value)}}}")
+            found.extend(_unbounded_in(argument, path))
+
+    # The helpers the allowlist trusts are scanned too: every string
+    # `_describe` can return is a message, and its own f-strings sit outside
+    # any builder call, so nothing else would look at them.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name not in _BOUNDED_HELPERS:
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Return) and inner.value is not None:
+                found.extend(_unbounded_in(inner.value, path))
     return found
 
 

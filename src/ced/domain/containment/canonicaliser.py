@@ -527,14 +527,24 @@ def _split_authority(authority: str) -> tuple[str, str]:
     that is not one.
     """
     if authority.startswith("["):
-        # An unclosed bracket, and trailing text after a closed one, are both
-        # rejected by `urlsplit` before this function runs — `_canonicalise_url`
-        # translates that `ValueError` into a refusal. So the only bracketed
-        # authority reaching here is well-formed, and the two guards that used
-        # to stand where this comment does were unreachable: deleting either
-        # left the whole suite green, which is what an unreachable guard looks
-        # like. The parse owns the case.
-        closing = authority.index("]")
+        closing = authority.find("]")
+        if closing == -1:
+            # **Reachable, and the parse does not own it.** CPython's
+            # `_check_bracketed_netloc` validates `netloc.rpartition("@")[2]`,
+            # so an authority whose `]` sits *before* the userinfo boundary
+            # and whose `[` sits after it passes the parse: `http://]@[::1/`
+            # arrives here as `[::1`, with no closing bracket in the slice
+            # this function sees. An earlier revision deleted this guard on
+            # the grounds that removing it left the suite green, which is
+            # evidence about the suite and not about the parser — and a raw
+            # `ValueError` then left `evaluate` for a value a model can
+            # choose.
+            raise ContainmentUndecidable(
+                f"authority {for_the_record(authority)} opens an IPv6 literal it never closes"
+            )
+        # Trailing text after a closed bracket *is* the parse's: `urlsplit`
+        # refuses `https://[::1]junk/x` with `Invalid IPv6 URL`, checked
+        # against the parser rather than inferred from a green suite.
         host, remainder = authority[: closing + 1], authority[closing + 1 :]
         return host, remainder[1:] if remainder else ""
     host, separator, port_text = authority.partition(":")
