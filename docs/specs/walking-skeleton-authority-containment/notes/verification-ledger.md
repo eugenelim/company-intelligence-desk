@@ -93,9 +93,12 @@ than guessing" — is what refuses an authority whose port is not a port.
 
 ## T1 — AC-0216 is unmet for two of r5's six clauses, and cannot be met
 
-**Date:** 2026-09-23. **Status: needs an owner decision.** AC-0216 is
-unchecked in `spec.md` because of this entry, and it is the only criterion T1
-does not close.
+**Date:** 2026-09-23. **Status: decided — the amendment was taken.** AC-0216
+was unchecked in `spec.md` because of this entry, and it was the only
+criterion T1 did not close. The owner authorized the reword on 2026-09-23;
+`plan.md` § Changelog records what was authorized and what was declined, and
+the criterion now reads with two forms of evidence. What follows is the
+argument that produced it, left as written.
 
 **What AC-0216 asks.** For every rule r5 names under "What the canonicalizer
 must do", an input the canonicaliser refuses and that is **admitted** when
@@ -160,10 +163,10 @@ which `lint-spec-status.py` checks. **T1's pinned `Done when` requires
 AC-0213 through AC-0218 green and is therefore not met**, which is the second
 thing the owner is being asked to rule on.
 
-**Recommended amendment**, for the owner to rule on. Reword AC-0216 so the
-mutation case is required of every rule whose omission *can* admit, and the
-fail-closed direction is required of the rest, with the reason recorded per
-rule. That keeps the criterion's force — no rule ships unexercised — and
+**The amendment, recommended here and since taken.** AC-0216 now requires the
+mutation case of every rule whose omission *can* admit, and of the rest a
+normalisation check, a fail-closed check over a universe the rule acts on,
+and a recorded reason naming why no admitting input exists. That keeps the criterion's force — no rule ships unexercised — and
 stops it asking for evidence that cannot exist. The two alternatives are to
 accept the miswrite substitution as "disabled", which weakens the criterion
 wherever it is applied later, or to turn `drop default ports` from a
@@ -464,6 +467,29 @@ constructors, was exactly that.
 
 All five evading spellings were checked against the hardened rule and each
 is caught.
+
+## T1 and T2 — the three open decisions, and how they were settled
+
+**Date:** 2026-09-23. Recorded here so the sections above, which argue toward
+decisions, are not read later as still waiting on them.
+
+- **AC-0216 was amended**, in the form the section above recommends. The two
+  alternatives were declined: accepting a miswrite as "disabled" weakens the
+  criterion wherever it is later applied and rescues only one of the two
+  clauses, since no reading of "disable `drop default ports`" admits
+  anything; and turning that clause from a normalisation into a refusal
+  changes a ratified rule so a test becomes expressible.
+- **The three refusals beyond the criteria were ratified**, each with its
+  grounds in `spec.md` § Follow-ons. None gains a criterion. The call-
+  completeness one carries a consequence worth re-reading before the decision
+  point is designed: an entry whose tool has a genuinely optional argument
+  declares only the arguments it will always receive.
+- **The public-suffix dependency stays, and the gap gained a trigger.**
+  Nothing in Phase 1 registers a URL-taking tool, so the exposure today is
+  zero; replacing or refreshing the suffix source is a precondition of the
+  first work that registers one, and
+  `public-suffix-dataset-has-no-refresh-path` in `workspace.toml`
+  `[backlog].open` is where a reader of the queue meets it.
 
 ## T1 — what AC-0214 does not close
 
