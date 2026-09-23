@@ -280,7 +280,10 @@ def test_a_predicate_outside_its_types_row_is_refused() -> None:
 
 
 # Beyond AC-0240 and AC-0316, both fail-closed, both recorded in the
-# verification ledger as strengthenings the owner has not ratified.
+# spec's § Follow-ons as strengthenings, each **ratified by the owner on
+# 2026-09-23** with its grounds. None gains a criterion; what ratification
+# changed is that they are decided behaviour, so a maintainer meeting one of
+# these refusals does not read it as an unowned addition to remove.
 
 
 def test_a_url_argument_with_no_scheme_predicate_is_refused() -> None:
