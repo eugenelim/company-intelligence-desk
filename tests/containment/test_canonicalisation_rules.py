@@ -469,9 +469,14 @@ def test_the_default_port_of_each_scheme_is_dropped() -> None:
 #: assume the second, and a regression that stopped folding `host_eq`'s
 #: argument was measured suite-green under exactly that shape.
 #:
-#: The arguments below are deliberately mixed-case so the readback is
-#: evidence about `declare`.
-_MIXED_CASE_ARGUMENTS: Mapping[type, tuple[Predicate, ...]] = {
+#: **Only the two host constructors carry the case evidence**, and they are
+#: the only ones that can. `scheme_in` has one declarable member, `https`,
+#: and `path_within` must *not* be folded — that is the half of
+#: `lowercase-host-not-path` the whole rule exists for — so a mixed-case
+#: path argument would assert the opposite of the ground. Those two entries
+#: are here so every constructor has a probe for the port derivation, not
+#: because they say anything about folding.
+_DECLARED_ARGUMENTS: Mapping[type, tuple[Predicate, ...]] = {
     SchemeIn: (SchemeIn(frozenset({"https"})),),
     HostEq: (HostEq("WWW.SEC.GOV"), HostEq("Attacker.Example")),
     HostInDomain: (HostInDomain("SEC.GOV"), HostInDomain("Attacker.Example")),
@@ -489,10 +494,19 @@ def _declared(predicate: Predicate) -> Predicate:
     return stored[-1]
 
 
-_PROBES: Mapping[type, tuple[Predicate, ...]] = {
-    constructor: tuple(_declared(p) for p in written)
-    for constructor, written in _MIXED_CASE_ARGUMENTS.items()
-}
+def _probes() -> Mapping[type, tuple[Predicate, ...]]:
+    """Return one declared predicate per `url` constructor.
+
+    Computed on call and not at import. The readback goes through
+    `declare`, so a future strengthening of the authoring surface that the
+    companions below no longer satisfy would, at import, turn every check
+    in this module into one collection error instead of the targeted red
+    each was written to give.
+    """
+    return {
+        constructor: tuple(_declared(p) for p in written)
+        for constructor, written in _DECLARED_ARGUMENTS.items()
+    }
 
 
 #: Which derivation grounds each fail-closed rule, by test name. A rule
@@ -507,13 +521,22 @@ _DERIVED_GROUNDS: Mapping[str, tuple[str, ...]] = {
 }
 
 
-def test_every_fail_closed_rule_names_a_derivation_that_exists() -> None:
-    """AC-0216's weak limb is entered by evidence, not by declaration.
+def test_every_fail_closed_rule_names_a_derivation_that_resolves() -> None:
+    """Every rule in the weak limb names a derivation, and each name resolves.
+
+    **That is the whole of what this establishes, and it is less than
+    grounding.** Nothing here can confirm that the named check actually
+    derives the ground the rule rests on: a third rule pointing at an
+    existing derivation about a different rule passes, which was measured.
+    What it does force is that a rule cannot enter the limb silently —
+    somebody has to stop, choose a derivation and record it, and a rule
+    with none reds. AC-0216 asks for the derivation; this asks that one be
+    named.
 
     Adding a rule to `_FAIL_CLOSED_RULES` with only a reason string leaves
-    both existing derivations passing — they are about the port and about
-    host case — so without this the third rule's limb membership would be
-    an author's assertion again.
+    both existing derivations passing, since they are about the port and
+    about host case, so without the set equality below the limb would be
+    entered by assertion again.
     """
     assert set(_DERIVED_GROUNDS) == set(_FAIL_CLOSED_RULES)
     module = sys.modules[__name__]
@@ -533,7 +556,7 @@ def test_the_declaration_surface_folds_a_host_argument() -> None:
     one, instead of the failure showing up as a neighbouring criterion's
     suffix-lookup case or not at all.
     """
-    for written in (*_MIXED_CASE_ARGUMENTS[HostEq], *_MIXED_CASE_ARGUMENTS[HostInDomain]):
+    for written in (*_DECLARED_ARGUMENTS[HostEq], *_DECLARED_ARGUMENTS[HostInDomain]):
         stored = _declared(written)
         rendered = stored.host if isinstance(stored, HostEq) else stored.domain
         assert rendered == rendered.lower(), (
@@ -545,7 +568,7 @@ def test_the_declaration_surface_folds_a_host_argument() -> None:
 
 def test_every_url_constructor_has_a_probe() -> None:
     """Setup check: a premise asserted over a constructor nobody probes is no premise."""
-    assert set(_PROBES) == set(EXPRESSIBLE_PREDICATES[DomainType.URL])
+    assert set(_probes()) == set(EXPRESSIBLE_PREDICATES[DomainType.URL])
 
 
 def _url(value: str) -> CanonicalUrl:
@@ -567,7 +590,7 @@ def test_no_url_predicate_ranges_over_a_port(constructor: type) -> None:
     load-bearing while its fail-closed evidence stays green. This is what
     reds when that happens.
     """
-    for predicate in _PROBES[constructor]:
+    for predicate in _probes()[constructor]:
         for base in ("https://www.sec.gov/evidence/x", "https://attacker.example/other/y"):
             without = _url(base)
             with_port = replace(without, port=8443)
@@ -590,7 +613,7 @@ def test_folding_a_host_never_removes_an_admission(constructor: type) -> None:
     set. A constructor that read a host case-sensitively would break that,
     and this is what reds.
     """
-    for predicate in _PROBES[constructor]:
+    for predicate in _probes()[constructor]:
         for base in ("https://WWW.SEC.GOV/evidence/x", "https://Www.Sec.Gov/EVIDENCE/y"):
             unfolded = replace(_url(base), host=urlsplit(base).netloc)
             folded = replace(unfolded, host=unfolded.host.lower())
