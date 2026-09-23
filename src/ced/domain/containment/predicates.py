@@ -43,6 +43,7 @@ __all__ = [
     "NumberRange",
     "OneOf",
     "PathWithin",
+    "RESOLVABLE_SCHEMES",
     "Predicate",
     "Prefix",
     "SchemeIn",
@@ -155,6 +156,22 @@ EXPRESSIBLE_PREDICATES: Final[dict[DomainType, frozenset[type]]] = {
     DomainType.NUMBER: frozenset({NumberRange}),
     DomainType.DATE: frozenset({DateRange}),
 }
+
+#: The schemes a `url` argument may name.
+#:
+#: **One, and the citation is exact because an earlier version of this line
+#: was not.** `runtime-architecture.md` r8 § 2's trust table states the
+#: scheme for the one egress edge this system has — "Ingestion job | Egress
+#: proxy → SEC | scheduled fetch | **HTTPS**" — and r8 § 3 and § 4 describe
+#: that proxy as a *hostname* allowlist with a token bucket, naming no
+#: scheme set at all. An earlier comment here claimed r8 § 4 made it an
+#: "HTTP allowlist" and admitted `http` on that basis; r8 says no such
+#: thing, and a ceiling admitting plaintext egress on an invented citation
+#: is the failure the refusal reading this set was written to stop.
+#:
+#: `file:` is the case the refusal is recorded as closing: the resolver
+#: ignores the authority, so a host predicate beside it constrains nothing.
+RESOLVABLE_SCHEMES: Final[frozenset[str]] = frozenset({"https"})
 
 #: The constructors that constrain which host a `url` argument may name.
 #: AC-0240 requires one of these to be present on every `url` argument; it

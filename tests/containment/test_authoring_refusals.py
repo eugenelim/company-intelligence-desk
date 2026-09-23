@@ -280,7 +280,10 @@ def test_a_predicate_outside_its_types_row_is_refused() -> None:
 
 
 # Beyond AC-0240 and AC-0316, both fail-closed, both recorded in the
-# verification ledger as strengthenings the owner has not ratified.
+# spec's § Follow-ons as strengthenings, each **ratified by the owner on
+# 2026-09-23** with its grounds. None gains a criterion; what ratification
+# changed is that they are decided behaviour, so a maintainer meeting one of
+# these refusals does not read it as an unowned addition to remove.
 
 
 def test_a_url_argument_with_no_scheme_predicate_is_refused() -> None:
@@ -412,3 +415,47 @@ def test_a_predicate_outside_its_row_is_refused(domain_type: str, predicate: Pre
     """One negative per row, so no single row can be widened unnoticed."""
     with pytest.raises(CeilingDeclarationRefused):
         declare("fetch", {"a": (domain_type, (predicate,))})
+
+
+@pytest.mark.parametrize("scheme", ["file", "gopher", "ftp", "dict", "jar", "http"])
+def test_a_url_argument_may_not_name_a_scheme_the_egress_path_cannot_carry(
+    scheme: str,
+) -> None:
+    """Presence of a scheme predicate is not enough, and the grounds say why.
+
+    The scheme refusal is recorded as closing `file://sec.gov/etc/passwd`,
+    where the resolver ignores the authority and the host predicate beside
+    it decides nothing. A check that required only *some* `scheme_in` left
+    `scheme_in{file}` authorable — the very case the refusal is recorded as
+    closing — so the set is bounded as well as required. r8 § 2's trust table
+    names HTTPS for this system's one egress edge, and r8 § 3 and § 4 call
+    that proxy a *hostname* allowlist naming no scheme set — so `http` is
+    refused too. An earlier version of this check admitted it, citing an
+    "HTTP allowlist" in r8 § 4 that r8 does not contain.
+    """
+    with pytest.raises(CeilingDeclarationRefused, match="outside"):
+        declare(
+            "fetch",
+            {"url": ("url", (SchemeIn(frozenset({scheme})), HostInDomain("sec.gov")))},
+        )
+
+
+def test_a_url_argument_may_name_the_scheme_the_egress_path_carries() -> None:
+    """The other direction: refusing every scheme would satisfy the test above."""
+    schemes = frozenset({"https"})
+    entry = declare("fetch", {"url": ("url", (SchemeIn(schemes), HostInDomain("sec.gov")))})
+    assert entry.arguments["url"].predicates[0] == SchemeIn(schemes)
+
+
+def test_one_bad_scheme_spoils_the_set() -> None:
+    """A set is refused on its worst member, not admitted on its best."""
+    with pytest.raises(CeilingDeclarationRefused, match="outside"):
+        declare(
+            "fetch",
+            {
+                "url": (
+                    "url",
+                    (SchemeIn(frozenset({"https", "file"})), HostInDomain("sec.gov")),
+                )
+            },
+        )

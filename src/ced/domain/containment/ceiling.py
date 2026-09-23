@@ -41,6 +41,7 @@ from ced.domain.containment.errors import (
 )
 from ced.domain.containment.predicates import (
     EXPRESSIBLE_PREDICATES,
+    RESOLVABLE_SCHEMES,
     HostEq,
     HostInDomain,
     InMintedSet,
@@ -73,8 +74,13 @@ __all__ = [
 #: platform suffixes under which anyone can register a name are the ones that
 #: matter — answer `False` here and are authorable. An earlier comment claimed
 #: a bundled dataset "goes stale at a version bump a reviewer can see"; no bump
-#: exists, so the staleness is silent and the plan's § Risks entry is the only
-#: thing naming it. Recorded in the verification ledger for the owner.
+#: exists, so the staleness is silent. **Owner decision of 2026-09-23: the
+#: dependency stays.** Nothing in Phase 1 registers a URL-taking tool, so
+#: nothing can reach the gap today — a fact about the catalogue and not a
+#: control, which `spec.md` § Follow-ons says in those words. Replacing or
+#: refreshing the source is owed before a URL-taking tool is registered, and
+#: the enforcement point is the path that compiles a ceiling from a registry
+#: row, which this spec does not own.
 PUBLIC_SUFFIX_DATASET_AS_OF: Final[str] = "2019-12-21"
 
 #: The suffix oracle, as a module-level name a test can substitute. A dataset
@@ -343,18 +349,38 @@ def declare(
         # `host_eq("sec.gov")` and every resolver ignores that authority, so
         # the one predicate AC-0240 forces to be present decides nothing. The
         # scheme allowlist is the control the host constraint presupposes.
-        # Recorded in the verification ledger as a strengthening the owner
-        # has not ratified.
-        if domain_type is DomainType.URL and not any(
-            isinstance(predicate, SchemeIn) for predicate in canonical
-        ):
-            raise _refuse(
-                name,
-                argument,
-                "a url argument carries no scheme-constraining predicate, so a "
-                "scheme that ignores the authority — `file:` above all — turns "
-                "its host predicate into a constraint on nothing",
-            )
+        # **Ratified by the owner on 2026-09-23**; `spec.md` § Follow-ons
+        # records the grounds.
+        #
+        # **Presence is not enough here, and that is the difference from
+        # AC-0240's host gap.** Requiring only that some `scheme_in` exist
+        # leaves `scheme_in{file}` authorable, which is the very case the
+        # refusal is recorded as closing — a control whose stated grounds
+        # name a case it admits is worse than no control. So the set is
+        # bounded too: a `url` argument may name only schemes the egress
+        # path can carry.
+        if domain_type is DomainType.URL:
+            schemes = [p for p in canonical if isinstance(p, SchemeIn)]
+            if not schemes:
+                raise _refuse(
+                    name,
+                    argument,
+                    "a url argument carries no scheme-constraining predicate, so a "
+                    "scheme that ignores the authority — `file:` above all — turns "
+                    "its host predicate into a constraint on nothing",
+                )
+            for predicate in schemes:
+                outside = predicate.schemes - RESOLVABLE_SCHEMES
+                if outside:
+                    raise _refuse(
+                        name,
+                        argument,
+                        f"scheme_in names {for_the_record(sorted(outside))}, outside "
+                        f"{for_the_record(sorted(RESOLVABLE_SCHEMES))}; a scheme that ignores "
+                        "the "
+                        "authority, or reaches something other than the egress "
+                        "path, makes the host predicate beside it decide nothing",
+                    )
 
         declared[argument] = CeilingArgument(
             domain_type=domain_type.value, predicates=canonical
