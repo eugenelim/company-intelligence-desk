@@ -1,0 +1,133 @@
+"""The authoring-time refusals: AC-0215, AC-0217, AC-0240 and AC-0316.
+
+All four judge a *declaration* rather than a call, over the same surface, so
+they sit together. The reason they are authoring-time at all is in the plan's
+design decisions: a call-time refusal makes an undecidable predicate look like
+a working one until the wrong argument arrives.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from ced.domain.containment.ceiling import declare, is_public_suffix
+from ced.domain.containment.domain_types import DomainType
+from ced.domain.containment.errors import CeilingDeclarationRefused
+from ced.domain.containment.predicates import (
+    HostInDomain,
+    OneOf,
+    PathWithin,
+    Predicate,
+    Prefix,
+    SchemeIn,
+)
+
+_HTTPS = SchemeIn(frozenset({"https"}))
+_SEC = HostInDomain("sec.gov")
+
+
+# AC-0215 — a domain argument that is a public suffix.
+
+
+@pytest.mark.parametrize("suffix", ["gov", "com", "co.uk", "GOV", "github.io"])
+def test_a_public_suffix_domain_argument_is_refused(suffix: str) -> None:
+    with pytest.raises(CeilingDeclarationRefused, match="public suffix"):
+        declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(suffix)))})
+
+
+@pytest.mark.parametrize("domain", ["sec.gov", "example.co.uk", "www.sec.gov"])
+def test_a_registrable_domain_argument_is_accepted(domain: str) -> None:
+    """The refusing half alone is satisfied by refusing every domain."""
+    entry = declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(domain)))})
+    assert entry.arguments["url"].predicates == (_HTTPS, HostInDomain(domain.lower()))
+
+
+def test_the_suffix_answer_comes_from_the_dataset_not_a_local_list() -> None:
+    """Setup check: the bundled dataset is loaded and separates the two cases.
+
+    A hand-kept list is what AC-0215 refuses, so this asserts the dataset
+    itself answers. `s3.amazonaws.com` and `github.io` are delegated suffixes
+    that no plausible hand-kept list of registry suffixes carries, and they
+    are exactly the ones that matter: `host_in_domain("github.io")` admits
+    every user's pages site. `sec.gov` is not one and stays authorable.
+    """
+    assert is_public_suffix("s3.amazonaws.com")
+    assert is_public_suffix("github.io")
+    assert not is_public_suffix("sec.gov")
+
+
+# AC-0217 — a prefix predicate on an argument the callee parses.
+
+
+@pytest.mark.parametrize(
+    "domain_type",
+    [member for member in DomainType if member is not DomainType.OPAQUE_STRING],
+    ids=lambda member: member.value,
+)
+def test_a_prefix_on_an_interpreted_type_is_refused(domain_type: DomainType) -> None:
+    """AC-0217 names `url`, `fs-path` and `content-locator`; the rule is wider.
+
+    The implementation states r5's rule — prefix is expressible only on
+    `opaque-string` — so every other member refuses it, and a domain type
+    added later inherits the refusal instead of needing this list reworded.
+    """
+    with pytest.raises(CeilingDeclarationRefused, match="prefix is not expressible"):
+        declare("fetch", {"arg": (domain_type.value, (Prefix("https://www.sec.gov"),))})
+
+
+def test_a_prefix_on_an_opaque_string_is_accepted() -> None:
+    """The other direction. Refusing every prefix would satisfy the first half."""
+    entry = declare("fetch", {"arg": ("opaque-string", (Prefix("report-"),))})
+    assert entry.arguments["arg"].predicates == (Prefix("report-"),)
+
+
+# AC-0240 — a `url` argument with no host-constraining predicate.
+
+
+def test_a_url_argument_with_no_host_predicate_is_refused() -> None:
+    with pytest.raises(CeilingDeclarationRefused, match="no host-constraining predicate"):
+        declare("fetch", {"url": ("url", (_HTTPS, PathWithin("/evidence/")))})
+
+
+@pytest.mark.parametrize("predicate", [_SEC, HostInDomain("sec.gov")])
+def test_a_url_argument_carrying_a_host_predicate_is_accepted(predicate: Predicate) -> None:
+    assert declare("fetch", {"url": ("url", (_HTTPS, predicate))}).arguments
+
+
+def test_the_criterion_does_not_constrain_which_host_the_predicate_admits() -> None:
+    """Recorded, not asserted as a good outcome.
+
+    AC-0240 requires a host-constraining predicate to be *present*. It does
+    not constrain the host that predicate names, so the link-local
+    instance-metadata address is authorable and this test says so out loud.
+    The spec's § Follow-ons records both this gap and the address-level one as
+    unowned; the egress proxy cannot own the second, because r8 § 4 specifies
+    it as a hostname allowlist with no private-range or metadata block.
+    """
+    from ced.domain.containment.predicates import HostEq
+
+    assert declare("fetch", {"url": ("url", (_HTTPS, HostEq("169.254.169.254")))}).arguments
+
+
+# AC-0316 — an argument the entry names and attaches no predicate to.
+
+
+def test_an_argument_with_no_predicate_is_refused_naming_entry_and_argument() -> None:
+    with pytest.raises(CeilingDeclarationRefused) as refusal:
+        declare(
+            "fetch_filing",
+            {"url": ("url", (_HTTPS, _SEC)), "since": ("date", ())},
+        )
+    message = str(refusal.value)
+    assert "fetch_filing" in message, message
+    assert "since" in message, message
+
+
+def test_an_unknown_domain_type_is_refused_at_authoring_time() -> None:
+    with pytest.raises(CeilingDeclarationRefused, match="not a declared domain type"):
+        declare("fetch", {"query": ("graphql-query", (Prefix("{"),))})
+
+
+def test_a_predicate_outside_its_types_row_is_refused() -> None:
+    with pytest.raises(CeilingDeclarationRefused, match="not expressible"):
+        declare("fetch", {"url": ("url", (_HTTPS, _SEC, OneOf(frozenset({"a"}))))})

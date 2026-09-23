@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — authority containment
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Executing <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 4 Contracts and Invariants ("Why a prefix predicate is not safe on an interpreted argument"), which states the three rules this fragment implements — domain-typed arguments, predicates over parsed components, and canonical pass-through. **No analogous production implementation exists**, and none is expected: this is a new pure domain library with no framework, database or agent dependency, so there is no seam to ground against. The nearest repository precedent for the *shape* is `src/ced/domain/quarantine/`, a deterministic domain package with its own offline suite. **Named deviation:** that package parses documents and mints identities; it decides no containment relation and carries no property test, so it is precedent for the package shape only.
 
 > **Plan contract:** this is the implementation strategy. It may change

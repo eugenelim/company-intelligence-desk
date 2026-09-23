@@ -1,6 +1,6 @@
 # Spec: Walking skeleton — authority containment
 
-- **Status:** Approved <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Status:** Implementing <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
@@ -108,16 +108,16 @@ approval gate rules on each rather than inheriting it.
 
 **Containing an interpreted argument**
 
-- [ ] **AC-0213.** Every row of `worker-runtime.md` § 4, "Why a prefix predicate is not safe on an interpreted argument"'s unsafe-prefix table is refused, plus the userinfo case `https://www.sec.gov@attacker.example/`, which a prefix check admits while the parsed host is `attacker.example`. A row added to that table upstream is an amendment trigger for this criterion.
-- [ ] **AC-0214.** The adapter observes the canonical value rather than the original string, asserted at the adapter rather than at the validator.
-- [ ] **AC-0215.** Declaring a domain-containment predicate whose argument is a public suffix is refused at authoring time, resolved against a public-suffix dataset rather than a hand-kept list.
-- [ ] **AC-0216.** For every canonicalisation rule `worker-runtime.md` § 4, "Why a prefix predicate is not safe on an interpreted argument" names under "What the canonicalizer must do", the suite holds an input that the canonicaliser refuses and that is admitted when that one rule is disabled by patching the canonicaliser **in the test process**. Disabling one rule reds that rule's case and leaves the others passing. A rule added to that list upstream is an amendment trigger for this criterion.
-- [ ] **AC-0240.** Declaring a `url`-typed argument with no host-constraining predicate is refused at authoring time.
-- [ ] **AC-0217.** Declaring a prefix predicate on an argument whose domain type is `url`, `fs-path`, or `content-locator` is refused, and the same predicate on `opaque-string` is accepted.
-- [ ] **AC-0218.** A canonical in-ceiling `url` and an in-root `fs-path` each evaluate to an admitting result against the same ceiling AC-0213 uses. The tool-body half of the positive path is [`walking-skeleton-policy-decision-point`](../walking-skeleton-policy-decision-point/spec.md)'s AC-0318, because no tool body runs in this spec.
-- [ ] **AC-0316.** Declaring a ceiling entry that names an argument and attaches no predicate to it is refused at authoring time, and the refusal names both the entry and the unconstrained argument.
-- [ ] **AC-0317.** Evaluating a ceiling entry against a call that supplies an argument the entry attaches no predicate to denies, asserted against an entry installed directly rather than through the authoring surface.
-- [ ] **AC-0315.** Evaluating a ceiling entry the fragment cannot decide — an argument whose declared domain type the fragment does not recognise, an argument whose parse is ambiguous, or a predicate it cannot evaluate against the given value — raises, and returns neither an admitting nor a passthrough result. Asserted at the fragment's evaluation entry point for each of the three cases.
+- [x] **AC-0213.** Every row of `worker-runtime.md` § 4, "Why a prefix predicate is not safe on an interpreted argument"'s unsafe-prefix table is refused, plus the userinfo case `https://www.sec.gov@attacker.example/`, which a prefix check admits while the parsed host is `attacker.example`. A row added to that table upstream is an amendment trigger for this criterion.
+- [x] **AC-0214.** The adapter observes the canonical value rather than the original string, asserted at the adapter rather than at the validator.
+- [x] **AC-0215.** Declaring a domain-containment predicate whose argument is a public suffix is refused at authoring time, resolved against a public-suffix dataset rather than a hand-kept list.
+- [x] **AC-0216.** For every canonicalisation rule `worker-runtime.md` § 4, "Why a prefix predicate is not safe on an interpreted argument" names under "What the canonicalizer must do", the suite holds an input that the canonicaliser refuses and that is admitted when that one rule is disabled by patching the canonicaliser **in the test process**. Disabling one rule reds that rule's case and leaves the others passing. A rule added to that list upstream is an amendment trigger for this criterion.
+- [x] **AC-0240.** Declaring a `url`-typed argument with no host-constraining predicate is refused at authoring time.
+- [x] **AC-0217.** Declaring a prefix predicate on an argument whose domain type is `url`, `fs-path`, or `content-locator` is refused, and the same predicate on `opaque-string` is accepted.
+- [x] **AC-0218.** A canonical in-ceiling `url` and an in-root `fs-path` each evaluate to an admitting result against the same ceiling AC-0213 uses. The tool-body half of the positive path is [`walking-skeleton-policy-decision-point`](../walking-skeleton-policy-decision-point/spec.md)'s AC-0318, because no tool body runs in this spec.
+- [x] **AC-0316.** Declaring a ceiling entry that names an argument and attaches no predicate to it is refused at authoring time, and the refusal names both the entry and the unconstrained argument.
+- [x] **AC-0317.** Evaluating a ceiling entry against a call that supplies an argument the entry attaches no predicate to denies, asserted against an entry installed directly rather than through the authoring surface.
+- [x] **AC-0315.** Evaluating a ceiling entry the fragment cannot decide — an argument whose declared domain type the fragment does not recognise, an argument whose parse is ambiguous, or a predicate it cannot evaluate against the given value — raises, and returns neither an admitting nor a passthrough result. Asserted at the fragment's evaluation entry point for each of the three cases.
 
 ## Follow-ons
 

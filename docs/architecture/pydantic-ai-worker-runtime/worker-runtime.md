@@ -32,6 +32,16 @@ cites as the owner of the pin, pins 2.45.0. Corrected in the projection, not the
 ADR. No accepted decision changed, and the revision stays r5; recorded because
 specs citing r5 carry amendment triggers keyed to its content.
 
+**Errata:** 2026-09-23 — § 4's unsafe-prefix table gained a third row, the
+userinfo bypass `https://www.sec.gov@attacker.example/`, where a prefix check
+reads `www.sec.gov` and the callee resolves `attacker.example`. Found by the
+containment probe of 2026-09-18 and filed here by
+[`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md)
+T1, whose AC-0213 refuses every row of this table and carried the userinfo
+case separately while the table was short of it. The ratified rule already
+handles the case — predicates range over parsed components — so this hardens
+the case set and changes no accepted decision. The revision stays r5.
+
 **Errata:** 2026-09-20 — four deviations for Phase 1 are recorded in
 [ADR-0006](../../adr/0006-four-r5-deviations-for-phase-1.md). **D1**
 suspends the pre-request spend bound (§ 1 Goals, § 4's Spend-ceiling row, § 7's
@@ -787,6 +797,7 @@ containment relation in the parsed domain:
 | --- | --- | --- |
 | `startswith("https://www.sec.gov")` | `https://www.sec.gov.attacker.example/` | host `www.sec.gov.attacker.example` |
 | `startswith("/evidence/")` | `/evidence/../../etc/passwd` | a path outside the root |
+| `startswith("https://www.sec.gov")` | `https://www.sec.gov@attacker.example/` | host `attacker.example` |
 
 Both report sound, and this bites directly because the egress allowlist is
 hostname-based and tool arguments carry URLs and locators. **This is a studied
