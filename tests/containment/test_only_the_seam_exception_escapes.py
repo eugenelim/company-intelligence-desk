@@ -18,6 +18,7 @@ claim against a shape nobody has thought of yet.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Final
@@ -41,6 +42,8 @@ from ced.domain.containment.predicates import (
     HostInDomain,
     InMintedSet,
     NumberRange,
+    OneOf,
+    Predicate,
     SchemeIn,
     Within,
 )
@@ -183,6 +186,52 @@ def test_a_denial_reason_is_bounded_and_does_not_enumerate_a_set() -> None:
     assert "ref:7" not in minted_reason
 
 
+@pytest.mark.parametrize(
+    ("domain_type", "predicate", "value", "expected", "member"),
+    [
+        (
+            "enum",
+            OneOf(frozenset(f"label-{n}" for n in range(5000))),
+            "not-a-member",
+            "5000 member(s)",
+            "label-4321",
+        ),
+        (
+            "opaque-string",
+            OneOf(frozenset(f"label-{n}" for n in range(5000))),
+            "not-a-member",
+            "5000 member(s)",
+            "label-4321",
+        ),
+        (
+            "url",
+            SchemeIn(frozenset(f"scheme{n}" for n in range(500))),
+            "https://sec.gov/x",
+            "500 scheme(s)",
+            "scheme499",
+        ),
+    ],
+)
+def test_every_set_valued_predicate_is_summarised_in_a_denial(
+    domain_type: str, predicate: Predicate, value: str, expected: str, member: str
+) -> None:
+    """The bound on the predicate half holds for every constructor that has one.
+
+    Only `in_minted_set` was driven before, and the other arms could each
+    fall through to the `repr` fallback with the suite green — after which a
+    denial against a 5,000-member `one_of` writes all 5,000 members into the
+    `policy.decision` it becomes. `one_of` is expressible on two domain
+    types, so both are driven.
+    """
+    arguments: dict[str, CeilingArgument] = {"a": CeilingArgument(domain_type, (predicate,))}
+    if domain_type == "url":
+        arguments["a"] = CeilingArgument("url", (predicate, HostInDomain("example.com")))
+    reason = evaluate(CeilingEntry(name="t", arguments=arguments), {"a": value}).reason
+    assert len(reason) <= _MESSAGE_CEILING, reason[:200]
+    assert member not in reason
+    assert expected in reason
+
+
 @pytest.mark.parametrize("port", ["\xb2", "\xb3", "\xb9", "\u1369", "\u0664\u0664\u0663"])
 def test_a_digit_like_port_is_refused_rather_than_read(port: str) -> None:
     """A port is ASCII digits, and `str.isdigit` is not that test.
@@ -198,3 +247,81 @@ def test_a_digit_like_port_is_refused_rather_than_read(port: str) -> None:
     entry = CeilingEntry(name="t", arguments={"u": _URL})
     with pytest.raises(ContainmentUndecidable, match="is not a port"):
         evaluate(entry, {"u": f"https://sec.gov:{port}/x"})
+
+
+#: Every message this fragment produces is recorded by the consumer — a
+#: `Denied` reason as the `policy.decision`, and a `ContainmentUndecidable`
+#: as the denial AC-0315 makes it. So the bound has to hold on all of them,
+#: not on the one path it was first installed for.
+_MESSAGE_CEILING: Final[int] = 800
+
+#: A model-chosen fragment long enough that an unbounded path shows up as a
+#: length rather than as a judgment call.
+_OVERSIZE: Final[str] = "A" * 20000
+
+
+def _texts_from_every_path(oversize: str) -> dict[str, str]:
+    """Return one message per path that can carry a model-chosen fragment."""
+    url = CeilingArgument("url", (SchemeIn(frozenset({"https"})), HostInDomain("sec.gov")))
+    fs = CeilingArgument("fs-path", (Within("/srv"),))
+    entry = CeilingEntry(name="t", arguments={"u": url})
+    texts: dict[str, str] = {}
+
+    texts["unknown argument name"] = str(
+        evaluate(entry, {"u": "https://www.sec.gov/x", oversize: "y"}).reason
+    )
+    texts["denied value"] = str(
+        evaluate(entry, {"u": f"https://attacker.example/{oversize}"}).reason
+    )
+    texts["missing arguments"] = str(
+        evaluate(CeilingEntry(name="t", arguments={oversize: url}), {}).reason
+    )
+
+    for label, call_entry, value in (
+        ("control character", entry, f"https://a.example/\t{oversize}"),
+        ("unparseable url", entry, f"http://[::1{oversize}"),
+        ("no scheme", entry, oversize),
+        ("bad port", entry, f"https://sec.gov:\xb2{oversize}/x"),
+        ("nul in path", CeilingEntry(name="t", arguments={"p": fs}), f"/srv/\x00{oversize}"),
+    ):
+        argument = next(iter(call_entry.arguments))
+        try:
+            evaluate(call_entry, {argument: value})
+        except ContainmentUndecidable as refusal:
+            texts[label] = str(refusal)
+
+    try:
+        declare("t", {"p": ("fs-path", (Within(oversize),))})
+    except CeilingDeclarationRefused as refusal:
+        texts["declare relative root"] = str(refusal)
+    try:
+        declare("t", {"u": ("url", (SchemeIn(frozenset({"https"})), HostInDomain(oversize)))})
+    except CeilingDeclarationRefused as refusal:
+        texts["declare bad domain"] = str(refusal)
+
+    return texts
+
+
+def test_the_message_paths_this_bound_covers_were_all_reached() -> None:
+    """Setup check: a bound asserted over paths nothing entered is no bound."""
+    texts = _texts_from_every_path(_OVERSIZE)
+    assert len(texts) == 10, sorted(texts)
+
+
+@pytest.mark.parametrize("path", sorted(_texts_from_every_path(_OVERSIZE)))
+def test_every_message_a_consumer_records_is_bounded(path: str) -> None:
+    """The bound belongs on every text this fragment hands a consumer.
+
+    A `Denied` reason becomes a `policy.decision` and AC-0315 makes a
+    `ContainmentUndecidable` the signal the decision point records as a
+    denial, so both land in the event log. Bounding one path and leaving its
+    siblings open is a control that looks installed and is not: before this,
+    an argument *name* — model-chosen exactly as a value is — went into a
+    reason whole, and an undecidable message carried the value whole.
+    """
+    text = _texts_from_every_path(_OVERSIZE)[path]
+    assert len(text) <= _MESSAGE_CEILING, f"{path}: {len(text)} characters"
+    assert _OVERSIZE not in text
+    assert re.search(r"\(\d{4,} characters\)", text), (
+        f"{path} cut the value without saying how much there was: {text}"
+    )

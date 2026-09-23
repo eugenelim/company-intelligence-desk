@@ -22,7 +22,38 @@ for. The decision is recorded in
 
 from __future__ import annotations
 
-__all__ = ["CeilingDeclarationRefused", "ContainmentUndecidable"]
+from typing import Final
+
+__all__ = [
+    "MESSAGE_VALUE_BUDGET",
+    "CeilingDeclarationRefused",
+    "ContainmentUndecidable",
+    "for_the_record",
+]
+
+#: How much of a model-chosen value any message this package produces may
+#: carry. **Every one of them is recorded by the consumer**: a `Denied`
+#: reason becomes a `policy.decision`, and AC-0315 makes a
+#: `ContainmentUndecidable` the seam signal the decision point records as a
+#: denial too. So a message that interpolated a value whole would let one
+#: refused call write an event row as large as the caller cared to make it,
+#: repeatedly and for free — and bounding one path while leaving its
+#: siblings open is a control that looks installed and is not.
+MESSAGE_VALUE_BUDGET: Final[int] = 160
+
+
+def for_the_record(value: object) -> str:
+    """Return `value` bounded for a message a consumer will record.
+
+    `repr` rather than `str`, so a control character in a model-chosen value
+    is escaped rather than written into a log line. The true length is kept
+    when the value is cut, because "this was refused and it was 40,000
+    characters long" is the part a reader needs.
+    """
+    rendered = str(value)
+    if len(rendered) <= MESSAGE_VALUE_BUDGET:
+        return repr(rendered)
+    return f"{rendered[:MESSAGE_VALUE_BUDGET]!r}… ({len(rendered)} characters)"
 
 
 class CeilingDeclarationRefused(Exception):

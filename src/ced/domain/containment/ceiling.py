@@ -34,7 +34,11 @@ from ced.domain.containment.canonicaliser import (
     canonicalise_url_path,
 )
 from ced.domain.containment.domain_types import DomainType, prefix_expressible
-from ced.domain.containment.errors import CeilingDeclarationRefused, ContainmentUndecidable
+from ced.domain.containment.errors import (
+    CeilingDeclarationRefused,
+    ContainmentUndecidable,
+    for_the_record,
+)
 from ced.domain.containment.predicates import (
     EXPRESSIBLE_PREDICATES,
     HostEq,
@@ -150,20 +154,10 @@ class Denied:
 type Decision = Admitted | Denied
 
 
-#: How much of a model-chosen value a denial reason may carry. A denial is
-#: what the consumer writes as a `policy.decision`, so an unbounded reason
-#: lets one refused call write an event row as large as the caller cares to
-#: make it, repeatedly and for free. Enough to see which value was refused
-#: and where it diverged; not enough to be a write amplifier.
-_REASON_VALUE_BUDGET: Final[int] = 160
-
-
-def _for_the_record(value: object) -> str:
-    """Return `value` bounded for a denial reason, saying what was left out."""
-    rendered = str(value)
-    if len(rendered) <= _REASON_VALUE_BUDGET:
-        return repr(rendered)
-    return f"{rendered[:_REASON_VALUE_BUDGET]!r}… ({len(rendered)} characters)"
+#: How many members of a set-valued predicate a denial may name before it
+#: reports a count instead. Small, because the text is recorded once per
+#: refused call and a ceiling's author chooses the set's size.
+_SET_LISTING_BUDGET: Final[int] = 8
 
 
 def _describe(predicate: Predicate) -> str:
@@ -180,6 +174,12 @@ def _describe(predicate: Predicate) -> str:
         case OneOf(members=members):
             return f"one_of over {len(members)} member(s)"
         case SchemeIn(schemes=schemes):
+            # Listed while a reader can take it in, because which schemes a
+            # ceiling admits is the useful part of this denial; counted past
+            # that, because the set is as large as its author made it and
+            # this text is recorded.
+            if len(schemes) > _SET_LISTING_BUDGET:
+                return f"scheme_in over {len(schemes)} scheme(s)"
             return f"scheme_in{sorted(schemes)}"
         case _:
             return repr(predicate)
@@ -215,7 +215,8 @@ def _canonicalise_predicate(predicate: Predicate) -> Predicate:
         case Within(root=root):
             if not os.path.isabs(root):
                 raise ContainmentUndecidable(
-                    f"within({root!r}) names no absolute root, so it resolves "
+                    f"within({for_the_record(root)}) names no absolute root, so it "
+                    "resolves "
                     "against whatever directory the worker started in: the "
                     "declaration's text does not say what it admits, and two "
                     "workers enforce different ceilings from it"
@@ -357,9 +358,10 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
     missing = sorted(set(entry.arguments) - set(call))
     if missing:
         return Denied(
-            f"ceiling entry {entry.name!r} constrains {missing}, and the call "
-            "supplies neither a value for them nor anything this fragment could "
-            "decide in their place"
+            f"ceiling entry {entry.name!r} constrains "
+            f"{for_the_record(', '.join(missing))}, and the call supplies neither "
+            "a value for them nor anything this fragment could decide in their "
+            "place"
         )
 
     canonical: dict[str, object] = {}
@@ -368,14 +370,17 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
         if constraint is None or not constraint.predicates:
             return Denied(
                 f"ceiling entry {entry.name!r} attaches no predicate to argument "
-                f"{argument!r}, so nothing bounds the value the call supplies"
+                f"{for_the_record(argument)}, so nothing bounds the value the "
+                "call supplies"
             )
         try:
             domain_type = DomainType(constraint.domain_type)
         except ValueError as error:
             raise ContainmentUndecidable(
-                f"ceiling entry {entry.name!r} declares argument {argument!r} as "
-                f"{constraint.domain_type!r}, which this fragment does not recognise"
+                f"ceiling entry {entry.name!r} declares argument "
+                f"{for_the_record(argument)} as "
+                f"{for_the_record(constraint.domain_type)}, which this fragment "
+                "does not recognise"
             ) from error
 
         canonical_value = canonicalise(domain_type, value)
@@ -390,9 +395,10 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
                 # chooses its length, the predicate because a set-valued one
                 # would otherwise enumerate itself into the log.
                 return Denied(
-                    f"argument {argument!r} is outside {_describe(predicate)} on "
+                    f"argument {for_the_record(argument)} is outside "
+                    f"{_describe(predicate)} on "
                     f"ceiling entry {entry.name!r}: the canonical value is "
-                    f"{_for_the_record(canonical_value)}"
+                    f"{for_the_record(canonical_value)}"
                 )
         canonical[argument] = canonical_value
     return Admitted(canonical=canonical)

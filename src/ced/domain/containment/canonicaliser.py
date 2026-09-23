@@ -43,7 +43,7 @@ from typing import Final
 from urllib.parse import unquote, urlsplit
 
 from ced.domain.containment.domain_types import DomainType
-from ced.domain.containment.errors import ContainmentUndecidable
+from ced.domain.containment.errors import ContainmentUndecidable, for_the_record
 
 __all__ = [
     "FS_PATH_RULES",
@@ -124,14 +124,15 @@ def _canonical_labels(host: str) -> str:
         # check never compared, which is the differential the path's refusal
         # exists to prevent, on the component it does not reach.
         raise ContainmentUndecidable(
-            f"host {host!r} encodes to {encoded!r}, which carries a percent "
-            "escape; a client that decodes the authority resolves a different "
-            "name than this check compared"
+            f"host {for_the_record(host)} encodes to {for_the_record(encoded)}, "
+            "which carries a percent escape; a client that decodes the authority "
+            "resolves a different name than this check compared"
         )
     if _empty_label(encoded):
         raise ContainmentUndecidable(
-            f"host {host!r} encodes to {encoded!r}, which has a label with "
-            "nothing in it, so it names no single resolvable name"
+            f"host {for_the_record(host)} encodes to {for_the_record(encoded)}, "
+            "which has a label with nothing in it, so it names no single "
+            "resolvable name"
         )
     return encoded
 
@@ -220,8 +221,9 @@ def _refuse_control_characters(url: UrlUnderReview) -> UrlUnderReview:
     offending = _AMBIGUOUS_CHARACTERS & set(url.raw)
     if offending:
         raise ContainmentUndecidable(
-            f"{url.raw!r} carries the control character {min(offending)!r}; parsers "
-            "disagree on whether it terminates the URL, strips out, or stays"
+            f"{for_the_record(url.raw)} carries the control character "
+            f"{min(offending)!r}; parsers disagree on whether it terminates the "
+            "URL, strips out, or stays"
         )
     return url
 
@@ -230,7 +232,8 @@ def _refuse_second_userinfo(url: UrlUnderReview) -> UrlUnderReview:
     """Reject an authority with more than one `@`, which parsers read differently."""
     if "@" in url.userinfo:
         raise ContainmentUndecidable(
-            f"authority {url.userinfo + '@' + url.host!r} carries more than one '@'; "
+            f"authority {for_the_record(url.userinfo + '@' + url.host)} carries more than "
+            "one '@'; "
             "parsers disagree on which side is the host, so the value has no "
             "single meaning"
         )
@@ -247,9 +250,9 @@ def _refuse_empty_label(url: UrlUnderReview) -> UrlUnderReview:
     """
     if _empty_label(url.host):
         raise ContainmentUndecidable(
-            f"host {url.host!r} has a label with nothing in it — a missing host, a "
-            "leading separator or a doubled one — so it names no single resolvable "
-            "name and no host predicate can decide it"
+            f"host {for_the_record(url.host)} has a label with nothing in it — "
+            "a missing host, a leading separator or a doubled one — so it names "
+            "no single resolvable name and no host predicate can decide it"
         )
     return url
 
@@ -262,9 +265,10 @@ def _refuse_invalid_port(url: UrlUnderReview) -> UrlUnderReview:
     """
     if url.port_text and not _valid_port(url.port_text):
         raise ContainmentUndecidable(
-            f"{url.port_text!r} is not a port, so the authority of {url.raw!r} has no "
+            f"{for_the_record(url.port_text)} is not a port, so the authority of "
+            f"{for_the_record(url.raw)} has no "
             "single reading: a reader that splits on the first colon sees "
-            f"{url.host!r} and a reader that parses the authority sees neither"
+            f"{for_the_record(url.host)} and a reader that parses the authority sees neither"
         )
     return url
 
@@ -292,8 +296,8 @@ def _idna(host: str) -> str:
         return host.encode("idna").decode("ascii")
     except UnicodeError as error:
         raise ContainmentUndecidable(
-            f"host {host!r} is not IDNA-encodable, so what the callee resolves is "
-            f"undecided here: {error}"
+            f"host {for_the_record(host)} is not IDNA-encodable, so what the "
+            f"callee resolves is undecided here: {error}"
         ) from error
 
 
@@ -332,7 +336,7 @@ def _decode_once_then_refuse_residual(path: str) -> str:
     residual = _ENCODED_SEPARATOR.search(decoded)
     if residual is not None:
         raise ContainmentUndecidable(
-            f"path {path!r} still contains the encoded separator "
+            f"path {for_the_record(path)} still contains the encoded separator "
             f"{residual.group()!r} after decoding, so the callee will read a "
             "different path than this check does"
         )
@@ -376,7 +380,7 @@ def _resolve_fs_symlinks(path: str) -> str:
         return os.path.realpath(path)
     except (OSError, RuntimeError, ValueError) as error:
         raise ContainmentUndecidable(
-            f"the filesystem cannot resolve {path!r}, so where it points is "
+            f"the filesystem cannot resolve {for_the_record(path)}, so where it points is "
             f"undecided here: {error}"
         ) from error
 
@@ -519,12 +523,13 @@ def _split_authority(authority: str) -> tuple[str, str]:
         closing = authority.find("]")
         if closing == -1:
             raise ContainmentUndecidable(
-                f"authority {authority!r} opens an IPv6 literal it never closes"
+                f"authority {for_the_record(authority)} opens an IPv6 literal it never closes"
             )
         host, remainder = authority[: closing + 1], authority[closing + 1 :]
         if remainder and not remainder.startswith(":"):
             raise ContainmentUndecidable(
-                f"authority {authority!r} has trailing text after the IPv6 literal"
+                f"authority {for_the_record(authority)} has trailing text after "
+                "the IPv6 literal"
             )
         return host, remainder[1:]
     host, separator, port_text = authority.partition(":")
@@ -544,11 +549,13 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
         # values a model can choose, and both are refusals rather than
         # defects, so they leave here as one.
         raise ContainmentUndecidable(
-            f"{value!r} does not parse as a URL, so what the callee would "
+            f"{for_the_record(value)} does not parse as a URL, so what the callee would "
             f"resolve is undecided here: {error}"
         ) from error
     if not parts.scheme:
-        raise ContainmentUndecidable(f"{value!r} declares no scheme, so it is not a URL")
+        raise ContainmentUndecidable(
+            f"{for_the_record(value)} declares no scheme, so it is not a URL"
+        )
     # The userinfo is split off before any rule runs: it is not a
     # canonicalisation clause but the parse itself, and it is the third row of
     # r5's unsafe-prefix table — `https://host@elsewhere/` reads as `host` to a

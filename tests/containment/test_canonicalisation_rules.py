@@ -56,18 +56,26 @@ from tests.containment.fixture import (
 #: case drives can be deleted with the suite green, which is the criterion's
 #: own objection one level down.
 _URL_CASES: Mapping[str, tuple[str, ...]] = {
-    # A tab `urlsplit` strips and a stricter client does not.
-    "refuse-control-characters": ("https://www.sec.gov/evidence/\tx",),
+    # A tab `urlsplit` strips and a stricter client does not, plus both
+    # edges of the set the guard is defined by: the space below C0's top and
+    # DEL above it. Without an edge case the range can be narrowed silently,
+    # after which the character reaches the adapter inside the canonical path.
+    "refuse-control-characters": (
+        "https://www.sec.gov/evidence/\tx",
+        "https://www.sec.gov/evidence/a b",
+        "https://www.sec.gov/evidence/a\x7fb",
+    ),
     # Two `@` in the authority: parsers disagree about which side is the host.
     "refuse-second-userinfo": ("https://a@attacker.example@www.sec.gov/evidence/x",),
     # A doubled separator, which survives as an empty label once the root
     # label is dropped.
     "refuse-empty-label": ("https://www.sec.gov../evidence/x",),
-    # Two branches of the port check: text that is not digits at all, and
-    # digits above the range a port can hold.
+    # Three branches of the port check: text that is not digits at all,
+    # digits above the range a port can hold, and zero, which is below it.
     "refuse-invalid-port": (
         "https://www.sec.gov:443.attacker.example/evidence/x",
         "https://www.sec.gov:70000/evidence/x",
+        "https://www.sec.gov:0/evidence/x",
     ),
     # A right-to-left override IDNA prohibits, sitting inside a host that ends
     # in `.sec.gov` as plain text.

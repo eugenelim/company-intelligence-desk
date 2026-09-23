@@ -312,6 +312,57 @@ numbers that described neither. That is a process error, not a finding
 against the code: fixes now land in a commit before any reviewer is
 re-dispatched.
 
+## T1 — everything this fragment says out loud is bounded
+
+**Date:** 2026-09-23. Found by the security and adversarial reviews, which
+reached the same defect independently, and finished by the quality review.
+
+A `Denied` reason becomes the consumer's `policy.decision`, and AC-0315
+makes a `ContainmentUndecidable` the signal the decision point records as a
+denial too. **So every text this package produces is written to the event
+log**, and an unbounded one lets a single refused call write a row as large
+as the caller cares to make it, repeatedly and for free. A tool call's
+argument *names* are model-chosen exactly as its values are.
+
+The bound was installed once and then found half-installed three times, each
+time on a sibling path the first fix did not reach:
+
+1. The `Denied` value was capped and the `ContainmentUndecidable` messages
+   were not — measured at over 8,000 characters apiece.
+2. The unknown-argument denial interpolated the caller's argument name whole
+   — 100,101 characters from a 100,000-character key — and the
+   incomplete-call denial interpolated its argument list whole.
+3. The predicate half was summarised for `in_minted_set` and fell through to
+   a bare `repr` for `one_of`, so a denial against a 5,000-member enumeration
+   wrote all 5,000 members; and the `scheme_in` arm sorted its whole set into
+   the text.
+
+`for_the_record` now lives in `errors.py`, the lowest module, and every
+message in the package goes through it; `_describe` summarises every
+set-valued constructor, listing a small scheme set and counting a large one.
+`test_every_message_a_consumer_records_is_bounded` drives all ten paths that
+can carry a model-chosen fragment, with a setup check that all ten were
+reached — because a bound asserted over paths nothing enters is no bound.
+
+**The lesson is the one the canonicaliser taught earlier.** A control
+installed on the path where the defect was found, rather than on the class
+the defect belongs to, looks installed and is not. Both times the fix was to
+move the rule to the lowest place every path passes through.
+
+## T1 — three more checks that could not fail
+
+**Date:** 2026-09-23. Found by the quality review's third pass, and each is
+the same shape as one already repaired: a guard defined by a set, with one
+witness.
+
+- `_describe`'s `one_of` and `scheme_in` arms could each fall through to the
+  `repr` fallback with the suite green. Driven now, and `one_of` on both
+  domain types it is expressible on.
+- `_AMBIGUOUS_CHARACTERS` is C0 plus DEL and was driven by a tab alone, so
+  either edge of the set could move silently — after which a space or a DEL
+  reached the adapter inside a canonical path. Both edges have a case.
+- `_valid_port`'s lower bound had none, so `:0` was admissible as a port.
+
 ## T1 — what AC-0214 does not close
 
 **Date:** 2026-09-23. Recorded because the plan asks for it in T1's `Tests`
@@ -391,5 +442,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 471 passed, 195 deselected in 12.55s
+1 failed, 485 passed, 195 deselected in 9.93s
 ```
