@@ -698,9 +698,12 @@ delivery was asked to settle in code, and the limits of each layer are in
 - **Every claim above was checked by deleting the thing it rests on.** Each
   canonicalisation rule, each boundary comparison, each guard, each arm of the
   containment relation, and each bound was removed or stubbed in turn and the
-  suite re-run. **Two of the ten canonicalisation rules are the exception**,
+  suite re-run. **Two rules are the exception**,
   and deliberately: deleting `drop-default-ports` or `lowercase-host-not-path`
-  admits nothing, which is the whole of why AC-0216 is unmet below. Those two
+  admits nothing, which is the whole of why AC-0216 is unmet below. The
+  canonicaliser implements r5's six clauses as ten named rules, each
+  recording the clause it comes from, so these two rules are the same two
+  clauses the limit below counts. Those two
   carry a fail-closed proof — the rule does its job, its removal admits
   nothing the full pipeline refuses, and its removal leaves every other
   rule's case refused — rather than a red. Three review rounds were spent on
@@ -730,8 +733,9 @@ than was shown.
   argument must carry a scheme-constraining predicate; a call must supply
   every argument the entry constrains; and a `within` root that is relative
   or the whole filesystem is refused. Each closes a default-allow, each fails
-  closed, and each has its own entry in the spec's § Follow-ons for the owner
-  to ratify or reverse. A fourth change of the same shape — only this
+  closed, and each is recorded in the spec's § Follow-ons for the owner to
+  ratify or reverse — the two `within` refusals under one entry, because one
+  decision settles both. A fourth change of the same shape — only this
   package's two exception types leave evaluation — is **not** a strengthening
   and has no entry: AC-0315 already fixes the seam's signal as a raise, so a
   builtin escaping was a defect against it.
