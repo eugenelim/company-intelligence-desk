@@ -698,8 +698,13 @@ delivery was asked to settle in code, and the limits of each layer are in
 - **Every claim above was checked by deleting the thing it rests on.** Each
   canonicalisation rule, each boundary comparison, each guard, each arm of the
   containment relation, and each bound was removed or stubbed in turn and the
-  suite re-run. Three review rounds were spent on checks that passed and could
-  not fail; the ledger names each.
+  suite re-run. **Two of the ten canonicalisation rules are the exception**,
+  and deliberately: deleting `drop-default-ports` or `lowercase-host-not-path`
+  admits nothing, which is the whole of why AC-0216 is unmet below. Those two
+  carry a fail-closed proof — the rule does its job, its removal admits
+  nothing the full pipeline refuses, and its removal leaves every other
+  rule's case refused — rather than a red. Three review rounds were spent on
+  checks that passed and could not fail; the ledger names each.
 - **A structural check reads the code rather than its behaviour.** Every value
   interpolated into any message the fragment produces must pass through the
   one function that bounds it, enforced by a scan over the package's syntax
@@ -721,12 +726,15 @@ than was shown.
   host-folding can only shrink what is admitted. Those two carry a
   fail-closed proof instead. The criterion is unchecked with a deferral
   anchor, T1's `Done when` is unmet, and an amendment is owed to the owner.
-- **Four refusals go beyond the criteria and are not ratified.** A `url`
+- **Three refusals go beyond the criteria and are not ratified.** A `url`
   argument must carry a scheme-constraining predicate; a call must supply
-  every argument the entry constrains; `within("/")` and a relative root are
-  refused; and only this package's two exception types leave evaluation. Each
-  closes a default-allow, each fails closed, and each is recorded in the
-  spec's § Follow-ons for the owner to ratify or reverse.
+  every argument the entry constrains; and a `within` root that is relative
+  or the whole filesystem is refused. Each closes a default-allow, each fails
+  closed, and each has its own entry in the spec's § Follow-ons for the owner
+  to ratify or reverse. A fourth change of the same shape — only this
+  package's two exception types leave evaluation — is **not** a strengthening
+  and has no entry: AC-0315 already fixes the seam's signal as a raise, so a
+  builtin escaping was a defect against it.
 - **AC-0214 asserts at a test double, and no production consumer exists.**
   What is established is that the fragment *emits* the canonical value and
   hands over a parsed object. That the real consumer declines to re-parse the
