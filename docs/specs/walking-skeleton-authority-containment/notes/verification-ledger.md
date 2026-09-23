@@ -219,6 +219,53 @@ It sits in the parse rather than in a rule for the same reason the userinfo
 and port splits do: r5's clause list does not name it, and every host
 predicate needs a single spelling of the name before any clause runs.
 
+## T1 — four strengthenings beyond the criteria, all fail-closed
+
+**Date:** 2026-09-23. **Status: needs an owner decision.** Found by the
+implementation security and quality reviews. Each closes a default-allow the
+criteria do not reach, each fails closed, and each is reversible in one
+place. They are listed here and in `spec.md` § Follow-ons so the owner can
+ratify or reverse them rather than inherit them.
+
+| Strengthening | What was open | Where |
+| --- | --- | --- |
+| A `url` argument must carry a scheme-constraining predicate | `file://sec.gov/etc/passwd` satisfied `host_eq("sec.gov")`, and every resolver ignores that authority, so the predicate AC-0240 forces to be present decided nothing | `ceiling.declare` |
+| A call must supply every argument the entry constrains | `evaluate(entry, {})` was an admission against any ceiling, and a callee's default for an omitted parameter sat outside the ceiling | `ceiling.evaluate` |
+| `within("/")` is refused | Present, satisfying AC-0316, and admitting `/etc/passwd` — the filesystem twin of `host_in_domain("gov")`, which AC-0215 does refuse | `ceiling.declare` |
+| Nothing but this package's two types leaves `evaluate` | A NUL in a path, a NaN, and a `datetime` where a `date` was declared each escaped as a builtin, so a model-chosen argument became an uncaught error in the worker step rather than a logged denial | `canonicaliser`, `predicates` |
+
+The fourth is not really a strengthening: AC-0315 fixes the seam's signal as
+a raise and this ledger fixes which raise, so a builtin escaping was a defect
+against both. The first three add refusals no criterion states.
+
+**The completeness rule changes what AC-0218 looks like.** Its two admitting
+values now travel in one call rather than two, which the criterion's wording
+— "each evaluate to an admitting result against the same ceiling AC-0213
+uses" — permits, and AC-0213's rows each travel with a known-admitted value
+for the argument they are not about. `test_the_companion_values_are_admitted_on_their_own`
+is what stops a row passing because its companion was refused.
+
+## T1 — the public-suffix dataset has no refresh path
+
+**Date:** 2026-09-23. Found by the implementation security review, and it
+falsifies a reason this ledger and the manifest both gave.
+
+`publicsuffix2` bundles a snapshot published 2019-12-21 and has shipped no
+release since. So `pages.dev`, `vercel.app`, `netlify.app` and `r2.dev` — the
+platform suffixes under which anyone can register a name, which is exactly
+the class AC-0215 exists to keep out of `host_in_domain` — answer "not a
+public suffix" and are authorable.
+
+The dependency was justified on the grounds that a bundled dataset "goes
+stale at a version bump a reviewer can see". **That is false as pinned**: no
+bump exists, so the staleness is silent. The plan's § Risks names dataset
+ageing, so the risk is accepted; what was wrong is the mitigation claimed for
+it. `PUBLIC_SUFFIX_DATASET_AS_OF` now carries the snapshot's date beside the
+lookup, a test asserts it and reds if the snapshot moves, and
+`longest_public_suffix` makes the oracle a seam rather than a singleton
+nothing can pin. Choosing a dataset with a refresh path is a dependency
+change and so an Ask-first for the owner.
+
 ## T1 — what AC-0214 does not close
 
 **Date:** 2026-09-23. Recorded because the plan asks for it in T1's `Tests`
@@ -231,6 +278,43 @@ and hands over a parsed `CanonicalUrl` rather than a string, so the consumer
 has no route back to the original. It does **not** establish that the real
 consumer declines to re-parse the original; that half is
 `walking-skeleton-policy-decision-point` T1's.
+
+## T1 — what the evidence proves, and how that was checked
+
+**Date:** 2026-09-23. The quality review found that three comparisons
+deciding containment — the label boundary in `_in_domain`, the segment
+boundary in `_within_path`, and the same in `within(root)` — could each be
+deleted with the whole suite green. They are the "passes a string check,
+means something else to the callee" shape the spec exists to refuse, one
+level in from the canonicaliser, and nothing was on either side of a
+boundary. `tests/containment/test_boundaries_are_load_bearing.py` is the
+module that fixes it; deleting each boundary now reds 2, 3 and 4 checks
+respectively.
+
+Two more pieces of evidence were weaker than they read:
+
+- **`refuse-ambiguous-parse` held four guards and exercised one.** AC-0216
+  indexes its evidence per rule, which does not reach inside a rule that
+  bundles clauses, so the control-character and invalid-port guards could
+  each be deleted with the suite green. The rule is now four rules sharing
+  r5's ambiguity clause, each with its own case, and the residual-separator
+  pattern has a case per alternative rather than one for `%2e`.
+- **Four of `contains`'s ten arms were reached by nothing**, so `Prefix`,
+  `Within`, `InMintedSet` and `DateRange` shipped as untested authorization
+  logic. The generated pair space covers all ten, and a setup check reads
+  the expected set from `EXPRESSIBLE_PREDICATES` so a constructor added to
+  the fragment reds until it is generated. Replacing each of the four arms
+  with `return True` now reds.
+
+**The property test's independence claim was overstated and is corrected.**
+`contains` and the oracle's `admits` share `_in_domain` and `_within_path`,
+so a boundary deleted from either helper moves both sides together and the
+property stays green. The module now says so and names the module that does
+cover those helpers.
+
+**Every claim above was checked by mutation**, not by reading: each boundary,
+each new guard, each `contains` arm, and the two fail-closed rules' substitute
+checks were deleted or stubbed in turn and the suite re-run.
 
 ## T1 — a pre-existing gate failure, carried not fixed
 
@@ -245,5 +329,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 417 passed, 195 deselected in 12.14s
+1 failed, 453 passed, 195 deselected in 11.06s
 ```

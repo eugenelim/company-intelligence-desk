@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Final
 
@@ -222,9 +222,17 @@ def admits(predicate: Predicate, value: object) -> bool:
         case NumberRange(low=low, high=high):
             if isinstance(value, bool) or not isinstance(value, int | Decimal):
                 raise _undecidable(predicate, value)
+            # A NaN or an infinity orders against nothing, so a range over it
+            # has no answer — and `Decimal("NaN") <= x` signals rather than
+            # returning False.
+            if isinstance(value, Decimal) and not value.is_finite():
+                raise _undecidable(predicate, value)
             return low <= Decimal(value) <= high
         case DateRange(low=low, high=high):
-            if not isinstance(value, date):
+            # `datetime` subclasses `date` and does not order against one, so
+            # an `isinstance` test alone admits a value the comparison then
+            # refuses to make.
+            if not isinstance(value, date) or isinstance(value, datetime):
                 raise _undecidable(predicate, value)
             return low <= value <= high
 

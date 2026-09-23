@@ -40,6 +40,10 @@ _SECTION_HEADING: Final[str] = (
 
 #: The root the `fs-path` half of the ceiling is bounded by. Not a real
 #: directory: every case that needs one on disk builds it under `tmp_path`.
+#: Canonicalising an `fs-path` resolves symlinks against the host filesystem,
+#: so a machine that *did* carry `/evidence` — as a symlink above all — would
+#: change what these cases mean. `test_the_evidence_root_is_not_on_this_host`
+#: is what stops that being silent.
 EVIDENCE_ROOT: Final[str] = "/evidence"
 
 
@@ -109,6 +113,16 @@ def canonicaliser_clauses() -> str:
     return re.sub(r"\s+", " ", paragraph.replace("*", "")).strip()
 
 
+#: A URL the ceiling below admits, for the argument a case is not about.
+#: `evaluate` requires a call to supply every argument the entry constrains,
+#: so a case aimed at one argument passes a known-admitted value for the
+#: other — which is also what makes a refusal attributable to the case.
+GOOD_URL: Final[str] = "https://www.sec.gov/evidence/report.pdf"
+
+#: A path the ceiling below admits, on the same terms.
+GOOD_PATH: Final[str] = "/evidence/filings/report.txt"
+
+
 def sec_ceiling() -> CeilingEntry:
     """Return the ceiling AC-0213 refuses against and AC-0218 is admitted by."""
     return declare(
@@ -125,6 +139,16 @@ def sec_ceiling() -> CeilingEntry:
             "path": ("fs-path", (Within(EVIDENCE_ROOT),)),
         },
     )
+
+
+def url_call(value: object) -> dict[str, object]:
+    """Return a complete call whose `url` is `value`."""
+    return {"url": value, "path": GOOD_PATH}
+
+
+def path_call(value: object) -> dict[str, object]:
+    """Return a complete call whose `path` is `value`."""
+    return {"url": GOOD_URL, "path": value}
 
 
 @contextmanager

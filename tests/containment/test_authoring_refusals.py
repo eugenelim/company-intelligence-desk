@@ -13,7 +13,16 @@ import unicodedata
 
 import pytest
 
-from ced.domain.containment.ceiling import Admitted, Denied, declare, evaluate, is_public_suffix
+from ced.domain.containment.ceiling import (
+    PUBLIC_SUFFIX_DATASET_AS_OF,
+    Admitted,
+    CeilingArgument,
+    CeilingEntry,
+    Denied,
+    declare,
+    evaluate,
+    is_public_suffix,
+)
 from ced.domain.containment.domain_types import DomainType
 from ced.domain.containment.errors import CeilingDeclarationRefused
 from ced.domain.containment.predicates import (
@@ -24,6 +33,7 @@ from ced.domain.containment.predicates import (
     Predicate,
     Prefix,
     SchemeIn,
+    Within,
 )
 
 _HTTPS = SchemeIn(frozenset({"https"}))
@@ -186,7 +196,7 @@ def test_a_url_argument_with_no_host_predicate_is_refused() -> None:
         declare("fetch", {"url": ("url", (_HTTPS, PathWithin("/evidence/")))})
 
 
-@pytest.mark.parametrize("predicate", [_SEC, HostInDomain("sec.gov")])
+@pytest.mark.parametrize("predicate", [HostInDomain("sec.gov"), HostEq("www.sec.gov")])
 def test_a_url_argument_carrying_a_host_predicate_is_accepted(predicate: Predicate) -> None:
     assert declare("fetch", {"url": ("url", (_HTTPS, predicate))}).arguments
 
@@ -261,3 +271,69 @@ def test_declare_never_leaks_the_undecidable_signal(predicate: Predicate) -> Non
 def test_a_predicate_outside_its_types_row_is_refused() -> None:
     with pytest.raises(CeilingDeclarationRefused, match="not expressible"):
         declare("fetch", {"url": ("url", (_HTTPS, _SEC, OneOf(frozenset({"a"}))))})
+
+
+# Beyond AC-0240 and AC-0316, both fail-closed, both recorded in the
+# verification ledger as strengthenings the owner has not ratified.
+
+
+def test_a_url_argument_with_no_scheme_predicate_is_refused() -> None:
+    """A host constraint constrains nothing under a scheme that ignores hosts.
+
+    `file://sec.gov/etc/passwd` satisfies `host_eq("sec.gov")` and every
+    resolver ignores that authority, so the one predicate AC-0240 forces to
+    be present decides nothing about what the callee opens. The scheme
+    allowlist is the control the host constraint presupposes, and AC-0240
+    closes only the mirror case — a scheme constraint with no host one.
+    """
+    with pytest.raises(CeilingDeclarationRefused, match="no scheme-constraining predicate"):
+        declare("fetch", {"url": ("url", (HostEq("sec.gov"),))})
+
+
+@pytest.mark.parametrize("scheme", ["file", "gopher", "ftp"])
+def test_the_scheme_refusal_is_what_keeps_those_urls_out(scheme: str) -> None:
+    """Mutation proof for the test above: the refusal is what stops these.
+
+    Declared through the front door the value is unreachable, so the entry
+    is built directly — the same route AC-0317 uses, and for the same
+    reason.
+    """
+    entry = CeilingEntry(
+        name="fetch", arguments={"url": CeilingArgument("url", (HostEq("sec.gov"),))}
+    )
+    decision = evaluate(entry, {"url": f"{scheme}://sec.gov/etc/passwd"})
+    assert isinstance(decision, Admitted), (
+        "an entry with no scheme predicate admits this, which is why the "
+        "authoring surface must refuse the entry"
+    )
+
+
+def test_a_filesystem_root_that_bounds_nothing_is_refused() -> None:
+    """The filesystem twin of the public-suffix refusal, on the same grounds.
+
+    `host_in_domain("gov")` is refused for admitting everything below a root
+    that bounds nothing; `within("/")` is the same shape and was authorable,
+    admitting `/etc/passwd` with AC-0316 satisfied because a predicate *was*
+    attached.
+    """
+    with pytest.raises(CeilingDeclarationRefused, match="bounds nothing"):
+        declare("fetch", {"path": ("fs-path", (Within("/"),))})
+
+    assert declare("fetch", {"path": ("fs-path", (Within("/evidence"),))}).arguments
+
+
+def test_the_suffix_dataset_records_the_day_it_was_published() -> None:
+    """The dependency's limit, stated where a reader meets the answer.
+
+    `publicsuffix2` has shipped no release since its bundled snapshot, so a
+    suffix delegated after that date answers `False` and is authorable —
+    `pages.dev` and `vercel.app` among them. An earlier comment justified
+    the dependency on the grounds that a bundled dataset goes stale "at a
+    version bump a reviewer can see"; no bump exists, so this constant and
+    the ledger are what make the staleness visible instead.
+    """
+    assert PUBLIC_SUFFIX_DATASET_AS_OF == "2019-12-21"
+    assert not is_public_suffix("pages.dev"), (
+        "the snapshot now carries a suffix it did not; update the recorded "
+        "as-of date and the ledger entry that reasons from it"
+    )

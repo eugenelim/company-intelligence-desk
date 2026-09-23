@@ -1,6 +1,6 @@
 """Authority containment: does this argument *value* fall inside the ceiling?
 
-A pure domain library. No database, no framework, no agent — the consumer is
+A domain library with no database, no framework and no agent — the consumer is
 [`walking-skeleton-policy-decision-point`](../../../../docs/specs/walking-skeleton-policy-decision-point/spec.md),
 which installs this fragment and decides what to do with what it returns.
 
@@ -14,6 +14,17 @@ Four modules:
   `ceiling`       the authoring surface that refuses, and the evaluation that
                   decides
   `errors`        the two refusals, as types the far side of the seam catches
+
+Every input reaching `evaluate` terminates in `Admitted`, `Denied` or
+`ContainmentUndecidable`. No builtin error escapes: a value whose
+canonicalisation or whose comparison is itself ill-defined is undecidable,
+not a crash in the caller's step.
+
+**One step reads the host filesystem.** Canonicalising an `fs-path` calls
+`os.path.realpath`, because resolving a symlink is the only way to know
+where a path points, and r5 requires it. It is a blocking syscall with no
+bound and it makes an `fs-path`'s canonical form depend on the machine. It
+is the only I/O in the package; `canonicaliser` says so where the rule is.
 
 **The seam signal is a raise.** `ContainmentUndecidable` is what evaluation
 does with an input it cannot decide; there is no "inside" default and no

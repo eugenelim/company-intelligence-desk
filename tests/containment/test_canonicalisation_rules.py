@@ -47,25 +47,43 @@ from tests.containment.fixture import (
     decode_and_dot_segments_transposed,
     rule_disabled,
     sec_ceiling,
+    url_call,
 )
 
-#: One input per load-bearing URL rule: refused as things stand, admitted
-#: once that rule is gone. Each was chosen so that no *other* rule's removal
-#: changes its answer — the independence half of the criterion is what that
-#: buys.
-_URL_CASES: Mapping[str, str] = {
+#: The inputs per load-bearing URL rule: each refused as things stand, each
+#: admitted once that rule is gone. A rule may have more than one, because a
+#: guard with several branches needs a case per branch — a branch nobody's
+#: case drives can be deleted with the suite green, which is the criterion's
+#: own objection one level down.
+_URL_CASES: Mapping[str, tuple[str, ...]] = {
+    # A tab `urlsplit` strips and a stricter client does not.
+    "refuse-control-characters": ("https://www.sec.gov/evidence/\tx",),
     # Two `@` in the authority: parsers disagree about which side is the host.
-    "refuse-ambiguous-parse": "https://a@attacker.example@www.sec.gov/evidence/x",
+    "refuse-second-userinfo": ("https://a@attacker.example@www.sec.gov/evidence/x",),
+    # A doubled separator, which survives as an empty label once the root
+    # label is dropped.
+    "refuse-empty-label": ("https://www.sec.gov../evidence/x",),
+    # Two branches of the port check: text that is not digits at all, and
+    # digits above the range a port can hold.
+    "refuse-invalid-port": (
+        "https://www.sec.gov:443.attacker.example/evidence/x",
+        "https://www.sec.gov:70000/evidence/x",
+    ),
     # A right-to-left override IDNA prohibits, sitting inside a host that ends
     # in `.sec.gov` as plain text.
-    "idna-normalise-host": "https://www\u202e.sec.gov/evidence/x",
+    "idna-normalise-host": ("https://www\u202e.sec.gov/evidence/x",),
     # Double-encoded, so one decoding round leaves an encoded separator behind
-    # and dot-segment removal never sees a traversal at all.
+    # and dot-segment removal never sees a traversal at all. One per
+    # alternative of the residual pattern: an encoded dot, an encoded slash,
+    # an encoded backslash, and an encoded percent sign.
     "percent-decode-then-refuse-residual": (
-        "https://www.sec.gov/evidence/%252e%252e/etc/passwd"
+        "https://www.sec.gov/evidence/%252e%252e/etc/passwd",
+        "https://www.sec.gov/evidence/%252f..%252f..%252fetc/passwd",
+        "https://www.sec.gov/evidence/%255c..%255cetc/passwd",
+        "https://www.sec.gov/evidence/%2525/etc/passwd",
     ),
     # A literal traversal, which needs no decoding to escape the path root.
-    "remove-dot-segments": "https://www.sec.gov/evidence/../etc/passwd",
+    "remove-dot-segments": ("https://www.sec.gov/evidence/../etc/passwd",),
 }
 
 #: The rules whose omission cannot admit anything, with the reason. These get
@@ -137,10 +155,16 @@ def _symlink_case(workspace: Path) -> tuple[CeilingEntry, dict[str, object]]:
     return entry, {"path": str(root / "link" / "secret")}
 
 
-def _case(rule: str, workspace: Path) -> tuple[CeilingEntry, dict[str, object]]:
+def _cases(rule: str, workspace: Path) -> tuple[tuple[CeilingEntry, dict[str, object]], ...]:
+    """Return every (entry, call) pair that stands for `rule`."""
     if rule == "resolve-symlinks":
-        return _symlink_case(workspace)
-    return sec_ceiling(), {"url": _URL_CASES[rule]}
+        return (_symlink_case(workspace),)
+    return tuple((sec_ceiling(), url_call(value)) for value in _URL_CASES[rule])
+
+
+def _case(rule: str, workspace: Path) -> tuple[CeilingEntry, dict[str, object]]:
+    """Return one representative pair for `rule`."""
+    return _cases(rule, workspace)[0]
 
 
 def _refuses(entry: CeilingEntry, call: Mapping[str, object]) -> bool:
@@ -155,7 +179,7 @@ def _refuses(entry: CeilingEntry, call: Mapping[str, object]) -> bool:
         return True
 
 
-def test_every_rule_is_accounted_for(tmp_path: Path) -> None:
+def test_every_rule_is_accounted_for() -> None:
     """Setup check: a rule added to the canonicaliser reds here until it is placed.
 
     Exactly one of three groups: a mutation case, the symlink case, or the
@@ -190,13 +214,13 @@ def _mutated_rules() -> tuple[str, ...]:
 
 @pytest.mark.parametrize("rule", _mutated_rules())
 def test_the_rule_is_load_bearing(rule: str, tmp_path: Path) -> None:
-    entry, call = _case(rule, tmp_path)
-    assert _refuses(entry, call), f"{call} is not refused even with {rule!r} in place"
-    with rule_disabled(rule):
-        assert not _refuses(entry, call), (
-            f"{call} is still refused without {rule!r}, so the case does not "
-            "show that rule carries the weight"
-        )
+    for entry, call in _cases(rule, tmp_path / rule):
+        assert _refuses(entry, call), f"{call} is not refused even with {rule!r} in place"
+        with rule_disabled(rule):
+            assert not _refuses(entry, call), (
+                f"{call} is still refused without {rule!r}, so the case does not "
+                "show that rule carries the weight"
+            )
 
 
 @pytest.mark.parametrize("disabled", rule_names())
@@ -211,12 +235,12 @@ def test_disabling_one_rule_leaves_every_other_case_refused(
     for other in _mutated_rules():
         if other == disabled:
             continue
-        entry, call = _case(other, tmp_path / f"{disabled}-{other}")
-        with rule_disabled(disabled):
-            assert _refuses(entry, call), (
-                f"removing {disabled!r} also admitted {other!r}'s case, so the two "
-                "rules are entangled and neither mutation isolates a rule"
-            )
+        for entry, call in _cases(other, tmp_path / f"{disabled}-{other}"):
+            with rule_disabled(disabled):
+                assert _refuses(entry, call), (
+                    f"removing {disabled!r} also admitted {other!r}'s case, so the "
+                    "two rules are entangled and neither mutation isolates a rule"
+                )
 
 
 def test_percent_decoding_runs_before_dot_segment_removal() -> None:
@@ -228,9 +252,9 @@ def test_percent_decoding_runs_before_dot_segment_removal() -> None:
     that follows produces the traversal after the last check has run.
     """
     entry = sec_ceiling()
-    assert _refuses(entry, {"url": _TRANSPOSITION_CASE})
+    assert _refuses(entry, url_call(_TRANSPOSITION_CASE))
     with decode_and_dot_segments_transposed():
-        assert not _refuses(entry, {"url": _TRANSPOSITION_CASE}), (
+        assert not _refuses(entry, url_call(_TRANSPOSITION_CASE)), (
             "the transposed order still refuses the encoded traversal, so this "
             "case is not pinning the order it claims to"
         )
@@ -272,7 +296,7 @@ def test_a_fail_closed_rule_admits_nothing_when_it_is_removed(
     the full pipeline refuses becomes admitted.
     """
     for value in _FAIL_CLOSED_UNIVERSE:
-        call = {"url": value}
+        call = url_call(value)
         refused_with = _refuses(sec_ceiling(), call)
         with rule_disabled(rule):
             refused_without = _refuses(sec_ceiling(), call)
@@ -281,9 +305,9 @@ def test_a_fail_closed_rule_admits_nothing_when_it_is_removed(
             f"refuses: {_FAIL_CLOSED_RULES[rule]}"
         )
     for other in _mutated_rules():
-        entry, call = _case(other, tmp_path / f"{rule}-{other}")
-        with rule_disabled(rule):
-            assert _refuses(entry, call), _FAIL_CLOSED_RULES[rule]
+        for entry, call in _cases(other, tmp_path / f"{rule}-{other}"):
+            with rule_disabled(rule):
+                assert _refuses(entry, call), _FAIL_CLOSED_RULES[rule]
 
 
 def test_lowercase_host_not_path_folds_the_host_and_leaves_the_path() -> None:
@@ -303,7 +327,14 @@ def test_lowercase_host_not_path_folds_the_host_and_leaves_the_path() -> None:
 
 
 def test_drop_default_ports_drops_the_default_and_keeps_the_rest() -> None:
-    """The rule does its job. Removing it changes the value, not a decision."""
+    """The rule does its job. Removing it changes the value, not a decision.
+
+    The rule is also what reads the port at all — validating one is
+    `refuse-invalid-port`'s judgment and converting one is this rule's — so
+    without it no port reaches the canonical value, default or not. That is
+    a loss in the value handed on and still not a decision, which is the
+    distinction the fail-closed proof turns on.
+    """
     assert str(canonicalise(DomainType.URL, "https://www.sec.gov:443/a")) == (
         "https://www.sec.gov/a"
     )
@@ -311,8 +342,8 @@ def test_drop_default_ports_drops_the_default_and_keeps_the_rest() -> None:
         "https://www.sec.gov:8443/a"
     )
     with rule_disabled("drop-default-ports"):
-        assert str(canonicalise(DomainType.URL, "https://www.sec.gov:443/a")) == (
-            "https://www.sec.gov:443/a"
+        assert str(canonicalise(DomainType.URL, "https://www.sec.gov:8443/a")) == (
+            "https://www.sec.gov/a"
         )
 
 

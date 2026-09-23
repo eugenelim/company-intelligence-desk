@@ -14,16 +14,29 @@ value the prefix admits.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from ced.domain.containment.ceiling import Admitted, evaluate
-from tests.containment.fixture import UnsafePrefixRow, sec_ceiling, unsafe_prefix_rows
+from tests.containment.fixture import (
+    GOOD_PATH,
+    GOOD_URL,
+    UnsafePrefixRow,
+    path_call,
+    sec_ceiling,
+    unsafe_prefix_rows,
+    url_call,
+)
+
+#: The call in which both arguments are admitted.
+_ADMITTED: dict[str, object] = {"url": GOOD_URL, "path": GOOD_PATH}
 
 #: The argument of `sec_ceiling()` that expresses each documented prefix
 #: soundly. Keyed by the row's ceiling cell exactly as the document writes it.
-_CEILING_FOR_ROW: dict[str, str] = {
-    'startswith("https://www.sec.gov")': "url",
-    'startswith("/evidence/")': "path",
+_CEILING_FOR_ROW: dict[str, Callable[[object], dict[str, object]]] = {
+    'startswith("https://www.sec.gov")': url_call,
+    'startswith("/evidence/")': path_call,
 }
 
 
@@ -49,8 +62,18 @@ def test_every_row_names_a_ceiling_this_suite_can_refuse_against() -> None:
 def test_the_value_a_prefix_admits_is_refused_over_the_parsed_value(
     row: UnsafePrefixRow,
 ) -> None:
-    argument = _CEILING_FOR_ROW[row.ceiling]
-    decision = evaluate(sec_ceiling(), {argument: row.value})
+    call = _CEILING_FOR_ROW[row.ceiling](row.value)
+    decision = evaluate(sec_ceiling(), call)
     assert not isinstance(decision, Admitted), (
         f"{row.value!r} was admitted, and the callee sees {row.callee_sees}"
     )
+
+
+def test_the_companion_values_are_admitted_on_their_own() -> None:
+    """Setup check: what makes each row's refusal attributable to that row.
+
+    `evaluate` requires a complete call, so every row above travels with a
+    value for the argument it is not about. If either companion were itself
+    refused, each row would pass without the row's own value doing anything.
+    """
+    assert isinstance(evaluate(sec_ceiling(), _ADMITTED), Admitted)

@@ -20,6 +20,7 @@ no predicate ranges over. That is AC-0317 to AC-0316's AC-0316.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
@@ -41,6 +42,7 @@ from ced.domain.containment.predicates import (
     PathWithin,
     Predicate,
     Prefix,
+    SchemeIn,
     Within,
     admits,
     constrains_host,
@@ -52,15 +54,39 @@ __all__ = [
     "CeilingEntry",
     "Decision",
     "Denied",
+    "PUBLIC_SUFFIX_DATASET_AS_OF",
     "declare",
     "evaluate",
     "is_public_suffix",
+    "longest_public_suffix",
 ]
 
-#: The bundled dataset AC-0215 resolves against. A hand-kept list of suffixes
-#: goes stale silently; a newly delegated suffix in a dataset goes stale
-#: loudly, at a version bump a reviewer can see.
+#: The bundled dataset AC-0215 resolves against, and the day its snapshot was
+#: published. **There is no refresh path.** `publicsuffix2` has shipped no
+#: release since this one, so the suffixes delegated after that date — the
+#: platform suffixes under which anyone can register a name are the ones that
+#: matter — answer `False` here and are authorable. An earlier comment claimed
+#: a bundled dataset "goes stale at a version bump a reviewer can see"; no bump
+#: exists, so the staleness is silent and the plan's § Risks entry is the only
+#: thing naming it. Recorded in the verification ledger for the owner.
+PUBLIC_SUFFIX_DATASET_AS_OF: Final[str] = "2019-12-21"
+
+#: The suffix oracle, as a module-level name a test can substitute. A dataset
+#: reached only through a singleton built at import is a dataset no test can
+#: pin, and the risk this dependency carries is precisely that its answers
+#: drift from the registry's.
 _PUBLIC_SUFFIX_LIST: Final[publicsuffix2.PublicSuffixList] = publicsuffix2.PublicSuffixList()
+
+
+def longest_public_suffix(domain: str) -> str | None:
+    """Return the longest public suffix of `domain` under the bundled dataset.
+
+    The seam `is_public_suffix` asks. Separate from it so a test can pin the
+    answer for a suffix the snapshot predates, without reaching into the
+    dependency.
+    """
+    suffix: object = _PUBLIC_SUFFIX_LIST.get_tld(domain)
+    return suffix if isinstance(suffix, str) else None
 
 
 def is_public_suffix(domain: str) -> bool:
@@ -70,9 +96,11 @@ def is_public_suffix(domain: str) -> bool:
     domain whose TLD the dataset does not carry is still a public suffix. That
     is the dataset's behaviour, not a local addition: `host_in_domain` over a
     whole TLD admits the internet whether or not the registry is listed.
+
+    **A suffix delegated after `PUBLIC_SUFFIX_DATASET_AS_OF` answers `False`**
+    and is authorable. That is the dependency's limit, not this function's.
     """
-    longest_suffix: object = _PUBLIC_SUFFIX_LIST.get_tld(domain)
-    return longest_suffix == domain
+    return longest_public_suffix(domain) == domain
 
 
 @dataclass(frozen=True)
@@ -221,6 +249,17 @@ def declare(
                     f"{predicate.domain!r} is a public suffix, so host_in_domain over "
                     "it silently admits the internet",
                 )
+            # The filesystem twin of the line above, and refused on the same
+            # grounds: a root that bounds nothing is a predicate that is
+            # present and decides nothing. Beyond AC-0316, which requires a
+            # predicate to exist and not to constrain anything in particular.
+            if isinstance(predicate, Within) and predicate.root == os.sep:
+                raise _refuse(
+                    name,
+                    argument,
+                    "within(/) is the whole filesystem, so the predicate is present "
+                    "and bounds nothing",
+                )
 
         if domain_type is DomainType.URL and not any(map(constrains_host, canonical)):
             raise _refuse(
@@ -230,6 +269,25 @@ def declare(
                 "host is admitted, including the link-local metadata address",
             )
 
+        # Beyond AC-0240, and fail-closed on purpose. A host constraint only
+        # constrains what the callee reaches if the scheme makes the host
+        # mean something: `file://sec.gov/etc/passwd` satisfies
+        # `host_eq("sec.gov")` and every resolver ignores that authority, so
+        # the one predicate AC-0240 forces to be present decides nothing. The
+        # scheme allowlist is the control the host constraint presupposes.
+        # Recorded in the verification ledger as a strengthening the owner
+        # has not ratified.
+        if domain_type is DomainType.URL and not any(
+            isinstance(predicate, SchemeIn) for predicate in canonical
+        ):
+            raise _refuse(
+                name,
+                argument,
+                "a url argument carries no scheme-constraining predicate, so a "
+                "scheme that ignores the authority — `file:` above all — turns "
+                "its host predicate into a constraint on nothing",
+            )
+
         declared[argument] = CeilingArgument(
             domain_type=domain_type.value, predicates=canonical
         )
@@ -237,7 +295,29 @@ def declare(
 
 
 def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
-    """Decide `call` against `entry`, or raise when it cannot be decided."""
+    """Decide `call` against `entry`, or raise when it cannot be decided.
+
+    **A call has to supply every argument the entry constrains.** Deciding
+    only what the call happens to pass would make `evaluate(entry, {})` an
+    admission against any ceiling however tightly written, and would leave
+    whatever default the callee binds for an omitted parameter outside the
+    ceiling entirely. That is the same vacuous conjunction AC-0316 and
+    AC-0317 close from the other side — there, an argument no predicate
+    ranges over; here, a predicate no argument arrives for. An entry whose
+    tool has a genuinely optional argument declares the arguments it will
+    always receive.
+
+    Three outcomes and no fourth: `Admitted`, `Denied`, or a
+    `ContainmentUndecidable` raise. Nothing is passed through undecided.
+    """
+    missing = sorted(set(entry.arguments) - set(call))
+    if missing:
+        return Denied(
+            f"ceiling entry {entry.name!r} constrains {missing}, and the call "
+            "supplies neither a value for them nor anything this fragment could "
+            "decide in their place"
+        )
+
     canonical: dict[str, object] = {}
     for argument, value in call.items():
         constraint = entry.arguments.get(argument)
@@ -257,9 +337,15 @@ def evaluate(entry: CeilingEntry, call: Mapping[str, object]) -> Decision:
         canonical_value = canonicalise(domain_type, value)
         for predicate in constraint.predicates:
             if not admits(predicate, canonical_value):
+                # The reason has to let a reader reconstruct the mismatch. A
+                # denial naming only the predicate's type puts a
+                # `policy.decision` in the event log that records a refusal
+                # and not why the value did not match, which in a system
+                # whose event log is its inspection surface is half a record.
                 return Denied(
-                    f"argument {argument!r} is outside {type(predicate).__name__} on "
-                    f"ceiling entry {entry.name!r}"
+                    f"argument {argument!r} is outside {predicate!r} on ceiling "
+                    f"entry {entry.name!r}: the canonical value is "
+                    f"{str(canonical_value)!r}"
                 )
         canonical[argument] = canonical_value
     return Admitted(canonical=canonical)

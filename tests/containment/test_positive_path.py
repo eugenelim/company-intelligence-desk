@@ -13,19 +13,35 @@ admitted call reaching an approved tool body — is
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ced.domain.containment.canonicaliser import CanonicalUrl
 from ced.domain.containment.ceiling import Admitted, evaluate
-from tests.containment.fixture import sec_ceiling
+from tests.containment.fixture import EVIDENCE_ROOT, path_call, sec_ceiling, url_call
+
+
+def test_the_evidence_root_is_not_on_this_host() -> None:
+    """Setup check: canonicalising an `fs-path` reads the host filesystem.
+
+    `within("/evidence")` and the values below are resolved with
+    `os.path.realpath`, so a machine that carried `/evidence` — as a symlink
+    above all — would change what every `fs-path` case in this suite means.
+    Reding here is better than those cases quietly testing something else.
+    """
+    assert not Path(EVIDENCE_ROOT).exists(), (
+        f"{EVIDENCE_ROOT} exists on this machine, so the fs-path cases resolve "
+        "against it instead of lexically"
+    )
 
 
 def test_a_canonical_in_ceiling_url_is_admitted() -> None:
-    decision = evaluate(sec_ceiling(), {"url": "https://www.sec.gov/evidence/report.pdf"})
+    decision = evaluate(sec_ceiling(), url_call("https://www.sec.gov/evidence/report.pdf"))
     assert isinstance(decision, Admitted)
     assert str(decision.canonical["url"]) == "https://www.sec.gov/evidence/report.pdf"
 
 
 def test_an_in_root_fs_path_is_admitted() -> None:
-    decision = evaluate(sec_ceiling(), {"path": "/evidence/filings/2024/report.txt"})
+    decision = evaluate(sec_ceiling(), path_call("/evidence/filings/2024/report.txt"))
     assert isinstance(decision, Admitted)
     assert decision.canonical["path"] == "/evidence/filings/2024/report.txt"
 

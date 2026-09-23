@@ -21,6 +21,10 @@ on 2026-09-18. AC-0216 disables one rule at a time and cannot see a
 transposition that keeps every rule, so `tests/containment` carries a separate
 pinned case that reds when the two are swapped.
 
+**`fs-path` canonicalisation reads the host filesystem.** `resolve-symlinks`
+calls `os.path.realpath`, which is a blocking syscall and makes the canonical
+form depend on the machine. Nothing else here performs I/O.
+
 **Two clauses normalise rather than refuse, and their omission fails closed.**
 Case-folding a host and dropping a default port both admit strictly more, and
 no predicate in r5's fragment ranges over a port at all, so removing either
@@ -142,8 +146,11 @@ class UrlUnderReview:
     than the components: a control character is invisible once `urlsplit` has
     stripped it, and a second `@` is invisible once the userinfo is split off.
 
-    `port_text` holds the port exactly as the authority spelled it. Emptying
-    it is how `drop-default-ports` drops one.
+    `port_text` holds the port exactly as the authority spelled it, and
+    `port` the number `drop-default-ports` made of it. The two are separate
+    because validating a port is `refuse-invalid-port`'s judgment: a
+    conversion anywhere else would have to repeat that check, and a rule
+    whose work another step redoes cannot be shown to carry weight.
     """
 
     raw: str
@@ -151,27 +158,20 @@ class UrlUnderReview:
     scheme: str
     host: str
     port_text: str
+    port: int | None
     path: str
     query: str
 
     def canonical(self) -> CanonicalUrl:
         """Return the value the adapter receives, leaving the parse behind.
 
-        `refuse-ambiguous-parse` is what establishes that `port_text` is a
-        port. The check is repeated here rather than assumed, so that a
-        pipeline missing that rule still fails in this fragment's own
-        vocabulary instead of letting a `ValueError` out of a security
-        control.
+        The port comes from `drop-default-ports`, already a number or
+        absent. Nothing is converted here, so no conversion can fail here.
         """
-        if self.port_text and not _valid_port(self.port_text):
-            raise ContainmentUndecidable(
-                f"{self.port_text!r} is not a port, and the canonical value of "
-                f"{self.raw!r} cannot be built without one"
-            )
         return CanonicalUrl(
             scheme=self.scheme,
             host=self.host,
-            port=int(self.port_text) if self.port_text else None,
+            port=self.port,
             path=self.path,
             query=self.query,
         )
@@ -189,21 +189,12 @@ class CanonicalisationRule[T]:
     apply: Callable[[T], T]
 
 
-def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
-    """Reject a URL that more than one parser would read differently.
+def _refuse_control_characters(url: UrlUnderReview) -> UrlUnderReview:
+    """Reject a URL carrying a character `urlsplit` strips and others do not.
 
-    Four shapes reach it: a control character, which `urlsplit` strips and a
-    stricter client does not; a second `@`, where parsers disagree about which
-    side is the host; a host with an empty label, including a missing host,
-    which names no single resolvable name; and an authority whose port is not
-    a port, where a reader that splits on the first colon and a reader that
-    parses the authority see different hosts.
-
-    The empty-label test here reads the spelling the caller wrote, which is
-    the half that does not depend on the IDNA codec. A character the encoder
-    *turns into* a separator is caught in `idna-normalise-host`, against the
-    encoded spelling, because only the encoder knows which characters those
-    are.
+    One of four guards that share r5's ambiguity clause. They are four rules
+    and not one because AC-0216 indexes its evidence per rule, and a rule
+    holding four guards can lose three of them with every case still green.
     """
     offending = _AMBIGUOUS_CHARACTERS & set(url.raw)
     if offending:
@@ -211,18 +202,43 @@ def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
             f"{url.raw!r} carries the control character {min(offending)!r}; parsers "
             "disagree on whether it terminates the URL, strips out, or stays"
         )
+    return url
+
+
+def _refuse_second_userinfo(url: UrlUnderReview) -> UrlUnderReview:
+    """Reject an authority with more than one `@`, which parsers read differently."""
     if "@" in url.userinfo:
         raise ContainmentUndecidable(
             f"authority {url.userinfo + '@' + url.host!r} carries more than one '@'; "
             "parsers disagree on which side is the host, so the value has no "
             "single meaning"
         )
+    return url
+
+
+def _refuse_empty_label(url: UrlUnderReview) -> UrlUnderReview:
+    """Reject a host with a label holding nothing, a missing host included.
+
+    This reads the spelling the caller wrote, which is the half that does not
+    depend on the IDNA codec. A character the encoder *turns into* a
+    separator is caught in `idna-normalise-host`, against the encoded
+    spelling, because only the encoder knows which characters those are.
+    """
     if _empty_label(url.host):
         raise ContainmentUndecidable(
             f"host {url.host!r} has a label with nothing in it — a missing host, a "
             "leading separator or a doubled one — so it names no single resolvable "
             "name and no host predicate can decide it"
         )
+    return url
+
+
+def _refuse_invalid_port(url: UrlUnderReview) -> UrlUnderReview:
+    """Reject an authority whose port is not a port.
+
+    A reader that splits the authority on the first colon and a reader that
+    parses it see different hosts, so the value names neither.
+    """
     if url.port_text and not _valid_port(url.port_text):
         raise ContainmentUndecidable(
             f"{url.port_text!r} is not a port, so the authority of {url.raw!r} has no "
@@ -237,15 +253,16 @@ def _drop_default_port(url: UrlUnderReview) -> UrlUnderReview:
 
     Nothing in r5's `url` predicate row ranges over a port, so this rule
     changes the value handed on and never changes a decision. Its omission is
-    therefore fail-closed, which the suite proves rather than assuming.
+    therefore fail-closed, which the suite proves rather than assuming; what
+    an omission does cost is the port itself, which then does not reach the
+    canonical value at all.
     """
     if not _valid_port(url.port_text):
-        # Not this rule's judgment to make. `refuse-ambiguous-parse` owns it,
-        # and a port it has not passed is left exactly as written.
+        # Not this rule's judgment to make: `refuse-invalid-port` owns it,
+        # and a port it has not passed is one this rule declines to read.
         return url
-    if int(url.port_text) == _DEFAULT_PORTS.get(url.scheme):
-        return replace(url, port_text="")
-    return url
+    port = int(url.port_text)
+    return replace(url, port=None if port == _DEFAULT_PORTS.get(url.scheme) else port)
 
 
 def _idna(host: str) -> str:
@@ -324,8 +341,23 @@ def _resolve_fs_symlinks(path: str) -> str:
     `realpath` removes dot segments on the way, so `fs-path` needs no separate
     lexical pass — one that ran after this would never change a value, and a
     rule that cannot change a value cannot be shown to carry weight.
+
+    **This is the one step in the package that reads the host filesystem.**
+    It is a blocking syscall with no bound, and it makes an `fs-path`'s
+    canonical form depend on the machine the fragment runs on. Both are
+    inherent to resolving a link rather than a choice made here, and both are
+    recorded so a consumer sizing the tool-call path can see them. Whatever
+    `realpath` refuses to answer for — a name with a NUL in it, a symlink
+    loop, an unreadable parent — is refused in this package's vocabulary
+    rather than as the operating system spelled it.
     """
-    return os.path.realpath(path)
+    try:
+        return os.path.realpath(path)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise ContainmentUndecidable(
+            f"the filesystem cannot resolve {path!r}, so where it points is "
+            f"undecided here: {error}"
+        ) from error
 
 
 def _remove_dot_segments(path: str) -> str:
@@ -350,9 +382,24 @@ def _remove_dot_segments(path: str) -> str:
 #: encoded traversal; a pinned case in `tests/containment` reds when they swap.
 URL_RULES: Final[tuple[CanonicalisationRule[UrlUnderReview], ...]] = (
     CanonicalisationRule(
-        name="refuse-ambiguous-parse",
+        name="refuse-control-characters",
         clause="reject an ambiguous parse rather than guessing",
-        apply=_refuse_ambiguous_url,
+        apply=_refuse_control_characters,
+    ),
+    CanonicalisationRule(
+        name="refuse-second-userinfo",
+        clause="reject an ambiguous parse rather than guessing",
+        apply=_refuse_second_userinfo,
+    ),
+    CanonicalisationRule(
+        name="refuse-empty-label",
+        clause="reject an ambiguous parse rather than guessing",
+        apply=_refuse_empty_label,
+    ),
+    CanonicalisationRule(
+        name="refuse-invalid-port",
+        clause="reject an ambiguous parse rather than guessing",
+        apply=_refuse_invalid_port,
     ),
     CanonicalisationRule(
         name="drop-default-ports",
@@ -487,6 +534,7 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
         scheme=parts.scheme,
         host=host,
         port_text=port_text,
+        port=None,
         path=parts.path or "/",
         query=parts.query,
     )
