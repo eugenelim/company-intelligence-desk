@@ -531,6 +531,34 @@ a caller reads as a decision. Each now reds under its own mutation.
 each new guard, each `contains` arm, and the two fail-closed rules' substitute
 checks were deleted or stubbed in turn and the suite re-run.
 
+## T1 — the library exercised as its consumer will use it
+
+**Date:** 2026-09-23. The suite is not the artifact. This is the package
+imported and driven from a fresh interpreter outside the repository, the way
+`walking-skeleton-policy-decision-point` will drive it.
+
+```
+$ .../.venv/bin/python   # from a scratch directory, not the worktree
+>>> from ced.domain.containment import declare, evaluate, ...
+declared: fetch_filing -> ['path', 'url']
+  the in-ceiling call                ADMIT  https://www.sec.gov/evidence/report.pdf
+  subdomain-suffix bypass            DENY   argument 'url' is outside "HostInDomain(domain='sec.gov')" …
+  userinfo bypass                    DENY   argument 'url' is outside "HostInDomain(domain='sec.gov')" …
+  encoded traversal                  DENY   argument 'url' is outside "PathWithin(prefix='/evidence/')" …
+  path traversal on fs-path          DENY   argument 'path' is outside "Within(root='/evidence')" …
+  ambiguous authority                RAISE  authority 'a@attacker.example@www.sec.gov' carries more than one '@' …
+  an argument the ceiling omits      DENY   ceiling entry 'fetch_filing' attaches no predicate to argument 'token' …
+
+authoring refusals:
+  prefix on a url                    REFUSE a string prefix is not expressible …
+  host_in_domain over a suffix       REFUSE 'gov' is a public suffix …
+  url with no host predicate         REFUSE a url argument carries no host-constraining predicate …
+```
+
+Three outcomes and no fourth, the documented bypasses refused over the parsed
+value, and the positive path admitted with a canonical value carrying no
+userinfo, no default port and no dot segments.
+
 ## T1 — a pre-existing gate failure, carried not fixed
 
 **Date:** 2026-09-23.
