@@ -655,3 +655,122 @@ in order not to believe more than was shown.
 - **Nothing about a provider, a cost, or a latency.** No model is called, so
   no number on this page bounds a real step. Every provider-touching claim is
   `walking-skeleton-step-lifecycle`'s.
+
+## Phase 1 — authority containment
+
+Not a spike. `walking-skeleton-authority-containment` T1 is delivered code with
+an acceptance suite, recorded here for the reason the two deliveries above are:
+this is where the repository keeps the answer to *what do we actually know*.
+The same standard applies — **a check that cannot fail is not evidence** — and
+this delivery spent most of its review rounds on exactly that, so the limits
+below are longer than the claims.
+
+All checks green except the same pre-existing failure that belongs to no spec
+here, `test_no_top_level_directory_is_unrecorded` on `.github`, which is open
+in `workspace.toml`. The count is deliberately not stated: `pytest` reports it.
+No model provider is called, nothing reaches the database, no cloud credential
+is used, and the spend is **$0.00**. Every criterion is offline.
+
+Run it with the commands in [`AGENTS.md`](../AGENTS.md) § Build and test
+commands. Per-check detail, every falsification run, the seam decisions this
+delivery was asked to settle in code, and the limits of each layer are in
+[`docs/specs/walking-skeleton-authority-containment/notes/verification-ledger.md`](../docs/specs/walking-skeleton-authority-containment/notes/verification-ledger.md).
+
+### What this established
+
+| Claim | Criteria | Evidence |
+| --- | --- | --- |
+| The documented bypasses are refused over the parsed value | AC-0213 | Every row of `worker-runtime.md` § 4's unsafe-prefix table, **read from the document rather than restated**, is refused against a ceiling expressing the same intent over parsed components. A row added upstream that the suite cannot classify is a failure, not a skip. The userinfo row this delivery filed back into that table is one of the three |
+| The caller receives the canonical value | AC-0214 | The admitting result carries a parsed `CanonicalUrl`, not a string, so the consumer has no route back to the original — no userinfo, no default port, no dot segments. Asserted at the consumer, which is a **test double**; see the limits below |
+| A domain argument that is a public suffix is unauthorable | AC-0215 | Resolved against the bundled dataset, not a hand-kept list, over every character the IDNA encoder turns into a label separator — derived from the codec rather than enumerated, after three rounds in which an enumerated list was extended and bypassed twice |
+| A prefix is expressible only where the callee does not parse | AC-0217 | Refused on all six interpreted domain types and accepted on `opaque-string`. The implementation states r5's rule, so a type added later inherits the refusal instead of needing the criterion reworded |
+| A `url` argument must constrain its host | AC-0240 | Refused at authoring time. What that does and does not bound is in the limits below |
+| A ceiling entry constrains every argument it names | AC-0316, AC-0317 | The declaration is refused naming both the entry and the argument; an entry installed directly, bypassing the authoring surface, denies at evaluation. The two cannot share a case, because the first makes the second's input unreachable through the front door |
+| An input the fragment cannot decide raises | AC-0315 | Three shapes driven separately — an unrecognised declared domain type, an ambiguous parse, a predicate that cannot be evaluated against the value — because one combined case would pass on a fragment that raises for one and answers "inside" for the other two. The raised type is this package's own, deriving from no builtin error class an ordinary bug produces, which is what lets the consumer's handler be narrow by type |
+| The positive path admits | AC-0218 | A canonical in-ceiling `url` and an in-root `fs-path` against the same ceiling AC-0213 refuses against. Every other criterion here is a refusal, and a fragment that refused everything would satisfy all of them |
+| Containment between two predicates agrees with set containment | property test | `contains` answers symbolically over predicate arguments; the oracle answers extensionally by running a universe of concrete values through the real canonicaliser. All ten constructors are generated, and the expected set is read from the authoring surface so a constructor added to the fragment reds until it is covered |
+
+### Setup, and the checks that are controls rather than evidence
+
+- **The mutation evidence is produced by patching in the test process.** The
+  canonicaliser ships no disable switch; the spec's first `Never do` refuses
+  one inside a shipped security control.
+- **Every claim above was checked by deleting the thing it rests on.** Each
+  canonicalisation rule, each boundary comparison, each guard, each arm of the
+  containment relation, and each bound was removed or stubbed in turn and the
+  suite re-run. Three review rounds were spent on checks that passed and could
+  not fail; the ledger names each.
+- **A structural check reads the code rather than its behaviour.** Every value
+  interpolated into any message the fragment produces must pass through the
+  one function that bounds it, enforced by a scan over the package's syntax
+  tree, because four call-site repairs in a row each left a sibling path open.
+
+### What this did NOT establish
+
+**The consolidated limits live in
+[`verification-ledger.md`](../docs/specs/walking-skeleton-authority-containment/notes/verification-ledger.md).**
+What follows is what a reader of this page needs in order not to believe more
+than was shown.
+
+- **One criterion is not met.** AC-0216 asks, for every canonicalisation rule
+  r5 names, an input the canonicaliser refuses and that is *admitted* when
+  that one rule is disabled. Two of the six clauses cannot supply one, and
+  that is proved rather than unfound: no predicate in r5's `url` row ranges
+  over a port, so dropping a default port cannot change any decision, and a
+  ceiling's host argument is already case-folded when compared, so removing
+  host-folding can only shrink what is admitted. Those two carry a
+  fail-closed proof instead. The criterion is unchecked with a deferral
+  anchor, T1's `Done when` is unmet, and an amendment is owed to the owner.
+- **Four refusals go beyond the criteria and are not ratified.** A `url`
+  argument must carry a scheme-constraining predicate; a call must supply
+  every argument the entry constrains; `within("/")` and a relative root are
+  refused; and only this package's two exception types leave evaluation. Each
+  closes a default-allow, each fails closed, and each is recorded in the
+  spec's § Follow-ons for the owner to ratify or reverse.
+- **AC-0214 asserts at a test double, and no production consumer exists.**
+  What is established is that the fragment *emits* the canonical value and
+  hands over a parsed object. That the real consumer declines to re-parse the
+  original is `walking-skeleton-policy-decision-point`'s to show.
+- **Nothing here decides a call.** The fragment is a library; no decision
+  point installs it, so the successor to this delivery's claim is that the
+  predicate exists, not that the boundary works. The role-compilation
+  section above says the decision point "refuses every call until
+  `walking-skeleton-authority-containment` supplies one" — the fragment now
+  exists and the decision point still refuses every call, because installing
+  it is a different spec's.
+- **The public-suffix dataset is a 2019-12-21 snapshot with no refresh path.**
+  `publicsuffix2` has shipped no release since, so suffixes delegated after
+  that date — the platform suffixes anyone can register under — answer "not a
+  public suffix" and are authorable. The plan named dataset ageing as a risk
+  and assumed a version bump would make it visible; none exists.
+- **AC-0240 requires a host predicate to be present and constrains neither
+  the host it names nor the address it resolves to.** `host_eq` over the
+  link-local metadata address satisfies it. The scheme strengthening inherits
+  the identical limit. Both gaps are unowned, and the egress proxy cannot own
+  the address-level one: r8 § 4 specifies it as a hostname allowlist with no
+  private-range or metadata block, so it shares the blind spot. DNS rebinding
+  is unowned for the same reason. What bounds the exposure today is that
+  Phase 1 registers no URL-taking tool, which is a fact about the catalogue
+  and not a control.
+- **`fs-path` confinement is decided against a snapshot the callee
+  re-resolves.** `realpath` runs non-strict, so a component that does not
+  exist at decision time resolves lexically; created later as a symlink out
+  of the root, the admitted path points elsewhere when the callee opens it.
+  Handing the resolved path on narrows the window rather than closing it.
+- **No predicate ranges over a URL's query.** An admitted URL reaches its
+  consumer with an unbounded model-chosen query, which on an allowed host is
+  an outbound channel the ceiling does not describe. That follows r5's
+  ratified fragment and is recorded rather than changed here.
+- **AC-0216 proves rule presence, not rule order.** Disabling one rule at a
+  time cannot see a refactor that keeps every rule and transposes two. A
+  separate pinned case holds the one ordering the design rests on, and a
+  `Never do` states it; neither is a criterion.
+- **Nothing about an adaptive adversary.** The fragment refuses the cases
+  written and the generated predicate space, and says nothing about a bypass
+  nobody has written down. Six review rounds each found a spelling the
+  previous round's fix did not reach — an IDNA separator, then an NFKC
+  equivalent, then a `]` placed before the userinfo boundary — which is
+  evidence about how that search goes, not a bound on what remains.
+- **Nothing about a provider, a cost, or a latency.** No model is called and
+  nothing reaches the database, so no number here bounds a real step.
+
