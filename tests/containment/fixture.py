@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -65,14 +65,26 @@ def unsafe_prefix_rows() -> tuple[UnsafePrefixRow, ...]:
 
     Parsed rather than restated. AC-0213 says a row added upstream is an
     amendment trigger, and a trigger nothing reads is a sentence.
+
+    **Every body row of the table comes back**, whatever shape its ceiling
+    cell is written in. Filtering on the shape the two original rows happen to
+    use would let a row stating its ceiling some other way pass through
+    unnoticed, which is the trigger failing to fire in exactly the case it
+    exists for. The suite is what decides it cannot classify a row.
     """
+    body = _section().split("| Ceiling | Value that passes | What the callee sees |", 1)
+    assert len(body) == 2, "the unsafe-prefix table's header row is no longer there"
     rows: list[UnsafePrefixRow] = []
-    for line in _section().splitlines():
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) != 3 or cells[0] in {"Ceiling", "---"}:
+    for line in body[1].splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            if rows:
+                break
             continue
-        if not cells[0].startswith("`startswith("):
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if all(set(cell) <= {"-", ":"} for cell in cells):
             continue
+        assert len(cells) == 3, f"unsafe-prefix table row is not three cells: {line!r}"
         rows.append(
             UnsafePrefixRow(
                 ceiling=cells[0].strip("`"),
@@ -115,28 +127,6 @@ def sec_ceiling() -> CeilingEntry:
     )
 
 
-def _fold_case_everywhere(url: UrlUnderReview) -> UrlUnderReview:
-    """The miswrite r5's "and not the path" half warns about."""
-    return replace(url, scheme=url.scheme.lower(), host=url.host.lower(), path=url.path.lower())
-
-
-#: Rules whose load-bearing half cannot be removed, only got wrong. r5 states
-#: "lowercase the host and not the path" as one clause with two halves, and
-#: only the second half has a bypass behind it: folding the host's case admits
-#: strictly more and so fails closed when it is absent, while folding the
-#: path's case admits `/Evidence/` against a ceiling of `/evidence/` and hands
-#: a case-sensitive callee a different resource. The mutation for this rule is
-#: therefore that miswrite rather than a removal. Recorded in the spec's
-#: verification ledger, not hidden here.
-_MISWRITES: Final[dict[str, CanonicalisationRule[UrlUnderReview]]] = {
-    "lowercase-host-not-path": CanonicalisationRule(
-        name="lowercase-host-not-path",
-        clause="lowercase the host and not the path",
-        apply=_fold_case_everywhere,
-    ),
-}
-
-
 @contextmanager
 def _patched(
     url_rules: tuple[CanonicalisationRule[UrlUnderReview], ...],
@@ -155,22 +145,17 @@ def _patched(
 
 @contextmanager
 def rule_disabled(name: str) -> Iterator[None]:
-    """Run the block with one canonicalisation rule gone, and only that one.
+    """Run the block with one canonicalisation rule removed, and only that one.
 
-    A rule that appears in both tuples is one rule with two applications, so
-    it goes from both. See `_MISWRITES` for the single rule whose mutation is
-    a miswrite rather than a removal.
+    A removal, for every rule. Nothing here substitutes a different step for
+    the one it takes out: a mutation that replaces a rule with a miswrite
+    measures the miswrite, and AC-0216 asks what happens when the rule is not
+    there.
     """
-    miswrite = _MISWRITES.get(name)
-    if miswrite is not None:
-        url_rules = tuple(
-            miswrite if rule.name == name else rule for rule in canonicaliser.URL_RULES
-        )
-        fs_rules = canonicaliser.FS_PATH_RULES
-    else:
-        url_rules = tuple(rule for rule in canonicaliser.URL_RULES if rule.name != name)
-        fs_rules = tuple(rule for rule in canonicaliser.FS_PATH_RULES if rule.name != name)
-    with _patched(url_rules, fs_rules):
+    with _patched(
+        tuple(rule for rule in canonicaliser.URL_RULES if rule.name != name),
+        tuple(rule for rule in canonicaliser.FS_PATH_RULES if rule.name != name),
+    ):
         yield
 
 

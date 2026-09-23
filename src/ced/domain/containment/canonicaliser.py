@@ -3,9 +3,8 @@
 `worker-runtime.md` r5 § 4, "Why a prefix predicate is not safe on an
 interpreted argument", carries a paragraph beginning **"What the canonicalizer
 must do"**. Every rule in `URL_RULES` and `FS_PATH_RULES` below implements one
-clause of it, and each rule records the clause it implements in `clause` so
-the mapping is readable rather than asserted. AC-0216 holds an input per rule
-that this canonicaliser refuses and that is admitted once that rule is gone.
+clause of it and records that clause in `clause`, so the mapping is readable
+rather than asserted.
 
 **The rules are an ordered tuple and nothing here can switch one off.** The
 spec's first `Never do` refuses a disable switch inside a shipped security
@@ -21,6 +20,13 @@ then decodes into a traversal that nothing re-checks. A probe confirmed this
 on 2026-09-18. AC-0216 disables one rule at a time and cannot see a
 transposition that keeps every rule, so `tests/containment` carries a separate
 pinned case that reds when the two are swapped.
+
+**Two clauses normalise rather than refuse, and their omission fails closed.**
+Case-folding a host and dropping a default port both admit strictly more, and
+no predicate in r5's fragment ranges over a port at all, so removing either
+can only shrink what the fragment admits. `tests/containment` proves that
+direction for both rather than claiming a bypass neither has; the spec's
+verification ledger records what that leaves open against AC-0216.
 """
 
 from __future__ import annotations
@@ -43,6 +49,8 @@ __all__ = [
     "UrlUnderReview",
     "canonicalise",
     "canonicalise_fs_root",
+    "canonicalise_host",
+    "canonicalise_url_path",
     "rule_names",
 ]
 
@@ -92,14 +100,16 @@ class UrlUnderReview:
     an adapter. They are here because two clauses judge the *parse* rather
     than the components: a control character is invisible once `urlsplit` has
     stripped it, and a second `@` is invisible once the userinfo is split off.
+
+    `port_text` holds the port exactly as the authority spelled it. Emptying
+    it is how `drop-default-ports` drops one.
     """
 
     raw: str
     userinfo: str
-    authority: str
     scheme: str
     host: str
-    port: int | None
+    port_text: str
     path: str
     query: str
 
@@ -108,7 +118,7 @@ class UrlUnderReview:
         return CanonicalUrl(
             scheme=self.scheme,
             host=self.host,
-            port=self.port,
+            port=int(self.port_text) if self.port_text else None,
             path=self.path,
             query=self.query,
         )
@@ -118,9 +128,7 @@ class UrlUnderReview:
 class CanonicalisationRule[T]:
     """One clause of r5's "What the canonicalizer must do", as a step.
 
-    `name` is the identity AC-0216's mutation evidence is indexed by; a rule
-    that applies to more than one domain type appears in both tuples under the
-    same name, because it is one rule with two applications.
+    `name` is the identity AC-0216's mutation evidence is indexed by.
     """
 
     name: str
@@ -128,12 +136,18 @@ class CanonicalisationRule[T]:
     apply: Callable[[T], T]
 
 
+def _valid_port(port_text: str) -> bool:
+    return port_text.isdigit() and 1 <= int(port_text) <= 65535
+
+
 def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
     """Reject a URL that more than one parser would read differently.
 
-    Three shapes reach it: a control character, which `urlsplit` strips and a
+    Four shapes reach it: a control character, which `urlsplit` strips and a
     stricter client does not; a second `@`, where parsers disagree about which
-    side is the host; and a missing host, which no host predicate can decide.
+    side is the host; a missing host, which no host predicate can decide; and
+    an authority whose port is not a port, where a reader that splits on the
+    first colon and a reader that parses the authority see different hosts.
     """
     offending = _AMBIGUOUS_CHARACTERS & set(url.raw)
     if offending:
@@ -151,45 +165,36 @@ def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
         raise ContainmentUndecidable(
             "the URL names no host, so no host predicate can decide it"
         )
+    if url.port_text and not _valid_port(url.port_text):
+        raise ContainmentUndecidable(
+            f"{url.port_text!r} is not a port, so the authority of {url.raw!r} has no "
+            "single reading: a reader that splits on the first colon sees "
+            f"{url.host!r} and a reader that parses the authority sees neither"
+        )
     return url
 
 
-def _normalise_port(url: UrlUnderReview) -> UrlUnderReview:
-    """Split a validated port off the authority, dropping a scheme's default.
+def _drop_default_port(url: UrlUnderReview) -> UrlUnderReview:
+    """Drop a port the scheme already implies, so `:443` and nothing agree.
 
-    **Dropping a default port means parsing the port first**, and parsing it
-    is where the weight sits. Without this rule the host stays whatever comes
-    before the first colon, so `www.example.com:443.attacker.example` reads as
-    `www.example.com` to every host predicate while the authority is something
-    else entirely. That naive split is exactly what `host` holds until this
-    rule replaces it.
+    Nothing in r5's `url` predicate row ranges over a port, so this rule
+    changes the value handed on and never changes a decision. Its omission is
+    therefore fail-closed, which the suite proves rather than assuming.
     """
-    authority = url.authority
-    if authority.startswith("["):
-        closing = authority.find("]")
-        if closing == -1:
-            raise ContainmentUndecidable(
-                f"authority {authority!r} opens an IPv6 literal it never closes"
-            )
-        host, remainder = authority[: closing + 1], authority[closing + 1 :]
-        if remainder and not remainder.startswith(":"):
-            raise ContainmentUndecidable(
-                f"authority {authority!r} has trailing text after the IPv6 literal"
-            )
-        port_text = remainder[1:]
-    else:
-        host, separator, port_text = authority.partition(":")
-        port_text = port_text if separator else ""
-    if not port_text:
-        return replace(url, host=host, port=None)
-    if not port_text.isdigit() or not 1 <= int(port_text) <= 65535:
+    if url.port_text and int(url.port_text) == _DEFAULT_PORTS.get(url.scheme):
+        return replace(url, port_text="")
+    return url
+
+
+def _idna(host: str) -> str:
+    """Return `host` in punycode, refusing a host IDNA cannot represent."""
+    try:
+        return host.encode("idna").decode("ascii")
+    except UnicodeError as error:
         raise ContainmentUndecidable(
-            f"{port_text!r} is not a port, so authority {authority!r} has no single reading"
-        )
-    port = int(port_text)
-    return replace(
-        url, host=host, port=None if port == _DEFAULT_PORTS.get(url.scheme) else port
-    )
+            f"host {host!r} is not IDNA-encodable, so what the callee resolves is "
+            f"undecided here: {error}"
+        ) from error
 
 
 def _idna_host(url: UrlUnderReview) -> UrlUnderReview:
@@ -199,43 +204,42 @@ def _idna_host(url: UrlUnderReview) -> UrlUnderReview:
     — is one no two clients agree on. Refusing beats guessing, and guessing is
     what a host predicate over the raw string does.
     """
-    try:
-        encoded = url.host.encode("idna").decode("ascii")
-    except UnicodeError as error:
-        raise ContainmentUndecidable(
-            f"host {url.host!r} is not IDNA-encodable, so what the callee resolves "
-            f"is undecided here: {error}"
-        ) from error
-    return replace(url, host=encoded)
+    return replace(url, host=_idna(url.host))
 
 
 def _lowercase_host_not_path(url: UrlUnderReview) -> UrlUnderReview:
     """Case-fold the host, and leave the path's case exactly as it arrived.
 
-    The second half is the half with a bypass behind it. A path is
-    case-sensitive to most callees, so folding it makes `/Evidence/` and
-    `/evidence/` the same value to the check and two different resources to
-    the thing that fetches them.
+    The standard library's IDNA codec does not fold case, so this rule is the
+    only thing that does. Both halves of the clause are permissive in the same
+    direction — a folded host matches strictly more ceilings, and an unfolded
+    path matches strictly fewer — so removing the rule can only shrink what
+    the fragment admits. The suite proves that direction.
     """
-    return replace(url, scheme=url.scheme.lower(), host=url.host.lower())
+    return replace(url, host=url.host.lower())
+
+
+def _decode_once_then_refuse_residual(path: str) -> str:
+    """Decode a path once, then refuse a separator still encoded afterwards."""
+    decoded = unquote(path)
+    residual = _ENCODED_SEPARATOR.search(decoded)
+    if residual is not None:
+        raise ContainmentUndecidable(
+            f"path {path!r} still contains the encoded separator "
+            f"{residual.group()!r} after decoding, so the callee will read a "
+            "different path than this check does"
+        )
+    return decoded
 
 
 def _percent_decode_then_refuse_residual(url: UrlUnderReview) -> UrlUnderReview:
     """Decode the path once, then refuse a separator still encoded afterwards.
 
     One round of decoding is all a canonical value may need. A value that
-    still holds an encoded separator after it was double-encoded on purpose,
+    still holds an encoded separator afterwards was double-encoded on purpose,
     and the callee that decodes again sees a path this check never looked at.
     """
-    decoded = unquote(url.path)
-    residual = _ENCODED_SEPARATOR.search(decoded)
-    if residual is not None:
-        raise ContainmentUndecidable(
-            f"path {url.path!r} still contains the encoded separator "
-            f"{residual.group()!r} after decoding, so the callee will read a "
-            "different path than this check does"
-        )
-    return replace(url, path=decoded)
+    return replace(url, path=_decode_once_then_refuse_residual(url.path))
 
 
 def _remove_url_dot_segments(url: UrlUnderReview) -> UrlUnderReview:
@@ -248,13 +252,11 @@ def _resolve_fs_symlinks(path: str) -> str:
 
     r5 states this for `fs-path` specifically: normalisation that only edits
     the name admits a link pointing outside the root, which is CWE-59.
+    `realpath` removes dot segments on the way, so `fs-path` needs no separate
+    lexical pass — one that ran after this would never change a value, and a
+    rule that cannot change a value cannot be shown to carry weight.
     """
     return os.path.realpath(path)
-
-
-def _remove_fs_dot_segments(path: str) -> str:
-    """Remove `.` and `..` lexically, so a non-existent path still normalises."""
-    return os.path.normpath(path)
 
 
 def _remove_dot_segments(path: str) -> str:
@@ -286,7 +288,7 @@ URL_RULES: Final[tuple[CanonicalisationRule[UrlUnderReview], ...]] = (
     CanonicalisationRule(
         name="drop-default-ports",
         clause="drop default ports",
-        apply=_normalise_port,
+        apply=_drop_default_port,
     ),
     CanonicalisationRule(
         name="idna-normalise-host",
@@ -316,22 +318,14 @@ URL_RULES: Final[tuple[CanonicalisationRule[UrlUnderReview], ...]] = (
     ),
 )
 
-#: The `fs-path` rules, in the order they run. Symlink resolution comes first
-#: because removing `..` lexically before following a link is the bug the
-#: clause exists to prevent, not a cheaper way to reach the same answer.
+#: The `fs-path` rules. One rule, because `realpath` is both the symlink
+#: resolution r5 names and a dot-segment removal, and a second lexical pass
+#: after it would be inert.
 FS_PATH_RULES: Final[tuple[CanonicalisationRule[str], ...]] = (
     CanonicalisationRule(
         name="resolve-symlinks",
         clause="For `fs-path`, normalization resolves symlinks",
         apply=_resolve_fs_symlinks,
-    ),
-    CanonicalisationRule(
-        name="remove-dot-segments",
-        clause=(
-            "percent-decode before dot-segment removal and refuse a value that "
-            "still contains an encoded separator afterwards"
-        ),
-        apply=_remove_fs_dot_segments,
     ),
 )
 
@@ -343,13 +337,23 @@ def rule_names() -> tuple[str, ...]:
     return tuple(seen)
 
 
-def canonicalise_fs_root(root: str) -> str:
-    """Return the canonical form of a `within(root)` argument.
+def canonicalise_host(host: str) -> str:
+    """Return the canonical form of a host a ceiling names.
 
-    The root a ceiling names goes through the same rules as the value it is
-    compared against. A root left uncanonicalised makes the comparison a
-    string coincidence.
+    A ceiling's host is compared against a canonical one, so it has to be
+    canonical itself. Comparing a canonical value against a literal somebody
+    typed is a string coincidence, not a containment check.
     """
+    return _idna(host).lower()
+
+
+def canonicalise_url_path(path: str) -> str:
+    """Return the canonical form of a URL path a ceiling names."""
+    return _remove_dot_segments(_decode_once_then_refuse_residual(path))
+
+
+def canonicalise_fs_root(root: str) -> str:
+    """Return the canonical form of a `within(root)` argument."""
     return _run_fs_rules(root)
 
 
@@ -358,6 +362,30 @@ def _run_fs_rules(path: str) -> str:
     for rule in FS_PATH_RULES:
         canonical = rule.apply(canonical)
     return canonical
+
+
+def _split_authority(authority: str) -> tuple[str, str]:
+    """Return `(host, port-as-written)` for an authority with no userinfo.
+
+    The split is part of the parse, not of a clause: every host predicate
+    needs a host, and a reader that never separates the port from the host
+    compares the wrong string. `refuse-ambiguous-parse` is what judges a port
+    that is not one.
+    """
+    if authority.startswith("["):
+        closing = authority.find("]")
+        if closing == -1:
+            raise ContainmentUndecidable(
+                f"authority {authority!r} opens an IPv6 literal it never closes"
+            )
+        host, remainder = authority[: closing + 1], authority[closing + 1 :]
+        if remainder and not remainder.startswith(":"):
+            raise ContainmentUndecidable(
+                f"authority {authority!r} has trailing text after the IPv6 literal"
+            )
+        return host, remainder[1:]
+    host, separator, port_text = authority.partition(":")
+    return host, port_text if separator else ""
 
 
 def _canonicalise_url(value: object) -> CanonicalUrl:
@@ -373,15 +401,13 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
     # r5's unsafe-prefix table — `https://host@elsewhere/` reads as `host` to a
     # prefix check and resolves to `elsewhere`.
     userinfo, _, authority = parts.netloc.rpartition("@")
+    host, port_text = _split_authority(authority)
     url = UrlUnderReview(
         raw=value,
         userinfo=userinfo,
-        authority=authority,
         scheme=parts.scheme,
-        # The naive reading, held only until `drop-default-ports` replaces it
-        # with the parsed one. See that rule for why the two differ.
-        host=authority.partition(":")[0],
-        port=None,
+        host=host,
+        port_text=port_text,
         path=parts.path or "/",
         query=parts.query,
     )

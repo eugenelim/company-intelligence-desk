@@ -26,12 +26,19 @@ from typing import Final
 
 import publicsuffix2
 
-from ced.domain.containment.canonicaliser import canonicalise, canonicalise_fs_root
+from ced.domain.containment.canonicaliser import (
+    canonicalise,
+    canonicalise_fs_root,
+    canonicalise_host,
+    canonicalise_url_path,
+)
 from ced.domain.containment.domain_types import DomainType, prefix_expressible
 from ced.domain.containment.errors import CeilingDeclarationRefused, ContainmentUndecidable
 from ced.domain.containment.predicates import (
     EXPRESSIBLE_PREDICATES,
+    HostEq,
     HostInDomain,
+    PathWithin,
     Predicate,
     Prefix,
     Within,
@@ -122,13 +129,24 @@ def _refuse(entry_name: str, argument: str, why: str) -> CeilingDeclarationRefus
 def _canonicalise_predicate(predicate: Predicate) -> Predicate:
     """Return `predicate` with its own argument canonicalised.
 
-    A ceiling's host and root are compared against canonical values, so they
-    have to be canonical themselves. Comparing a canonical value against a
-    literal somebody typed is a string coincidence, not a containment check.
+    **Every predicate whose argument is compared against a canonical value is
+    handled here**, and that is the whole list: the two host constructors, the
+    URL path prefix, and the filesystem root. Comparing a canonical value
+    against a literal somebody typed is a string coincidence, not a
+    containment check — and it fails closed, so a ceiling written as
+    `host_eq("WWW.SEC.GOV")` would be accepted at authoring time and then deny
+    every call, silently, with no criterion reding.
+
+    The remaining constructors range over values the canonicaliser passes
+    through unchanged, so their arguments are already in the compared form.
     """
     match predicate:
+        case HostEq(host=host):
+            return HostEq(host=canonicalise_host(host))
         case HostInDomain(domain=domain):
-            return HostInDomain(domain=domain.lower())
+            return HostInDomain(domain=canonicalise_host(domain))
+        case PathWithin(prefix=prefix):
+            return PathWithin(prefix=canonicalise_url_path(prefix))
         case Within(root=root):
             return Within(root=canonicalise_fs_root(root))
         case _:
@@ -180,7 +198,7 @@ def declare(
                     f"{type(predicate).__name__} is not expressible on {domain_type.value!r}",
                 )
             if isinstance(predicate, HostInDomain) and is_public_suffix(
-                predicate.domain.lower()
+                canonicalise_host(predicate.domain)
             ):
                 raise _refuse(
                     name,
@@ -197,9 +215,14 @@ def declare(
                 "host is admitted, including the link-local metadata address",
             )
 
+        try:
+            canonical = tuple(_canonicalise_predicate(p) for p in predicates)
+        except ContainmentUndecidable as error:
+            raise _refuse(
+                name, argument, f"a predicate argument has no canonical form: {error}"
+            ) from error
         declared[argument] = CeilingArgument(
-            domain_type=domain_type.value,
-            predicates=tuple(_canonicalise_predicate(p) for p in predicates),
+            domain_type=domain_type.value, predicates=canonical
         )
     return CeilingEntry(name=name, arguments=declared)
 

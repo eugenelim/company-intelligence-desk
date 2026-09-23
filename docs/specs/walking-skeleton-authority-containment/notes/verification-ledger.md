@@ -46,14 +46,13 @@ changing; the decision-point spec imports the name.
 had to be settled before the mutation evidence meant anything.
 
 r5 § 4's "What the canonicalizer must do" paragraph states six clauses. The
-canonicaliser carries seven rules, and every one records the clause it
-implements in its `clause` field;
+canonicaliser carries seven rules — six over `url`, one over `fs-path` — and
+every one records the clause it implements in its `clause` field.
 `tests/containment/test_canonicalisation_rules.py` asserts both that each
 rule's clause appears in the paragraph and that the paragraph itself is
 unchanged, so a clause added upstream reds rather than passing quietly.
 
-Two clauses do not map one-to-one, and both departures are in the same
-sentence:
+Three departures from a one-clause-one-rule mapping, each with a reason:
 
 - **`percent-decode-then-refuse-residual` is one rule, not two.** r5 states
   the decode and the residual refusal in one clause, and they cannot be
@@ -66,40 +65,81 @@ sentence:
   needs no decoding to escape, and a double-encoded path is refused by the
   residual half whether or not dot segments are removed — so splitting it
   proves one more rule load-bearing rather than fewer.
+- **`fs-path` has one rule and not two.** `os.path.realpath` both resolves
+  symlinks and removes dot segments, so a lexical pass after it never changes
+  a value. An earlier draft carried one; deleting it left the whole suite
+  green, which is what a rule carrying no weight looks like, so it is gone
+  rather than kept as an entry AC-0216 could not exercise.
 
-The rule also applies to `fs-path` under the same name. One rule with two
-applications is one entry in the mutation evidence, and the mutation removes
-it from both tuples.
+**Two clauses are implemented in the parse rather than as rules.** Splitting
+the userinfo off the authority, and splitting the port off the host, are not
+clauses — they are what every host predicate needs before any rule runs. An
+earlier draft seeded the host with the naive reading, everything before the
+first colon, so that removing `drop-default-ports` would flip a case. That
+made the rule's evidence measure the authority split rather than the clause
+the rule records, and it left a wrong value sitting in a field in production
+code. The parse now splits the authority correctly, and
+`refuse-ambiguous-parse` — whose clause is "reject an ambiguous parse rather
+than guessing" — is what refuses an authority whose port is not a port.
 
-## T1 — one rule's mutation is a miswrite, not a removal
+## T1 — AC-0216 is unmet for two of r5's six clauses, and cannot be met
 
-**Date:** 2026-09-23. **Affects:** AC-0216 for `lowercase-host-not-path`.
+**Date:** 2026-09-23. **Status: needs an owner decision.** AC-0216 is
+unchecked in `spec.md` because of this entry, and it is the only criterion T1
+does not close.
 
-AC-0216 asks for an input the canonicaliser refuses and that is admitted when
-the rule is disabled. For six of the seven rules the mutation is a removal.
-For `lowercase-host-not-path` it is a substitution, and the reason is a
-property of the clause rather than a convenience.
+**What AC-0216 asks.** For every rule r5 names under "What the canonicalizer
+must do", an input the canonicaliser refuses and that is **admitted** when
+that one rule is disabled.
 
-r5's clause has two halves. **Case-folding a host is permissive**: it admits
-strictly more values, so removing it refuses things that were admitted and
-never admits things that were refused. There is therefore no input at all for
-which that half's removal turns a refusal into an admission — its omission
-fails closed. **The "and not the path" half is the one with a bypass behind
-it**: folding a path's case admits `/EVIDENCE/x` against a ceiling of
-`/evidence/` and hands a case-sensitive callee a different resource.
+**What is true of two of them.** `lowercase the host and not the path` and
+`drop default ports` are *normalisations*, and their omission fails closed.
+That is provable rather than merely unfound:
 
-So the mutation for this rule is the miswrite r5 warns against — fold case
-over the path as well — rather than the removal that would fail closed. It
-lives in `tests/containment/fixture.py` as `_MISWRITES`, with the same
-reasoning beside it. The independence half of the criterion is asserted for
-this rule exactly as for the others.
+- **`drop default ports`.** r5's `url` row gives four constructors —
+  `scheme_in`, `host_eq`, `host_in_domain`, `path_within` — and not one of
+  them ranges over a port. Port normalisation therefore changes the value
+  handed on and cannot change an admit-or-deny outcome under **any**
+  implementation of this fragment.
+- **`lowercase the host and not the path`.** The clause's second half is not
+  an operation: the rule leaves the path alone, so removing it leaves the
+  path alone too. Its first half folds the value's host, and a ceiling's host
+  argument is canonical — folded — by the time it is compared. So every value
+  admitted without folding is admitted with it, and the admitted set can only
+  shrink when the rule goes.
 
-**What this does and does not establish.** It establishes that the path half
-of the clause is load-bearing and that getting it wrong admits a value the
-fragment otherwise refuses. It does not establish that the host half is
-load-bearing, because under the fragment's predicates it is not: a host
-predicate compares against a canonical lowercase argument, so an unfolded host
-is refused rather than admitted.
+**What was tried and rejected.** An earlier draft met the criterion's letter
+for the first clause by substituting a miswrite — fold case over the path as
+well — for the removal. That measures the miswrite, not the rule's absence.
+A genuine removal-shaped case did exist at that point, but only because
+`host_eq`'s argument was not canonicalised, which was a defect in its own
+right and is now fixed; resting AC-0216's evidence on it would have been
+resting it on a bug. Shaping the fragment so a mutation flips is the same
+move the naive-host seeding made, and `AGENTS.md` § Agent Rules is explicit:
+where implementation shows a ratified document wrong, stop and say so rather
+than designing around it. What r5 shows wrong is its own framing sentence,
+"because each omission is a known bypass" — true of the traversal, encoding
+and ambiguity clauses, and not of these two.
+
+**What the suite does instead, for those two rules only.** Three checks, all
+green:
+
+1. The rule does its job — the host comes back folded and the path does not;
+   `:443` is dropped and `:8443` is kept.
+2. Removing the rule admits nothing the full pipeline refuses, asserted over
+   every other rule's case and over the positive path.
+3. Removing the rule leaves every other rule's case refused, exactly as for
+   the five rules that do have a mutation case.
+
+**Recommended amendment**, for the owner to rule on. Reword AC-0216 so the
+mutation case is required of every rule whose omission *can* admit, and the
+fail-closed direction is required of the rest, with the reason recorded per
+rule. That keeps the criterion's force — no rule ships unexercised — and
+stops it asking for evidence that cannot exist. The two alternatives are to
+accept the miswrite substitution as "disabled", which weakens the criterion
+wherever it is applied later, or to turn `drop default ports` from a
+normalisation into a refusal, which changes a ratified rule and is an
+Ask-first of its own.
 
 ## T1 — what AC-0214 does not close
 
@@ -127,5 +167,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 380 passed, 195 deselected in 24.17s
+1 failed, 382 passed, 195 deselected in 16.89s
 ```
