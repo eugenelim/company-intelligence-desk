@@ -24,6 +24,13 @@ dependencies = [
     # Imported by no code in the walking-skeleton-foundation spec — it is here
     # so the dependency-direction gate has a real installed package to forbid.
     "pydantic-ai-slim[bedrock]==2.45.0",
+    # Recorded in docs/specs/walking-skeleton-authority-containment/plan.md
+    # § Dependencies & integration. AC-0215 refuses a `host_in_domain`
+    # argument that is a public suffix, and the standard library carries no
+    # public-suffix list — established by the containment probe of
+    # 2026-09-18. A hand-kept list of suffixes goes stale silently; a bundled
+    # dataset goes stale at a version bump a reviewer can see.
+    "publicsuffix2==2.20191221",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +43,13 @@ dev = [
     # plan's § Dependencies & integration list, so it went through that spec's
     # Ask-first boundary; owner decision 2026-09-18. No `src/` code imports it.
     "pyyaml==6.0.3",
+    # Test-only. Recorded in
+    # docs/specs/walking-skeleton-authority-containment/plan.md
+    # § Dependencies & integration: the containment property test generates
+    # predicate pairs, because the claim is set-theoretic containment over a
+    # fragment rather than behaviour at chosen values. No `src/` code imports
+    # it.
+    "hypothesis==6.168.1",
 ]
 
 [project.scripts]
@@ -71,6 +85,13 @@ python_version = "3.13"
 packages = ["ced"]
 mypy_path = "src"
 strict = true
+
+[[tool.mypy.overrides]]
+# `publicsuffix2` ships no `py.typed` marker and no stubs exist for it. The
+# containment package uses one call on it, `get_tld`, and treats the result as
+# `object` before comparing, so nothing untyped escapes the boundary.
+module = "publicsuffix2"
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # The event-log adapter reads rows psycopg types as tuple[Any, ...]; the
