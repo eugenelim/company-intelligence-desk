@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from ced.domain.containment.ceiling import declare, is_public_suffix
+from ced.domain.containment.ceiling import Admitted, Denied, declare, evaluate, is_public_suffix
 from ced.domain.containment.domain_types import DomainType
 from ced.domain.containment.errors import CeilingDeclarationRefused
 from ced.domain.containment.predicates import (
@@ -30,7 +30,10 @@ _SEC = HostInDomain("sec.gov")
 # AC-0215 — a domain argument that is a public suffix.
 
 
-@pytest.mark.parametrize("suffix", ["gov", "com", "co.uk", "GOV", "github.io"])
+@pytest.mark.parametrize(
+    "suffix",
+    ["gov", "com", "co.uk", "GOV", "github.io", "gov.", "GOV.", "s3.amazonaws.com."],
+)
 def test_a_public_suffix_domain_argument_is_refused(suffix: str) -> None:
     with pytest.raises(CeilingDeclarationRefused, match="public suffix"):
         declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(suffix)))})
@@ -41,6 +44,38 @@ def test_a_registrable_domain_argument_is_accepted(domain: str) -> None:
     """The refusing half alone is satisfied by refusing every domain."""
     entry = declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(domain)))})
     assert entry.arguments["url"].predicates == (_HTTPS, HostInDomain(domain.lower()))
+
+
+@pytest.mark.parametrize("domain", ["", ".", "sec..gov", ".sec.gov"])
+def test_a_host_argument_with_an_empty_label_is_refused(domain: str) -> None:
+    """A name with a hole in it ranges over every host or over none.
+
+    `host_in_domain("")` would pass a public-suffix lookup, satisfy AC-0240's
+    host-constraining requirement, and admit every host — a default-allow
+    wearing the shape of a constraint.
+    """
+    with pytest.raises(CeilingDeclarationRefused, match="label with nothing in it"):
+        declare("fetch", {"url": ("url", (_HTTPS, HostInDomain(domain)))})
+
+
+def test_the_root_label_is_normalised_on_both_sides() -> None:
+    """`sec.gov.` and `sec.gov` are one name, to the ceiling and to the value.
+
+    A resolver reads the two identically, so a fragment that does not would
+    hand an author a second spelling that the public-suffix refusal does not
+    cover: `host_in_domain("gov.")` was authorable and admitted
+    `https://attacker.gov./`. The normalisation has to run on both sides —
+    one that runs on only one of them is a differential, not a canonical
+    form.
+    """
+    entry = declare("fetch", {"url": ("url", (_HTTPS, HostInDomain("sec.gov.")))})
+    assert entry.arguments["url"].predicates[1] == HostInDomain("sec.gov")
+
+    admitted = evaluate(entry, {"url": "https://www.sec.gov./report.pdf"})
+    assert isinstance(admitted, Admitted)
+    assert str(admitted.canonical["url"]) == "https://www.sec.gov/report.pdf"
+
+    assert isinstance(evaluate(entry, {"url": "https://attacker.gov./report.pdf"}), Denied)
 
 
 def test_the_suffix_answer_comes_from_the_dataset_not_a_local_list() -> None:

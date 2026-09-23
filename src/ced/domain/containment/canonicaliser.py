@@ -74,6 +74,23 @@ def _valid_port(port_text: str) -> bool:
     return port_text.isdigit() and 1 <= int(port_text) <= 65535
 
 
+def _drop_root_label(host: str) -> str:
+    """Return `host` without its DNS root label.
+
+    `sec.gov.` and `sec.gov` are the same name to a resolver, and a check
+    that treats them as two is a check with a spare spelling. The ceiling's
+    host argument and the value's host both come through here, because a
+    normalisation only one side runs is a differential rather than a
+    canonical form.
+    """
+    return host[:-1] if host.endswith(".") else host
+
+
+def _empty_label(host: str) -> bool:
+    """Return whether `host` has a label with nothing in it."""
+    return host == "" or any(label == "" for label in host.split("."))
+
+
 @dataclass(frozen=True)
 class CanonicalUrl:
     """A URL reduced to the components a predicate may range over.
@@ -157,9 +174,10 @@ def _refuse_ambiguous_url(url: UrlUnderReview) -> UrlUnderReview:
 
     Four shapes reach it: a control character, which `urlsplit` strips and a
     stricter client does not; a second `@`, where parsers disagree about which
-    side is the host; a missing host, which no host predicate can decide; and
-    an authority whose port is not a port, where a reader that splits on the
-    first colon and a reader that parses the authority see different hosts.
+    side is the host; a host with an empty label, including a missing host,
+    which names no single resolvable name; and an authority whose port is not
+    a port, where a reader that splits on the first colon and a reader that
+    parses the authority see different hosts.
     """
     offending = _AMBIGUOUS_CHARACTERS & set(url.raw)
     if offending:
@@ -360,7 +378,13 @@ def canonicalise_host(host: str) -> str:
     canonical itself. Comparing a canonical value against a literal somebody
     typed is a string coincidence, not a containment check.
     """
-    return _idna(host).lower()
+    bounded = _drop_root_label(host)
+    if _empty_label(bounded):
+        raise ContainmentUndecidable(
+            f"{host!r} has a label with nothing in it, so it names no domain and "
+            "a predicate over it would range over every host or none"
+        )
+    return _idna(bounded).lower()
 
 
 def canonicalise_url_path(path: str) -> str:
@@ -418,6 +442,10 @@ def _canonicalise_url(value: object) -> CanonicalUrl:
     # prefix check and resolves to `elsewhere`.
     userinfo, _, authority = parts.netloc.rpartition("@")
     host, port_text = _split_authority(authority)
+    # The root label is part of the parse, not of a clause: `sec.gov.` is the
+    # same name as `sec.gov` to every resolver, so a canonical host carries
+    # one spelling of it.
+    host = _drop_root_label(host)
     url = UrlUnderReview(
         raw=value,
         userinfo=userinfo,

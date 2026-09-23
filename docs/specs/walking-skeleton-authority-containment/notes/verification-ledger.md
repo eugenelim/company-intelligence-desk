@@ -170,6 +170,29 @@ wherever it is applied later, or to turn `drop default ports` from a
 normalisation into a refusal, which changes a ratified rule and is an
 Ask-first of its own.
 
+## T1 — the DNS root label is normalised in the parse, not in a clause
+
+**Date:** 2026-09-23. Found by adversarial review.
+
+`host_in_domain("gov.")` was authorable and the resulting ceiling admitted
+`https://attacker.gov./`. The trailing dot is the DNS root label: a resolver
+reads `sec.gov.` and `sec.gov` as one name, so the public-suffix dataset was
+being asked about a spelling it does not carry and answered no. The same gap
+made `host_in_domain("")` authorable, which satisfies AC-0240's
+host-constraining requirement and admits every host written with a root
+label — a default-allow wearing the shape of a constraint.
+
+Two things were needed and both are in. The root label is dropped **in the
+parse**, on the value's host and on a ceiling's host argument alike, because
+a normalisation only one side runs is a differential rather than a canonical
+form. And a host with an empty label — no labels at all, a bare dot, a
+doubled dot, a leading dot — is refused: at authoring time for a predicate
+argument, and by `refuse-ambiguous-parse` for a value.
+
+It sits in the parse rather than in a rule for the same reason the userinfo
+and port splits do: r5's clause list does not name it, and every host
+predicate needs a single spelling of the name before any clause runs.
+
 ## T1 — what AC-0214 does not close
 
 **Date:** 2026-09-23. Recorded because the plan asks for it in T1's `Tests`
@@ -196,5 +219,5 @@ as a known skip.
 
 ```
 $ ./.venv/bin/python -m pytest -m 'not substrate' -q
-1 failed, 389 passed, 195 deselected in 16.45s
+1 failed, 397 passed, 195 deselected in 16.00s
 ```
