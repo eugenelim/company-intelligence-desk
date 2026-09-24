@@ -35,34 +35,53 @@ which the decision point holds a position and no predicate, it is still retired
 by the task that ends that interval, and the guards that replace it still exist
 under the same identifiers. Only the spec names moved.
 
-## The same cut left other references in this frozen spec
+## The same cut left other references across this spec's directory
 
-The AC-0233 row above is the one the retirement trigger turns on, and it is not
-the only sentence the cut of 2026-09-23 invalidated. These are the rest, in the
-same frozen body, each attributing a moved criterion or the decision point's
-predicate to `walking-skeleton-authority-containment`:
+The AC-0233 row above is the one the retirement trigger turns on. It is not the
+only place the cut of 2026-09-23 invalidated, and the rest are recorded as a
+**rule** rather than a line list, because a list of line numbers in a frozen
+spec drifts from what it points at and a reader cannot tell when it has.
 
-| Where | What it says | What is now true |
-| --- | --- | --- |
-| `spec.md` § Agent Rules, *No decision point that admits by default* | "Until `walking-skeleton-authority-containment` supplies the predicate, every tool call is refused" | The fragment is that spec's; the predicate is installed by `walking-skeleton-policy-decision-point`, whose AC-0235 is the permanent guard |
-| `spec.md` § Acceptance Criteria, the AC-0233 obligation row | "`walking-skeleton-authority-containment` ships its predicate" | Same split |
-| `spec.md` § Acceptance Criteria, the AC-0234 obligation row | "`walking-skeleton-authority-containment`'s AC-0208" | AC-0208 moved to `walking-skeleton-policy-decision-point` |
-| `plan.md` § Approach and § Tasks | AC-0235 and the decision point's predicate attributed to that spec | Both are `walking-skeleton-policy-decision-point`'s |
+**The rule.** Inside `docs/specs/walking-skeleton-role-compilation/`, any
+sentence attributing one of the criteria that moved — AC-0207 through AC-0212,
+AC-0235, AC-0236, AC-0239, AC-0243, AC-0247, AC-0249, AC-0252 — or the decision
+point's *predicate* to `walking-skeleton-authority-containment` names the wrong
+spec. All of them are now
+[`walking-skeleton-policy-decision-point`](../../walking-skeleton-policy-decision-point/spec.md)'s.
+The containment fragment, the canonicaliser and that spec's own criteria
+(AC-0213 through AC-0218, AC-0240, AC-0315 through AC-0317) stayed, so a
+sentence about those is correct and stays.
 
-**None of them is edited, and the reason is the one this note already gives**:
-the body is frozen, `docs/specs/README.md` forbids editing it, and a
-`[backlog].open` entry on that path raises `duplicate_membership`. They are
-listed here so the record is the same shape as the trigger's — a reader who
-greps that spec and finds a stale name has one place that says which name is
-right.
+**Where the stale ones are**, so a reader who greps lands somewhere this note
+reaches:
+
+| File | Sections holding them |
+| --- | --- |
+| `spec.md` | § Agent Rules (*No decision point that admits by default*); § Acceptance Criteria — the AC-0233 and AC-0234 obligation rows, and the AC-0207 and AC-0235 references in the tabled obligations; § Assumptions |
+| `plan.md` | § Approach; § Constraints; § Amendments the worker runtime asked of its parent; § Design decisions; § Failure, edge cases & resilience; § Risks |
+| `notes/verification-ledger.md` | The T2 sections recording the decision point's interval, and the AC-0233 retirement note |
+
+**Why none of them is edited, and the reason differs by file.** `spec.md` and
+`plan.md` are the frozen body, which `docs/specs/README.md` forbids editing —
+that is the same ground the AC-0233 row above rests on.
+`notes/verification-ledger.md` is **not** the body and could be edited; an
+earlier version of this section said otherwise and was wrong. It is left as
+written under the repository's own convention, stated in
+[`docs/architecture/README.md`](../../../architecture/README.md) § What is
+built: "a shipped spec's ledger records what one delivery observed on its own
+date". Rewriting it would falsify that record rather than repair it.
+
+**Dated history stays for the same reason.** `plan.md` § Changelog and
+`notes/rejected-amendment-2026-09-20.patch` record text as it stood on a date.
+Both were correct when written; correcting them would make the log say
+something that was never true.
 
 **This is what `walking-skeleton-policy-decision-point`'s T2 gate leaves
-standing.** That gate reads `src/ tests/ docs/` and refuses a hit attributing a
-moved criterion or the decision point to the containment spec. Every hit outside
-this frozen spec was repaired in that task. The hits inside it cannot be, so the
-exception is recorded here rather than in that spec's verification ledger —
-which is the same routing the trigger above takes, and which keeps the gate's
-residual in the file a reader of the *frozen* spec will find.
+standing.** That gate greps `src/ tests/ docs/` and refuses a hit attributing a
+moved criterion or the decision point to the containment spec. Every hit
+outside this spec's directory was repaired in that task. The hits inside it are
+covered by the rule above, which is where the gate's residual is recorded — in
+the file a reader of *this* spec will find.
 
 ## Why this is an erratum and not an amendment
 

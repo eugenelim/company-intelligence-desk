@@ -276,3 +276,50 @@ spec-status finding, which described a step the loop had not yet reached.
   `AGENTS.md` is agent guidance, which the carve-out's clause (iv) refuses as a
   ride-along, and it is in no task's `Touches`. **Decided on 2026-09-23: left
   unreconciled, owner eugenelim**, recorded here rather than edited.
+
+## Post-gates review round 2
+
+`security-reviewer` returned **clean on adjudication**: all three of its
+findings were refuted. Two are worth recording because acting on either would
+have been wrong.
+
+- **A non-mapping ceiling *entry* escapes `compile_ceiling` as `AttributeError`**
+  — true, and reproduced. Refuted on authority: T1's pinned `Tests` governs the
+  `predicates` decode, which is the element frame *inside* an entry. The entry
+  frame belongs to `_CEILING_BINDING_FIELDS` and `decode_role_record`, and
+  `workspace.toml` `[backlog].closed` records that decision as
+  `ceiling-element-unchecked-yields-no-refusal-event`, closed 2026-09-22 across
+  the loader's two ceiling seams. Both stored-ceiling callers guard it, and
+  inside `compile_role` a non-mapping entry dies one frame earlier in
+  `_bound_integrations`. **The guard was drafted and not applied**: installing
+  it would have restated a shipped rule in a second place, which is the drift
+  this repository's "one nearby example must not become a rule" refuses.
+- **AC-0319's entitlements clause is asserted by nothing** — true, and refuted
+  on the criterion's own words: it requires an impersonating call to produce
+  the same decision and the same recorded event, which the check drives twice
+  including the admit path. Nothing in it requires the entitlements ceiling to
+  be looked up *by* the step's principal, and no principal reaches `_decide` at
+  all. The fix would have changed the `CeilingResolver` shape T1's `Tests` pins
+  unchanged for AC-0234, to serve an assembler that does not exist.
+
+`adversarial-reviewer` sustained one Blocker, against the round-1 repair rather
+than against the implementation: **the erratum's enumeration claimed a
+completeness the grep gate falsified.** It listed the frozen body's `spec.md`
+and `plan.md` and missed the same spec's `notes/verification-ledger.md`, while
+asserting twice that it was exhaustive; its section locator for `plan.md` named
+§ Tasks, which holds no hit, and omitted four sections that do. It also gave a
+false ground — that hits inside the spec cannot be repaired — which is true of
+the frozen body and **not** of `notes/`.
+
+Repaired by replacing the enumeration with the **rule**: which criteria moved,
+which stayed, where the stale sentences live by file and section, and why each
+file is left as it is — the body because `docs/specs/README.md` freezes it, the
+sibling's ledger because `docs/architecture/README.md` § What is built states
+that a shipped spec's ledger records what one delivery observed on its own
+date, and the dated history because correcting it would make the log say
+something that was never true. A rule has no line numbers to drift.
+
+**That is the second round in which a repair produced the next round's
+finding**, which is the divergence condition this delivery already met once at
+the spec stage. The repair above removes the surface rather than restating it,
+which is what a third round would otherwise be spent on.
