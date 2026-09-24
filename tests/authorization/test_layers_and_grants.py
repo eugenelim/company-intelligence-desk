@@ -36,6 +36,29 @@ pytestmark = pytest.mark.substrate
 #: would remove half the escalation guard while looking like a correction.
 CONFIGURATION_TABLES = ("agent_role", "integration_registry", "entitlements")
 
+#: Every privilege Postgres can grant on a table that *writes* it, and what to
+#: attempt for each. Derived from the grantable set rather than from the two
+#: verbs an implementer happened to think of: the criterion quantifies over
+#: "attempting to write", and a later `GRANT DELETE` on any of these three
+#: would let a runtime identity remove the row that constrains it while a check
+#: testing only INSERT and UPDATE stayed green. `TRUNCATE` is here for the same
+#: reason and is the one that empties the table outright.
+#:
+#: `REFERENCES` and `TRIGGER` are grantable on a table and are deliberately
+#: absent: neither changes a row, so neither is a write in the sense r5 § 4's
+#: invariant means.
+WRITE_PRIVILEGES: tuple[tuple[str, str], ...] = (
+    ("INSERT", "INSERT INTO {table} DEFAULT VALUES"),
+    ("UPDATE", "UPDATE {table} SET created_at = now()"),
+    ("DELETE", "DELETE FROM {table}"),
+    ("TRUNCATE", "TRUNCATE {table}"),
+)
+
+
+def write_statements(table: str) -> list[str]:
+    """One statement per grantable write privilege, against `table`."""
+    return [template.format(table=table) for _, template in WRITE_PRIVILEGES]
+
 
 def test_a_free_text_return_never_reaches_the_attribution_record_or_the_agent(
     step: StepContext, claimed: Claimed, owner_conn: psycopg.Connection
@@ -130,10 +153,7 @@ def test_no_runtime_identity_can_write_the_configuration_it_is_bound_by(
 
     for identity in identities:
         with connect_as(identity) as conn:
-            for statement in (
-                f"INSERT INTO {table} DEFAULT VALUES",
-                f"UPDATE {table} SET created_at = now()",
-            ):
+            for statement in write_statements(table):
                 with pytest.raises(psycopg.errors.InsufficientPrivilege) as raised:
                     conn.execute(statement)
                 assert table in str(raised.value) or "permission denied" in str(raised.value)

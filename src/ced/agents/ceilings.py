@@ -230,6 +230,22 @@ def _decode_predicate(label: str, element: object) -> Predicate:
             f"compiler recognises are {for_the_record(sorted(PREDICATE_PAYLOADS))}",
         )
     kind = element[_KIND_KEY]
+    # **Typed before it is looked up, and that order is load-bearing.** The
+    # membership test below hashes `kind` against a `dict`, so a stored
+    # `{"kind": []}` — which a bare `jsonb` column written by operator insert
+    # admits — would raise `TypeError: unhashable type` instead of the refusal
+    # every other decode fault raises. `append_role_refusal` files neither
+    # `TypeError` nor anything but the two role-refusal types, so the role
+    # would fail to compile with the event log silent about why. That is the
+    # `unmapped-refusal-appends-no-event` shape, and refusing here is what
+    # keeps this decode total in the sense its docstring claims.
+    if not isinstance(kind, str):
+        raise _refuse(
+            label,
+            f"a predicate element declares a {for_the_record(type(kind).__name__)} as "
+            f"its {for_the_record(_KIND_KEY)}; a kind is a string naming one of "
+            f"{for_the_record(sorted(PREDICATE_PAYLOADS))}",
+        )
     if kind not in PREDICATE_PAYLOADS:
         raise _refuse(
             label,
