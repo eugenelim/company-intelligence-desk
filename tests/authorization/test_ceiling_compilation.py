@@ -236,6 +236,20 @@ def test_an_argument_carrying_no_predicate_is_refused() -> None:
 # ── The decode itself: total, exact, and refusing ────────────────────────────
 
 
+def test_a_kind_that_is_not_a_string_is_refused_before_it_is_looked_up() -> None:
+    """The membership test hashes `kind`, so an unhashable one never reaches it.
+
+    `{"kind": []}` raised a bare `TypeError: unhashable type: 'list'` before
+    this guard — a refusal `append_role_refusal` files under neither stage, so
+    the role failed to compile and the event log said nothing about why. The
+    fail direction was already closed; what was missing was attributability,
+    which is the whole point of refusing by a named type.
+    """
+    message = refusal_for(a_stored_entry("cik", "opaque-string", {"kind": []}))
+    assert "as its 'kind'" in message
+    assert "a kind is a string" in message
+
+
 def test_an_unrecognised_predicate_kind_refuses_the_whole_entry() -> None:
     """Beside a perfectly valid conjunct, which is the point.
 
@@ -384,6 +398,11 @@ def test_the_compiler_installs_the_decoded_ceiling() -> None:
 #: operator could insert today, because both ceiling columns are bare `jsonb`.
 MALFORMED_CEILINGS: list[tuple[str, list[dict[str, Any]]]] = [
     ("unrecognised kind", a_stored_entry("cik", "opaque-string", {"kind": "regex_match"})),
+    # Unhashable, so the membership test that classifies a kind cannot even be
+    # reached. A bare `jsonb` column written by operator insert admits it.
+    ("unhashable kind", a_stored_entry("cik", "opaque-string", {"kind": []})),
+    ("kind is an object", a_stored_entry("cik", "opaque-string", {"kind": {"a": 1}})),
+    ("kind is a number", a_stored_entry("cik", "opaque-string", {"kind": 5})),
     ("absent payload key", a_stored_entry("cik", "opaque-string", {"kind": "prefix"})),
     (
         "unrecognised payload key",

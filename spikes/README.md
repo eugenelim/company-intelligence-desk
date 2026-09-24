@@ -786,3 +786,109 @@ than was shown.
 - **Nothing about a provider, a cost, or a latency.** No model is called and
   nothing reaches the database, so no number here bounds a real step.
 
+
+## Phase 1 — the policy decision point
+
+`walking-skeleton-policy-decision-point`, the half of the authorization
+boundary that installs the containment fragment and decides a call with it.
+Fifteen criteria, all against the Compose substrate: the decision reaches the
+database on every path, so `pytest -m 'not substrate'` gives no signal on this
+spec at all.
+
+### What this established
+
+- **A tool body executes, and only for a call both halves admit.** `may_act` is
+  a conjunction of the acting role's ceiling and the initiating user's
+  entitlements, and the positive path is asserted directly — the spy moves
+  exactly once. That check is what stops the rest of the suite passing on a
+  decision point that denies unconditionally, which every refusal criterion
+  would otherwise accept.
+- **A stored ceiling becomes a predicate only through the fragment's own
+  authoring surface.** Every entry is built by `declare`, and the `predicates`
+  decode is exact: an unrecognised element, key or kind, or an absent required
+  key, refuses the whole entry at compile time. Measured rather than assumed —
+  `declare` accepts `Prefix(value="")` and the fragment then admits every
+  string, so a decoder supplying a constructor default for a missing payload
+  would ship an unconditional admit on an argument that reads as constrained.
+- **A lookup that finds nothing denies.** A ceiling row carrying no predicate
+  encoding installs no resolver entry, and the miss is produced by the compile
+  path rather than by the fragment: an entry naming no arguments is accepted by
+  `declare` and admits a no-argument call, so handing the fragment an empty
+  entry would admit rather than contribute nothing.
+- **The decision is committed before the call proceeds, on both paths.**
+  Observed rather than inferred: the spy reads the committed log at the moment
+  it runs, so an implementation appending after delegating reds.
+- **One failure path, with the database as the discriminator.** On any append
+  failure the worker attempts a fenced termination and raises. Fence held
+  terminates the step; a real eviction matches zero rows and leaves the step
+  with its new owner. Branching on the exception type cannot do this, because
+  an injected serialization failure with the lease live and a real takeover
+  both surface as the same type.
+- **The fence is not defeated from inside.** The takeover is driven by a real
+  second `claim_one` on its own connection with its own worker id, and a
+  separate check asserts the epoch the append receives is the one the caller
+  held. Against an injected failure alone, an implementation that re-read the
+  current epoch would pass every other criterion here.
+- **Neither identity comes from the call.** The acting role is read from the
+  claimed step and the initiating principal from `events.principal` on the
+  run's `run.requested` row. A call whose tool arguments carry a different role
+  and principal — admitted, because the ceiling constrains those arguments too
+  — produces the same decision and the same recorded event.
+- **No runtime identity can rewrite the configuration it is bound by.** The
+  login identities are enumerated from `pg_roles` at test time rather than
+  listed, so a role added later is covered, and the refusal comes from
+  Postgres rather than from the application.
+- **Seventeen guards were each shown failing.** Every claim above was
+  mutation-proven: the guard was deleted or inverted, the suite red, the guard
+  restored. The table is in the spec's verification ledger.
+
+### What this did NOT establish
+
+- **There is no step executor.** The spec ships the two reads that source the
+  acting role and the initiating principal, and the suite's fixture assembles
+  the step context from them, because the path that will do so in production is
+  `walking-skeleton-step-lifecycle`'s. What is established is that the decision
+  point *cannot* take either identity from the call — not that the only
+  production assembler does it this way, there being none. The entitlements
+  resolver has the same shape: the read is shipped and nothing yet binds it.
+- **Nothing binds `principal` to an authenticated subject.** `POST /runs` takes
+  it as a caller-chosen string validated only for length, so whoever reaches
+  the ingress selects the entitlements ceiling they are judged against. AC-0319
+  spends its whole depth stopping the *model* from self-asserting an identity
+  and leaves the *HTTP caller* asserting one freely. r7 puts OIDC at the
+  ingress and this Phase defers it deliberately; the loopback default is what
+  bounds it today, which is a deployment fact and not a control.
+- **A `policy.decision` cannot say which way it went, or which call it
+  decided.** The shipped envelope has no column for the outcome and none
+  identifying the decided tool call, so two decisions on one step are
+  indistinguishable in the log. The only carrier is `payload_ref`, whose object
+  write ADR-0006 D2 suspends.
+- **The denials that fail to record are not attributable at all.** Four
+  criteria define a denial that commits no `policy.decision`. There is no
+  step-terminal event type, so what a reader recovers is the `steps` row and
+  nothing in the log. The unattributable path runs the other way too: a
+  connection-level fault is indeterminate-commit, so the log may hold a
+  decision for a call that never executed.
+- **A second worker in a function, not a second process.** AC-0239's takeover
+  is a real `claim_one` on its own connection with its own worker id, and the
+  fence that refuses the evicted worker is the shipped one. A Compose container
+  would additionally establish that the takeover survives process boundaries
+  and the real poll loop's timing; this establishes that the epoch is stale and
+  that the database is what notices.
+- **The drift claim on the declare-routing checks rests on a person.** Nothing
+  mechanical notices a refusal added to the containment fragment after those
+  checks were written, so they cover the refusals that module held on
+  2026-09-23 and no later one.
+- **The offline gate lost its only admit-path discriminator.** The retired
+  role-compilation case was the one check in the repository that drove an
+  admitting resolver through the layer and asserted delegation, and it ran
+  offline. Its replacement carries the `substrate` marker like everything else
+  here, so `pytest -m 'not substrate'` is now green on a decision point that
+  denies unconditionally.
+- **The public-suffix dataset is still the 2019-12-21 snapshot.** What ships is
+  the *enforcement*: a `url`-typed argument is refused at compile time while
+  the dataset is that snapshot, so registering a URL-taking tool fails where an
+  operator sees it. It does not make the dataset fresh, and it does not reach a
+  stale-suffix `host_in_domain` on any other domain type.
+- **Nothing about a provider, a cost, or a latency.** No model is called
+  anywhere in this spec.

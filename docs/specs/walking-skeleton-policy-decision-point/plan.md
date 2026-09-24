@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — the policy decision point
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Done <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 2 Structural Model ("The toolset stack, innermost to outermost") and § 4 Contracts and Invariants ("The three gates, and why one formula was not enough"). The production seam already exists: `src/ced/agents/toolsets/policy.py`, shipped by `walking-skeleton-role-compilation`, holds the layer's position, its refusal type and a resolver that admits nothing; `src/ced/agents/toolsets/step_events.py` and `trust_class.py` are composed and inert. **No analogous production implementation exists for the mechanism.** The substitute is `spikes/phase-0/pydantic_ai_bedrock_spike.py`, which holds executable precedent for the `WrapperToolset` authorization hook. **Named deviation:** that spike's hook appended to a Python list — no database, no second connection, no failed-append path — so it is precedent for the *seam*, not for the mechanism AC-0211 asserts.
 
 > **Plan contract:** this is the implementation strategy. It may change
