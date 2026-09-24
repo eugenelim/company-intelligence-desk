@@ -144,6 +144,18 @@ DEFAULT_POOL_CLASS = "default"
 DEFAULT_LIMITS_VAR = "CED_POOL_DEFAULT_LIMITS"
 ALLOWED_MODEL_IDS_VAR = "CED_POOL_ALLOWED_MODEL_IDS"
 
+#: AC-0275's carve-out, and **optional where the two above are required**: an
+#: unset variable declares no id, which is the fail-closed direction — the
+#: deployment that never wrote it has claimed nothing. A value that is present
+#: and malformed is refused on exactly the terms above, empty string included,
+#: because a parser answering "no ids" on a decode error would boot every
+#: worker green and surface only as an unexplained compile refusal.
+#:
+#: It is separate from `CED_POOL_ALLOWED_MODEL_IDS` on purpose: every id that
+#: reaches compilation is in the allowed set by construction, so reading
+#: membership of that set as the declaration would admit everything.
+NON_PROVIDER_MODEL_IDS_VAR = "CED_POOL_NON_PROVIDER_MODEL_IDS"
+
 #: The four integer keys of `role-configuration-seams` § 5's `limits` shape.
 #: Every one must be present and non-null. On the pinned 2.45.0,
 #: `UsageLimits.request_limit` defaults to 50 and the other three default to
@@ -224,6 +236,11 @@ class PoolConfig:
     default_limits: Mapping[str, int | bool]
     #: § 6: a model id absent from this set fails AC-0251 at compile time.
     allowed_model_ids: tuple[str, ...]
+    #: AC-0275: the ids this deployment declares reach no provider, so the
+    #: reasoning-disable guard has nothing to interrogate for them. It defaults
+    #: to empty, unlike the two fields above, because declaring nothing is the
+    #: fail-closed state rather than an unchosen bound.
+    non_provider_model_ids: tuple[str, ...] = ()
     #: § 6's deploy-time model wiring. Unlike the two fields above it comes
     #: from no environment variable — it is a callable the process supplies —
     #: so `validate_pool_config` never sets it and it defaults to unwired.
@@ -304,20 +321,43 @@ def _parse_default_limits(env: Mapping[str, str]) -> Mapping[str, int | bool]:
     return limits
 
 
-def _parse_allowed_model_ids(env: Mapping[str, str]) -> tuple[str, ...]:
-    """Decode `CED_POOL_ALLOWED_MODEL_IDS`, naming the variable on refusal."""
-    value = _parse_json_variable(env, ALLOWED_MODEL_IDS_VAR)
+def _as_model_id_array(value: object, name: str) -> tuple[str, ...]:
+    """Read one decoded value as an array of model ids, naming `name`."""
     if not isinstance(value, list):
         raise ValueError(
-            f"{ALLOWED_MODEL_IDS_VAR} must be a JSON array of model ids, "
-            f"not {type(value).__name__}"
+            f"{name} must be a JSON array of model ids, not {type(value).__name__}"
         )
     for entry in value:
         if not isinstance(entry, str):
-            raise ValueError(
-                f"{ALLOWED_MODEL_IDS_VAR} carries {entry!r}, which is not a model id"
-            )
+            raise ValueError(f"{name} carries {entry!r}, which is not a model id")
     return tuple(value)
+
+
+def _parse_allowed_model_ids(env: Mapping[str, str]) -> tuple[str, ...]:
+    """Decode `CED_POOL_ALLOWED_MODEL_IDS`, naming the variable on refusal."""
+    return _as_model_id_array(
+        _parse_json_variable(env, ALLOWED_MODEL_IDS_VAR), ALLOWED_MODEL_IDS_VAR
+    )
+
+
+def _parse_non_provider_model_ids(env: Mapping[str, str]) -> tuple[str, ...]:
+    """Decode `CED_POOL_NON_PROVIDER_MODEL_IDS`, which may be absent entirely.
+
+    Absence is the one difference from the pool's other two variables: it
+    declares no id, so a deployment that wrote nothing has claimed nothing. A
+    present value is held to the same terms as those two, empty string and all,
+    because AC-0275 admits a declared id past the reasoning-disable guard and a
+    declaration nobody can read must not be read as an empty one.
+    """
+    if NON_PROVIDER_MODEL_IDS_VAR not in env:
+        return ()
+    if env[NON_PROVIDER_MODEL_IDS_VAR].strip() == "":
+        raise ValueError(
+            f"{NON_PROVIDER_MODEL_IDS_VAR} is set to an empty value; unset it to declare no id"
+        )
+    return _as_model_id_array(
+        _parse_json_variable(env, NON_PROVIDER_MODEL_IDS_VAR), NON_PROVIDER_MODEL_IDS_VAR
+    )
 
 
 def validate_pool_config(env: Mapping[str, str]) -> PoolConfig:
@@ -331,6 +371,7 @@ def validate_pool_config(env: Mapping[str, str]) -> PoolConfig:
         worker_id=env.get("CED_WORKER_ID", f"worker-{os.getpid()}"),
         default_limits=_parse_default_limits(env),
         allowed_model_ids=_parse_allowed_model_ids(env),
+        non_provider_model_ids=_parse_non_provider_model_ids(env),
         pool_class=env.get("CED_POOL_CLASS", DEFAULT_POOL_CLASS),
     )
 

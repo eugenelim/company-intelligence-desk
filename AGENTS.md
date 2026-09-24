@@ -258,13 +258,15 @@ One package, two entry points, per [ADR-0003](docs/adr/0003-repository-layout.md
 ```bash
 CED_API_PORT=58080 ./.venv/bin/ced-api      # default 8000, loopback only
 
-# The worker. Both pool variables are required and have no in-code default.
+# The worker. The first two pool variables are required and have no in-code
+# default; the third is optional, and unset declares no id.
 CED_POOL_DEFAULT_LIMITS='{"per_request_input_tokens_limit": 20000,
                           "input_tokens_limit": 200000,
                           "request_limit": 20,
                           "tool_calls_limit": 40,
                           "count_tokens_before_request": false}' \
 CED_POOL_ALLOWED_MODEL_IDS='["stub:counting"]' \
+CED_POOL_NON_PROVIDER_MODEL_IDS='["stub:counting"]' \
   ./.venv/bin/ced-worker                    # set CED_WORKER_ID to tell two apart
 ```
 
@@ -282,6 +284,18 @@ at the first claim. The refusal names the variable or the key.
 silently, and `deploy/compose.yaml` sets the same two on both worker services.
 The values above are a working example, not a recommended budget; the model id
 is a placeholder, since nothing wires a provider yet.
+
+`CED_POOL_NON_PROVIDER_MODEL_IDS` is the third pool variable and the one that
+is **optional**: leaving it unset declares no id, which is the safe direction.
+It lists the model ids this deployment says reach no provider — `stub:counting`
+is the only one today. Compiling a role refuses unless the model it resolves
+would send a provider-level reasoning disable, and a declared id is the one
+case admitted without one, because there is no provider to send anything to. A
+declared id that does resolve to a provider-backed model is still refused, so
+the list cannot be used to switch the guard off. Set it, and `verify_boot`
+holds it to the same terms as the other two: an empty string or a malformed
+value is refused before any database connection, naming the variable.
+`deploy/compose.yaml` sets it on both worker services.
 
 ### Repository checks
 
