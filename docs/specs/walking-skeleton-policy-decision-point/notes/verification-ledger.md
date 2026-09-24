@@ -7,9 +7,12 @@ running the work taught, including what the checks do **not** establish.
 
 ## T1 — what the authorization suite establishes
 
-Forty-eight checks, in four files under `tests/authorization/`. Thirty-three
-carry the `substrate` marker; the fifteen in
-`test_ceiling_compilation.py` are pure and run offline.
+Four files under `tests/authorization/`. Three carry a module-level
+`substrate` marker; `test_ceiling_compilation.py` is pure and runs offline.
+**No count is written here on purpose** — a tally in prose drifts from what it
+counts and no gate reads it, which is exactly how an earlier draft of this
+section came to state three figures that were each wrong. Read the number
+`pytest` prints.
 
 The fifteen criteria are green against the Compose substrate, and
 `walking-skeleton-role-compilation`'s AC-0234 is green in the same run.
@@ -40,6 +43,12 @@ mutations were applied to the working tree and reverted, so nothing here ships.
 | The decision point denies unconditionally | 8 failed |
 | The trust-class layer returns the raw result unparsed | 2 failed |
 | `app_worker` granted `INSERT` on `agent_role` | 1 failed |
+| The non-string-`kind` refusal removed (round 1 repair) | 3 failed |
+| `app_policy` granted `DELETE` on `entitlements` (round 1 repair) | 1 failed |
+
+The failure counts above are what each mutation produced on the run that
+proved it, and they are evidence of a mutation reding rather than a figure to
+reconcile against a later suite.
 
 **The epoch re-read is worth its own line.** Written as an uncommitted read on
 the worker connection it did not merely fail — it *wedged*, because the open
@@ -107,7 +116,7 @@ repository that drove an admitting resolver through the decision point and
 asserted delegation, and it ran offline. Its replacement is AC-0318, which
 carries the `substrate` marker like everything else here.
 
-`tests/authorization/test_ceiling_compilation.py` partly offsets this — fifteen
+`tests/authorization/test_ceiling_compilation.py` partly offsets this — the
 offline checks over the decode and the compiler's wiring, including one that
 holds `compile_role` installs the decoded ceiling. What no offline check can
 reach is an admitted call reaching a tool body, because binding a step context
@@ -127,9 +136,13 @@ assembles it from the same two shipped reads. So what is established is that
 the decision point cannot take either identity from the call; what is not is
 that the only production assembler does it this way, there being none.
 
-`compile_entitlements` has the same shape: `load_entitlements` is the shipped
-read, and the resolver it builds is bound when a step binds, which nothing yet
-does.
+The entitlements half has the same shape, and **no separate entitlements
+compile path was built**: `load_entitlements`
+(`src/ced/adapters/postgres/roles.py`) is the shipped read, `compile_ceiling`
+decodes what it returns — `entitlements.ceiling` and `agent_role.ceiling` are
+the same decidable fragment and the same decoder — and the resolver that
+produces is bound when a step binds, which nothing yet does. An earlier draft
+of this line named a `compile_entitlements` that exists nowhere in the tree.
 
 ## The pre-EXECUTE audit gap, closed by recording
 
@@ -196,3 +209,70 @@ establish from what they do not, with the second list the longer of the two.
 `docs/architecture/README.md` § What is built gains a row for the authorization
 boundary and loses it from "designed and not built"; r5's STATUS header moves
 that one clause and no other.
+
+## Post-gates review round 1 — what was sustained, and what was not
+
+Three reviewers ran against the committed tree: `adversarial-reviewer`,
+`security-reviewer` (mandatory — this is the authorization boundary) and
+`quality-engineer` (structural change writing persistent state). Each raw
+report was persisted and adjudicated independently under
+`.context/reviews/89569ab1-1e41-4540-adf4-1794dc4a5d8f/`, and only sustained
+findings were acted on.
+
+**The majority were refuted**, which is the reason the adjudication step exists:
+of the findings raised, the adjudicators refuted the canonical-value
+pass-through as unreachable, a predicate-exception gap already closed by the
+sibling's own property test, three observability and timeout asks with no
+authority behind them, a mutable-export claim `mypy` already refuses, and the
+spec-status finding, which described a step the loop had not yet reached.
+
+### Repaired
+
+- **A stored predicate `kind` that is not a string escaped the decode as a bare
+  `TypeError`.** `{"kind": []}` is unhashable, so the membership test that
+  classifies a kind raised before it could refuse. `append_role_refusal` files
+  neither `TypeError` nor anything but the two role-refusal types, so the role
+  failed to compile with the event log silent — the
+  `unmapped-refusal-appends-no-event` shape, reached through a column an
+  operator writes by hand. The fail direction was already closed; what was
+  missing was attributability. Refused by type before the lookup, with checks
+  over four non-string shapes, and mutation-proven.
+- **AC-0249 attempted two of the write verbs a grant can confer.** A later
+  `GRANT DELETE` on any of the three configuration tables would have left the
+  one check written to notice a grant regression green. The statement set is
+  now derived from the grantable write privileges — `INSERT`, `UPDATE`,
+  `DELETE`, `TRUNCATE` — and granting `DELETE` on `entitlements` reds it, which
+  it did not before.
+- **The erratum note now names the rest of the cut's casualties.**
+  `walking-skeleton-role-compilation` is Shipped and frozen and its `spec.md`
+  and `plan.md` still attribute AC-0208, AC-0235 and the decision point's
+  predicate to the containment spec. They cannot be edited and a
+  `[backlog].open` entry on that path raises `duplicate_membership`, so the
+  note that already carries the AC-0233 trigger now carries them too. That is
+  what T2's grep gate leaves standing, recorded where a reader of the frozen
+  spec will find it.
+- **Two § Follow-ons entries were added** — the canonical-value handover, and
+  the denial reason as a third field the envelope cannot carry.
+- **The ledger's counts are gone.** An earlier draft of this file stated three
+  figures about the suite and every one was wrong. They are replaced by the
+  shape, because no gate reads a tally and a reader who needs a number should
+  read the one `pytest` prints.
+
+### Surfaced to the owner, and decided
+
+- **ADR-0007 lands outside every task's `Touches`.** Sustained as a Blocker:
+  the owner's direction settled *what* to do and not whether the commit is
+  admissible inside a pinned contract, and the bundled-fixes carve-out refuses
+  a ride-along whose resolution moves a governing record. **Decided on
+  2026-09-23: extract it.** The layout work is already its own commit and
+  becomes the base of the stack with its own description, rather than a sixth
+  plan amendment folding repository-layout governance into the task whose
+  contract is the authorization boundary.
+- **`AGENTS.md` § Development workflow still reads "a sixth still needs the
+  RFC"** while ADR-0007 § References lists that section as a waived
+  requirement. ADR-0007 D2 preserves ADR-0003 D2's RFC route for a sixth
+  *application* directory, so the sentence stays true of the case it was
+  written for; what is stale is only that it does not point at the new record.
+  `AGENTS.md` is agent guidance, which the carve-out's clause (iv) refuses as a
+  ride-along, and it is in no task's `Touches`. **Decided on 2026-09-23: left
+  unreconciled, owner eugenelim**, recorded here rather than edited.

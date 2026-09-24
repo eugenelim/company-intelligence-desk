@@ -35,6 +35,35 @@ which the decision point holds a position and no predicate, it is still retired
 by the task that ends that interval, and the guards that replace it still exist
 under the same identifiers. Only the spec names moved.
 
+## The same cut left other references in this frozen spec
+
+The AC-0233 row above is the one the retirement trigger turns on, and it is not
+the only sentence the cut of 2026-09-23 invalidated. These are the rest, in the
+same frozen body, each attributing a moved criterion or the decision point's
+predicate to `walking-skeleton-authority-containment`:
+
+| Where | What it says | What is now true |
+| --- | --- | --- |
+| `spec.md` § Agent Rules, *No decision point that admits by default* | "Until `walking-skeleton-authority-containment` supplies the predicate, every tool call is refused" | The fragment is that spec's; the predicate is installed by `walking-skeleton-policy-decision-point`, whose AC-0235 is the permanent guard |
+| `spec.md` § Acceptance Criteria, the AC-0233 obligation row | "`walking-skeleton-authority-containment` ships its predicate" | Same split |
+| `spec.md` § Acceptance Criteria, the AC-0234 obligation row | "`walking-skeleton-authority-containment`'s AC-0208" | AC-0208 moved to `walking-skeleton-policy-decision-point` |
+| `plan.md` § Approach and § Tasks | AC-0235 and the decision point's predicate attributed to that spec | Both are `walking-skeleton-policy-decision-point`'s |
+
+**None of them is edited, and the reason is the one this note already gives**:
+the body is frozen, `docs/specs/README.md` forbids editing it, and a
+`[backlog].open` entry on that path raises `duplicate_membership`. They are
+listed here so the record is the same shape as the trigger's — a reader who
+greps that spec and finds a stale name has one place that says which name is
+right.
+
+**This is what `walking-skeleton-policy-decision-point`'s T2 gate leaves
+standing.** That gate reads `src/ tests/ docs/` and refuses a hit attributing a
+moved criterion or the decision point to the containment spec. Every hit outside
+this frozen spec was repaired in that task. The hits inside it cannot be, so the
+exception is recorded here rather than in that spec's verification ledger —
+which is the same routing the trigger above takes, and which keeps the gate's
+residual in the file a reader of the *frozen* spec will find.
+
 ## Why this is an erratum and not an amendment
 
 `spec.md` is `Shipped`. Its § Acceptance Criteria is amendment-governed, the
