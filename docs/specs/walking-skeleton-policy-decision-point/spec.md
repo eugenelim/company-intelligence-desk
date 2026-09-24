@@ -1,6 +1,6 @@
 # Spec: Walking skeleton — the policy decision point
 
-- **Status:** Implementing <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Status:** Shipped <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
@@ -136,25 +136,25 @@ each rather than inheriting it.
 
 **Authorizing a call**
 
-- [ ] **AC-0207.** A well-typed tool call whose argument *value* falls outside the acting role's ceiling is refused, and the tool body does not execute.
-- [ ] **AC-0235.** A tool call for which the acting role holds no ceiling entry at all is refused and the tool body does not execute, asserted with the containment predicate installed, so a lookup that finds nothing denies rather than falling through.
-- [ ] **AC-0239.** A decision point whose step lease has been taken by **a real second worker holding a later epoch** — not by an injected serialization failure, because a decision point that re-reads the current epoch passes an injected one and fails a real takeover — refuses the call, does not execute the tool body, and leaves no committed `policy.decision`. The evicted worker abandons the step to its new owner rather than failing it.
-- [ ] **AC-0252.** An append failure the worker cannot attribute to fence loss is treated as fence-held: the worker attempts to terminate the step, as AC-0211 and AC-0243 require. Where the worker had in fact been evicted, that termination is itself a fenced write and the database refuses it, leaving the true owner untouched.
-- [ ] **AC-0243.** With the `policy.decision` append forced to fail on its own connection inside the decision point while the fence is still held, on a call the installed predicate **admits**, the tool body does not execute and the step terminates.
-- [ ] **AC-0236.** A predicate evaluation that raises — driven by a fault patched into the predicate **in the test process**, not by a malformed argument and not by a switch the shipped predicate carries — refuses the call, commits the `policy.decision` denial, and does not execute the tool body.
-- [ ] **AC-0208.** A refusal by the decision point raises a domain exception a caller can catch without also catching a programming error, demonstrated by a case in which a genuine bug raised inside a tool body is not caught by the denial handler.
-- [ ] **AC-0209.** A call the containment predicate decides — admitted or refused — commits a `policy.decision` event naming the acting agent role and the initiating principal, on the step the call belongs to, before the tool body runs or the refusal is raised. Those are the fields `append_policy_decision` carries; § Follow-ons records that the decision *outcome* and the *identity of the decided call* have no column and are therefore not asserted here. AC-0211, AC-0239, AC-0243 and AC-0252 govern the cases where that append does not succeed.
-- [ ] **AC-0210.** A call whose arguments fall inside the acting role's ceiling but outside the initiating user's entitlements is refused.
-- [ ] **AC-0211.** With the `policy.decision` append forced to fail on its own connection inside the decision point while the fence is still held, the tool body does not execute and the step terminates.
-- [ ] **AC-0212.** A second invocation deriving an idempotency key already recorded for the run terminates the step as a duplicate-detected failure, and the tool body executes at most once across both attempts.
+- [x] **AC-0207.** A well-typed tool call whose argument *value* falls outside the acting role's ceiling is refused, and the tool body does not execute.
+- [x] **AC-0235.** A tool call for which the acting role holds no ceiling entry at all is refused and the tool body does not execute, asserted with the containment predicate installed, so a lookup that finds nothing denies rather than falling through.
+- [x] **AC-0239.** A decision point whose step lease has been taken by **a real second worker holding a later epoch** — not by an injected serialization failure, because a decision point that re-reads the current epoch passes an injected one and fails a real takeover — refuses the call, does not execute the tool body, and leaves no committed `policy.decision`. The evicted worker abandons the step to its new owner rather than failing it.
+- [x] **AC-0252.** An append failure the worker cannot attribute to fence loss is treated as fence-held: the worker attempts to terminate the step, as AC-0211 and AC-0243 require. Where the worker had in fact been evicted, that termination is itself a fenced write and the database refuses it, leaving the true owner untouched.
+- [x] **AC-0243.** With the `policy.decision` append forced to fail on its own connection inside the decision point while the fence is still held, on a call the installed predicate **admits**, the tool body does not execute and the step terminates.
+- [x] **AC-0236.** A predicate evaluation that raises — driven by a fault patched into the predicate **in the test process**, not by a malformed argument and not by a switch the shipped predicate carries — refuses the call, commits the `policy.decision` denial, and does not execute the tool body.
+- [x] **AC-0208.** A refusal by the decision point raises a domain exception a caller can catch without also catching a programming error, demonstrated by a case in which a genuine bug raised inside a tool body is not caught by the denial handler.
+- [x] **AC-0209.** A call the containment predicate decides — admitted or refused — commits a `policy.decision` event naming the acting agent role and the initiating principal, on the step the call belongs to, before the tool body runs or the refusal is raised. Those are the fields `append_policy_decision` carries; § Follow-ons records that the decision *outcome* and the *identity of the decided call* have no column and are therefore not asserted here. AC-0211, AC-0239, AC-0243 and AC-0252 govern the cases where that append does not succeed.
+- [x] **AC-0210.** A call whose arguments fall inside the acting role's ceiling but outside the initiating user's entitlements is refused.
+- [x] **AC-0211.** With the `policy.decision` append forced to fail on its own connection inside the decision point while the fence is still held, the tool body does not execute and the step terminates.
+- [x] **AC-0212.** A second invocation deriving an idempotency key already recorded for the run terminates the step as a duplicate-detected failure, and the tool body executes at most once across both attempts.
 
-- [ ] **AC-0318.** A call the containment predicate admits, whose `policy.decision` append succeeds, executes the tool body exactly once. This is the positive path: every other criterion here is a refusal or a failed append, and a decision point that refuses everything satisfies all of them.
-- [ ] **AC-0319.** The acting agent role and the initiating principal — both as recorded in the `policy.decision` event and as used to evaluate the entitlements conjunct — are read from the claimed step and its run. A call whose tool arguments or model-authored content carry a different role or principal produces the same decision and the same recorded event.
+- [x] **AC-0318.** A call the containment predicate admits, whose `policy.decision` append succeeds, executes the tool body exactly once. This is the positive path: every other criterion here is a refusal or a failed append, and a decision point that refuses everything satisfies all of them.
+- [x] **AC-0319.** The acting agent role and the initiating principal — both as recorded in the `policy.decision` event and as used to evaluate the entitlements conjunct — are read from the claimed step and its run. A call whose tool arguments or model-authored content carry a different role or principal produces the same decision and the same recorded event.
 
 **Holding the layers and grants the boundary rests on**
 
-- [ ] **AC-0247.** A tool return from an integration declared `admitted-types` that carries free text is refused by the trust-class layer before any layer above it observes the value, so neither the step-event toolset's attribution record nor the agent ever sees it.
-- [ ] **AC-0249.** For every runtime login identity the deployment creates, enumerated at test time from the database rather than from a list written here, a connection on that identity attempting to write `agent_role`, `integration_registry` or `entitlements` is refused by the database. A login role added later is covered without editing this criterion.
+- [x] **AC-0247.** A tool return from an integration declared `admitted-types` that carries free text is refused by the trust-class layer before any layer above it observes the value, so neither the step-event toolset's attribution record nor the agent ever sees it.
+- [x] **AC-0249.** For every runtime login identity the deployment creates, enumerated at test time from the database rather than from a list written here, a connection on that identity attempting to write `agent_role`, `integration_registry` or `entitlements` is refused by the database. A login role added later is covered without editing this criterion.
 
 ## Follow-ons
 

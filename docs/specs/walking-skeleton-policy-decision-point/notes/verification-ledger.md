@@ -323,3 +323,36 @@ something that was never true. A rule has no line numbers to drift.
 finding**, which is the divergence condition this delivery already met once at
 the spec stage. The repair above removes the surface rather than restating it,
 which is what a third round would otherwise be spent on.
+
+## Post-gates review round 3 — the loop closed
+
+`adversarial-reviewer` returned **two Nits and nothing else**, and confirmed in
+terms that the round-2 Blocker is discharged: the rule reaches every in-class
+hit the gate returns inside that directory and over-claims none, all three
+"left as written" grounds were checked against the files they cite, and T2's
+pinned `Done when` is satisfied on that clause.
+
+**Both Nits are deferred, with their citations, and that ends the loop.** Each
+concerns the convenience locator inside the erratum note — one names three more
+sections holding in-class hits, the other a heading the frozen spec renamed to
+§ Boundaries. Neither is gated: the *rule* above the table is what carries the
+ownership answer, and the reviewer says so.
+
+**They are deferred rather than fixed on purpose.** This is the third round in
+which the finding was in the previous round's prose, and the section column is
+the residual enumeration that keeps producing them — the same defect the
+round-2 repair removed from the body of the note and left in its map. Editing
+it again would be a fourth round spent on a table no gate reads. If the note is
+next opened for another reason, dropping the section column entirely is the
+disposition the reviewer itself offers and the one this entry recommends.
+
+### The three rounds, as evidence about the review rather than the code
+
+Round 1 raised twenty-six findings across three reviewers and sustained seven,
+two of them real defects a green suite hid — a stored `{"kind": []}` escaping
+the decoder as a bare `TypeError` no event could file, and AC-0249 staying
+green through a `GRANT DELETE`. Round 2 raised six and sustained one, in the
+round-1 repair. Round 3 raised two, both deferred. The implementation's
+criterion set was unchallenged throughout; what kept failing review was prose
+describing it, which is the same diagnosis the pre-EXECUTE loop recorded before
+the owner stopped it.
