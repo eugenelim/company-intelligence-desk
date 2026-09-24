@@ -144,3 +144,55 @@ condition.
 The repair only tightened a control, and the criterion set was unchanged. The
 artifact set is asymmetric and this entry is the record of why, so a later
 reader finds the gap explained rather than discovers it.
+
+## T2 — the grep gate reached two files no task could edit
+
+T2's gate greps `src/ tests/ docs/` for the literal
+`walking-skeleton-authority-containment` and refuses any hit attributing a moved
+criterion or the decision point to that spec. Two architecture documents carried
+such a hit and sat in no task's `Touches`:
+`docs/architecture/role-configuration-seams/role-configuration-seams.md`, whose
+seam table says that spec "builds the decision point's predicate", and
+`docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md`
+r8 § 10, which names it as owner of the authorization boundary's encoding and
+evaluation. Both were correct before the cut of 2026-09-23 and wrong after it.
+
+Surfaced to the owner, who chose on 2026-09-23 to widen T2's `Touches` by
+amendment and to correct **ownership only** — no Built or Designed status moves
+in r8, because § Durable Outputs routes the current-state map to
+`docs/architecture/README.md` and T3 to r5's STATUS header. The plan's Changelog
+carries the amendment and the two declined alternatives.
+
+Four further hits were doc-comment corrections in files outside any `Touches`
+— `src/ced/agents/toolsets/__init__.py`, `tests/fixtures/registry_seed.py`,
+`tests/compiler/test_role_loader.py` and
+`tests/compiler/test_compiled_agent_structure.py`. They rode along under the
+bundled-fixes carve-out: no behaviour change, no design call, verified by the
+gate itself, and none of them a file that defines what an agent may do.
+
+## The cohort baseline had to be rebuilt, and one engine record is missing
+
+The round-5 amendment changed `plan.md`, so its hash no longer matched the
+baseline `plan-locked` pinned and `wave-complete` refused with
+`schedule check-current`. The engine's own recovery was followed exactly:
+`Status: Approved` restored in both artifacts, `loop-cohort reset`, `init`,
+`approve-plan`, `schedule`, then the two completed waves' dispatch receipts and
+advances replayed, then `Status: Implementing` restored in `spec.md`.
+`loop-engine reset` was **not** run, as that recovery text warns.
+
+**One consequence is recorded rather than repaired.** `wave-complete` and
+`wave-passed` check the *current* wave's receipts, and the recovery replayed the
+cohort pointer to wave 2 before those transitions could be fired for wave 1. So
+the engine's transition ledger carries `wave-passed` for wave 0 and not for wave
+1, while the cohort — which is the authoritative wave pointer — is at wave 2
+with T1 and T2 both accounted for. Nothing downstream reads the missing record:
+the final wave fires `wave-complete` then `gates-clean`, and both guards are
+satisfied at index 2.
+
+## T3 — what the record now says
+
+`spikes/README.md` gains a section separating what the fifteen criteria
+establish from what they do not, with the second list the longer of the two.
+`docs/architecture/README.md` § What is built gains a row for the authorization
+boundary and loses it from "designed and not built"; r5's STATUS header moves
+that one clause and no other.

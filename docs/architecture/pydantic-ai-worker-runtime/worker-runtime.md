@@ -1,12 +1,14 @@
 # Subsystem Design — the reasoning worker and its pool
 
-**STATUS: PLANNED** — the pool, the lease protocol, the privilege split and the
-agent layer are built; the authorization boundary and the provider call are
+**STATUS: PLANNED** — the pool, the lease protocol, the privilege split, the
+agent layer and the authorization boundary are built; the provider call is
 not. The agent layer here means the role compiler, the four-layer toolset
 stack, the compile-time refusals, and the quarantined role with its
-deterministic parser. The decision point ships with its **position** and
-refuses every call: its predicate is the authorization boundary's, so no tool
-body executes anywhere in this repository yet.
+deterministic parser. The decision point now ships with its **predicate** as
+well as its position: it decodes a stored ceiling into the containment
+fragment, evaluates the role ceiling and the initiating user's entitlements,
+and records every decision it makes before the call proceeds — so a tool body
+does execute, for a call both halves admit.
 [`../README.md`](../README.md) § What is built is the current map.
 
 **Decision sought:** accept this as the specification of the inside of a leased
