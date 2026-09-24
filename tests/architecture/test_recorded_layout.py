@@ -14,11 +14,19 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ADR_0003 = REPO_ROOT / "docs" / "adr" / "0003-repository-layout.md"
+ADR_0007 = (
+    REPO_ROOT / "docs" / "adr" / "0007-github-directory-is-not-an-application-directory.md"
+)
 
 #: Top-level directories that predate ADR-0003 and that D2 explicitly leaves
 #: ungoverned. Enumerated rather than pattern-matched — a rule like "ignore
 #: anything that looks like tooling" is a hole through which a sixth
 #: application directory arrives unrecorded.
+#:
+#: **`.github/` is deliberately absent.** It postdates ADR-0003 by four days,
+#: so adding it here would make the sentence above false and turn this set
+#: into the pattern-match hole it refuses. ADR-0007 records it instead, and
+#: `_directories_adr_0007_names` is how this check reads that record.
 PREDATING = frozenset(
     {
         ".agents",
@@ -66,6 +74,20 @@ def _directories_adr_0003_names() -> set[str]:
     return set(re.findall(r"^\s*\| `([a-z_]+)/` \|", decision, flags=re.MULTILINE))
 
 
+def _directories_adr_0007_names() -> set[str]:
+    """Return the non-application directory names ADR-0007 D1's table names.
+
+    Read from the superseding record for the same reason the sibling above
+    reads ADR-0003: ADR-0007 D3 makes parsing both records the decision, so a
+    list restated here would check the copy. The pattern admits a leading dot,
+    which is the whole difference from the sibling — a platform-mandated path
+    is exactly the kind this record exists to carry.
+    """
+    text = ADR_0007.read_text(encoding="utf-8")
+    decision = text.split("## Decision", 1)[1].split("## Consequences", 1)[0]
+    return set(re.findall(r"^\s*\| `(\.?[a-z_]+)/` \|", decision, flags=re.MULTILINE))
+
+
 def test_adr_0003_names_the_directories_the_plan_needs() -> None:
     """Setup check: the parse found a table, not an empty set."""
     assert _directories_adr_0003_names() == {
@@ -77,14 +99,27 @@ def test_adr_0003_names_the_directories_the_plan_needs() -> None:
     }
 
 
+def test_adr_0007_names_the_non_application_directories() -> None:
+    """Setup check for the superseding record's own parse.
+
+    Without it, an ADR-0007 whose table stopped parsing would make
+    `test_no_top_level_directory_is_unrecorded` red for a reason that has
+    nothing to do with the layout, and the message would name the directory
+    rather than the broken parse.
+    """
+    assert _directories_adr_0007_names() == {".github"}
+
+
 def test_no_top_level_directory_is_unrecorded() -> None:
-    """The Never-do: no top-level directory that ADR-0003 does not name."""
-    recorded = _directories_adr_0003_names() | PREDATING
+    """The Never-do: no top-level directory neither ADR names."""
+    recorded = _directories_adr_0003_names() | _directories_adr_0007_names() | PREDATING
 
     unrecorded = _tracked_top_level_directories() - recorded
     assert not unrecorded, (
-        f"top-level directories not named by ADR-0003: {sorted(unrecorded)}. "
-        "Amend ADR-0003 with a superseding record, or move the content."
+        f"top-level directories named by neither ADR-0003 nor ADR-0007: "
+        f"{sorted(unrecorded)}. An application directory amends ADR-0003 with "
+        "a superseding record; a platform- or tooling-mandated path amends "
+        "ADR-0007 D1's table. Otherwise move the content."
     )
 
 

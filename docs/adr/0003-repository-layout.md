@@ -8,7 +8,7 @@
 - **Supersedes:** none
 - **Supersedes in part:** none
 - **Superseded by:** none
-- **Superseded in part:** none
+- **Superseded in part:** ADR-0007 D2
 
 ## Context
 
