@@ -45,6 +45,7 @@ __all__ = [
     "decode_role_record",
     "list_integration_tools",
     "list_roles",
+    "load_entitlements",
     "load_role",
 ]
 
@@ -170,8 +171,12 @@ _CEILING_BINDING_FIELDS: Final[tuple[tuple[str, type], ...]] = (
 )
 """The ratified ceiling binding shape, as migration 0003 fixes it.
 
-`predicates` is deliberately absent: that revision assigns its encoding to
-`walking-skeleton-authority-containment`, so this seam does not judge it.
+`predicates` is deliberately absent, and the reason is a split rather than a
+gap. This seam judges a binding's *shape* — the three fields the revision
+fixes — and `ced.agents.ceilings` judges the predicate encoding, because that
+is where the containment fragment's authoring surface can refuse an entry it
+cannot express. Revision 0003 left the encoding out of scope entirely;
+`walking-skeleton-policy-decision-point` supplies it.
 """
 
 
@@ -474,6 +479,50 @@ def load_role(role_name: str, version: int) -> LoadedRole:
             ]
 
     return decode_role_record(role_record, integration_records)
+
+
+def load_entitlements(principal: str) -> tuple[Mapping[str, Any], ...]:
+    """Read the initiating user's own ceiling, or return an empty one.
+
+    The second half of `may_act`'s conjunction. `entitlements.ceiling` is
+    expressed in the same decidable fragment as `agent_role.ceiling` — revision
+    0001 says so in the column's own comment — and is decoded by the same
+    `ced.agents.ceilings.compile_ceiling`.
+
+    **A principal with no row returns no entries, which denies every call.**
+    That is the fail-closed direction and is not an omission: an absent row is
+    an unentitled principal, and returning something a lookup could hit would
+    make "we have no record of you" mean "you may act".
+
+    Refuses a stored ceiling that is not an array, on the same "refuse, never
+    coerce" rule this module states for the role record: coercing a malformed
+    value to `[]` would deny, which looks safe and hides a broken row behind an
+    outcome an unentitled principal produces legitimately.
+
+    Read on `app_worker`, which revision 0001 grants `SELECT` on `entitlements`
+    in the same statement as the two tables this adapter already reads.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT ceiling FROM entitlements WHERE principal = %s",
+            (principal,),
+        ).fetchone()
+    if row is None:
+        return ()
+    ceiling = row[0]
+    if not isinstance(ceiling, list):
+        raise RoleLoadError(
+            f"entitlements row for principal {principal!r} has a ceiling of type "
+            f"{type(ceiling).__name__}; an array is required and `[]` is the empty "
+            f"ceiling"
+        )
+    for position, entry in enumerate(ceiling):
+        if not isinstance(entry, Mapping):
+            raise RoleLoadError(
+                f"entitlements row for principal {principal!r} has ceiling[{position}] "
+                f"of type {type(entry).__name__}; every entry must be an object"
+            )
+    return tuple(ceiling)
 
 
 def list_roles() -> tuple[RoleRef, ...]:

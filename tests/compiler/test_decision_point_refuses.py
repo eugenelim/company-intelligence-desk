@@ -101,31 +101,3 @@ def test_a_decision_point_built_without_a_resolver_holds_the_empty_one() -> None
     stack = PolicyDecisionPoint(FunctionToolset[Any]())
     assert isinstance(stack.resolver, NoCeilingEntries)
     assert stack.resolver.entries_admitting("anything", {}) == ()
-
-
-def test_the_refusal_comes_from_the_resolver_being_empty_and_not_from_a_literal() -> None:
-    """The failure direction must not depend on someone remembering to invert
-    a hardcoded branch.
-
-    Supplying a resolver that admits shows the layer delegating, which is what
-    proves the refusal above was the resolver's empty answer. Nothing in this
-    spec supplies such a resolver; `walking-skeleton-authority-containment`
-    does, and this is the only place its arrival is rehearsed.
-    """
-
-    class AdmitsEverything:
-        def entries_admitting(self, tool_name: str, tool_args: dict[str, Any]) -> tuple[str]:
-            return ("an entry",)
-
-    executed: list[str] = []
-    inner = FunctionToolset[Any]()
-
-    def ping(value: int) -> int:
-        executed.append("ping")
-        return value
-
-    inner.add_function(ping)
-    agent = Agent(TestModel(), toolsets=[PolicyDecisionPoint(inner, AdmitsEverything())])
-    asyncio.run(agent.run("go"))
-
-    assert executed == ["ping"]

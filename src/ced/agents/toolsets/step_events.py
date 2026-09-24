@@ -43,23 +43,43 @@ from pydantic_ai import RunContext
 from pydantic_ai.toolsets import ToolsetTool
 
 from ced.adapters.framework_contract import WrapperToolset
-from ced.adapters.postgres.event_log import append_step_event
+from ced.adapters.postgres.event_log import append_step_event, terminate_step
 from ced.domain.events import TOOL_COMPLETED, TOOL_INVOKED, derived_idempotency_key
 
-__all__ = ["StepContext", "StepEventToolset"]
+__all__ = ["DuplicateInvocation", "StepContext", "StepEventToolset"]
+
+
+class DuplicateInvocation(Exception):
+    """This logical invocation has already been recorded for the run.
+
+    Terminal, and deliberately not a retry: the whole point of the derived key
+    and the partial unique index is that a second attempt at the same logical
+    invocation **fails** rather than executing the action twice. A retryable
+    type here would restore the double-publication hazard the index exists to
+    close.
+    """
 
 
 @dataclass(frozen=True)
 class StepContext:
-    """What the step path injects: the live connection and the fenced identity.
+    """What the step path injects: the live connections and the fenced identity.
 
-    One object rather than six constructor parameters, because there is one
-    state in which none of them is knowable — this spec compiles agents with
-    no step path to supply them, and six independently-optional fields would
-    make "unbound" a combination rather than a value.
+    One object rather than seven constructor parameters, because there is one
+    state in which none of them is knowable — a compiled agent with no step path
+    to supply them — and seven independently-optional fields would make
+    "unbound" a combination rather than a value.
+
+    **Two connections, because the privilege split is two identities.**
+    `connection` is `app_worker`, which writes `tool.invoked` and `tool.completed`
+    and owns the fenced `steps` write; `policy_connection` is `app_policy`, whose
+    single capability is the `policy.decision` append. The decision point above
+    appends on the second, and revision 0002 gives that identity no table access
+    at all, so a worker that could append a decision on its own connection would
+    be a worker that could forge one.
     """
 
     connection: psycopg.Connection[Any]
+    policy_connection: psycopg.Connection[Any]
     run_id: UUID
     step_id: UUID
     lease_epoch: int
@@ -103,7 +123,29 @@ class StepEventToolset(WrapperToolset[Any]):
                 "the idempotency key cannot be derived without one"
             )
         key = derived_idempotency_key(self.step.run_id, self.step.step_id, ctx.tool_call_id)
-        self._append(self.step, TOOL_INVOKED, key)
+        try:
+            self._append(self.step, TOOL_INVOKED, key)
+        except psycopg.errors.UniqueViolation as error:
+            # AC-0212. The partial unique index over `idempotency_key` is what
+            # makes a repeated logical invocation fail rather than execute
+            # twice, and this is the only place that failure is turned into a
+            # decision. The step terminates before `super()` is reached, so the
+            # body cannot run a second time; the fenced write is what makes
+            # terminating safe if the lease has meanwhile moved on.
+            #
+            # Caught here and **not remapped inside `append_step_event`**:
+            # `tests/event_log/test_idempotency_index.py` asserts the raw
+            # `UniqueViolation` for the foundation's AC-0006, so remapping it
+            # would move that criterion's observation rather than add this one.
+            terminate_step(
+                self.step.connection,
+                step_id=self.step.step_id,
+                lease_epoch=self.step.lease_epoch,
+            )
+            raise DuplicateInvocation(
+                f"tool {name!r} derives an idempotency key already recorded for run "
+                f"{self.step.run_id}; the step is terminated rather than invoked again"
+            ) from error
         result = await super().call_tool(name, tool_args, ctx, tool)
         self._append(self.step, TOOL_COMPLETED, key)
         return result

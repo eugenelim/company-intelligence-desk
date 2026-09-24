@@ -81,6 +81,7 @@ from ced.adapters.framework_contract import (
 )
 from ced.adapters.postgres.event_log import append_step_event
 from ced.adapters.postgres.roles import RoleLoadError
+from ced.agents.ceilings import compile_ceiling
 from ced.agents.models import RoleCompileError, resolve_model
 from ced.agents.toolsets import (
     PolicyDecisionPoint,
@@ -492,8 +493,13 @@ def compile_role(
         label, model_settings.get("limits", {}), pool.get("default_limits", {})
     )
 
+    # The decision point carries the acting role's half of `may_act`. The
+    # initiating user's half is keyed on a principal this seam is not given —
+    # it is read when the step binds — so the entitlements resolver keeps its
+    # fail-closed default here rather than being wired to something wider.
     stack = PolicyDecisionPoint(
-        StepEventToolset(TrustClassToolset(_domain_toolset(ceiling), parse_integration_result))
+        StepEventToolset(TrustClassToolset(_domain_toolset(ceiling), parse_integration_result)),
+        resolver=compile_ceiling(label, ceiling),
     )
     check_stack_order(stack)
 
