@@ -105,8 +105,9 @@ layer and the provider call:
 | Part | Built by | Where that spec claims it |
 | --- | --- | --- |
 | The agent layer — the compiler, the toolset stack, the compile-time refusals — and the quarantine boundary | [`walking-skeleton-role-compilation`](../specs/walking-skeleton-role-compilation/spec.md) | § Durable Outputs: "names three things as unbuilt: the agent layer, the authorization boundary and the provider call. This spec builds the first" |
-| The authorization boundary | [`walking-skeleton-authority-containment`](../specs/walking-skeleton-authority-containment/spec.md) | § Durable Outputs: "names the authorization boundary as unbuilt, and this spec builds it" |
-| The idempotency behaviour | `walking-skeleton-authority-containment` | AC-0212 |
+| The authorization boundary — the decidable fragment | [`walking-skeleton-authority-containment`](../specs/walking-skeleton-authority-containment/spec.md) | § Durable Outputs: "names the authorization boundary as unbuilt, and this spec builds it" |
+| The authorization boundary — the decision point that installs the fragment | [`walking-skeleton-policy-decision-point`](../specs/walking-skeleton-policy-decision-point/spec.md) | § Durable Outputs: the r5 marker row. The cut of 2026-09-23 split the fragment from the decision point, so the boundary takes two rows |
+| The idempotency behaviour | `walking-skeleton-policy-decision-point` | AC-0212 |
 | Fragment narrowing, r4 change 7 | `walking-skeleton-authority-containment` | AC-0217 |
 | The provider call, and with it every provider-touching claim | [`walking-skeleton-step-lifecycle`](../specs/walking-skeleton-step-lifecycle/spec.md) | § Durable Outputs: "names the provider call as unbuilt, and this spec builds it" |
 | The scope-qualified object keys | `walking-skeleton-step-lifecycle` | AC-0231 |

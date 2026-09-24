@@ -66,7 +66,7 @@ Which elements change, and which are linked because they do not?
 | `ced.agents.compiler` | new | Baseline § 8 names `src/ced/agents/` designed and empty. Holds the two-entry `output_schema_ref` mapping as a dict, not a module |
 | `ced.agents.models` | new | Calls `PoolConfig.model_factory` with the role's `model_id` after checking `CED_POOL_ALLOWED_MODEL_IDS`, which is where AC-0251 is enforced. It selects no implementation — r5 § 2 R3 keeps that deploy-time |
 | `PoolConfig` — `default_limits`, `allowed_model_ids`, `model_factory` | modified | r5 § 6; `allowed_model_ids` from r5 § 2 R5. **The annotation is indirected, and the seam's shape is not.** `PoolConfig` lives in `src/ced/worker/pool.py`, and `tests/architecture/dependency_direction.py` admits a `pydantic_ai` name only in `agents/` and `adapters/` — its AST walk reaches a `TYPE_CHECKING`-guarded import too, so `model_factory: Callable[[str], Model]` written literally here reds the offline gate and breaks the role-compilation spec's own `Never do`. The field is therefore typed by a `Protocol` declared in `worker/` that names no framework type, and `pydantic_ai.models.Model` appears only in `ced.agents.models`, which supplies the factory. Only where the framework name is written moves |
-| The containment engine and r5 § 4's canonicalizer | out of scope | Owned by [`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md), which builds the decision point's predicate |
+| The containment engine and r5 § 4's canonicalizer | out of scope | Owned by [`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md), which builds the decidable fragment. The decision point that decodes a stored ceiling into that fragment and installs it is [`walking-skeleton-policy-decision-point`](../../specs/walking-skeleton-policy-decision-point/spec.md)'s; the cut of 2026-09-23 separated the two |
 | `agent_role.instructions` | unchanged | Diverges from r5 § 4; see § 4 and § 5 |
 | `agent_role.pool_class` | unchanged | Ships already; r5 § 6's guard reads it against `integration_registry.pool_classes` |
 | `agent_role.owner_scope`, `integration_registry.owner_scope` | unchanged | Migration 0002's one-way door; read by nothing here |
@@ -261,8 +261,12 @@ framework default otherwise.
 `CED_POOL_DEFAULT_LIMITS`, and a role declaring it fails to compile.
 
 **The encodings of `arg_schema`, `ceiling_fragment` and a ceiling entry's
-`predicates` are out of scope.** They are read by the decision point's predicate
-and by R5's re-verification, both
+`predicates` are out of scope here.** `predicates` is decoded on the compile
+path by
+[`walking-skeleton-policy-decision-point`](../../specs/walking-skeleton-policy-decision-point/spec.md),
+in `src/ced/agents/ceilings.py`, which routes every entry through the
+fragment's own authoring surface; the fragment it decodes into, and R5's
+re-verification, are
 [`walking-skeleton-authority-containment`](../../specs/walking-skeleton-authority-containment/spec.md)'s.
 No guard here reads them: the `thinking` rule, the model-id and pool-class
 checks, the limit comparison, the output-type name and the quarantined
@@ -344,7 +348,7 @@ Who builds each part?
 | Content-hash conversion for `instructions` and `output_schema_ref`, then lifting ADR-0006 D2 | `walking-skeleton-step-lifecycle` |
 | Stripping reasoning parts before serializing, r5 § 4's second half | `walking-skeleton-step-lifecycle` |
 | Two further criteria asserting ADR-0006 D1's and D2's return conditions | `walking-skeleton-step-lifecycle` |
-| Amending `0001_base_schema.py`'s `ceiling` column comment, which assigns the predicate shape to this spec, to name `walking-skeleton-authority-containment` | `walking-skeleton-role-compilation` |
+| Amending `0001_base_schema.py`'s `ceiling` column comment, which assigns the predicate shape to this spec, to name `walking-skeleton-authority-containment` for the fragment and `walking-skeleton-policy-decision-point` for the encoding | `walking-skeleton-role-compilation` |
 | Replacing § Testing Strategy's free-text paragraph with a citation of ADR-0006 D3 | `walking-skeleton-role-compilation` |
 
 **Criterion placement has landed.** `walking-skeleton-role-compilation` no

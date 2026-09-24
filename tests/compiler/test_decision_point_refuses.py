@@ -18,8 +18,9 @@ refusal holds for every role in `agent_role` and every tool in
 `integration_registry`, enumerated by reading both tables — is a substrate
 criterion and is not here. Neither is the permanent guard that a lookup miss
 denies once a real predicate exists; that is
-`walking-skeleton-authority-containment`'s AC-0235, and it cannot be decided
-here because there is no lookup to miss yet.
+`walking-skeleton-policy-decision-point`'s AC-0235, decided in
+`tests/authorization/test_deciding_a_call.py` against the real resolver that
+spec installs.
 """
 
 from __future__ import annotations
