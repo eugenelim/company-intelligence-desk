@@ -127,18 +127,28 @@ def a_planning_role(
 
 
 def a_pool(
-    *, model: Any = None, default_limits: Mapping[str, Any] | None = None
+    *,
+    model: Any = None,
+    default_limits: Mapping[str, Any] | None = None,
+    non_provider_model_ids: Sequence[str] = (STUB_MODEL_ID,),
 ) -> dict[str, Any]:
     """The deployment-time configuration, as the plain mapping the seam takes.
 
     `model_factory` is absent unless a model is given, which is the state the
     approved stub pins: a pool that wired no factory still compiles.
+
+    `non_provider_model_ids` declares `stub:counting` by default, and that is
+    AC-0275's carve-out rather than a convenience: every model wired here is a
+    test double whose class the reasoning-disable seam has no provider
+    knowledge of, and an undeclared one is refused. Pass an empty sequence to
+    build a pool that has declared nothing.
     """
     pool: dict[str, Any] = {
         "default_limits": dict(
             POOL_DEFAULT_LIMITS if default_limits is None else default_limits
         ),
         "allowed_model_ids": [STUB_MODEL_ID],
+        "non_provider_model_ids": list(non_provider_model_ids),
     }
     if model is not None:
         pool["model_factory"] = lambda model_id: model

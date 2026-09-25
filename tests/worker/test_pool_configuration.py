@@ -96,6 +96,65 @@ def test_a_missing_or_malformed_variable_fails_boot_naming_it(
         pool.verify_boot(env_with(**{name: value}))
 
 
+@pytest.mark.parametrize(
+    ("case", "value"),
+    [
+        ("empty", ""),
+        ("unparseable", "{not json"),
+        ("unquoted array", "[stub:counting]"),
+        ("wrong JSON type", "7"),
+        ("non-string member", '["stub:counting", 7]'),
+    ],
+)
+def test_a_malformed_non_provider_declaration_fails_boot_naming_it(
+    case: str, value: str
+) -> None:
+    """AC-0275's declaration is refused on the same terms as the other two.
+
+    Optional is not lenient: only an **unset** variable declares no id, so a
+    present value that cannot be read is a refusal. The unquoted array is the
+    hand edit that motivates it — a parser answering `()` on a decode error
+    would boot every worker green and surface only as an unexplained compile
+    refusal in production, long after the operator stopped looking here.
+    """
+    env = env_with(**{pool.NON_PROVIDER_MODEL_IDS_VAR: value})
+    with pytest.raises(ValueError, match=pool.NON_PROVIDER_MODEL_IDS_VAR):
+        pool.verify_boot(env)
+
+
+def test_an_empty_non_provider_declaration_says_to_unset_it() -> None:
+    """The empty case's advice, which is the only thing its branch changes.
+
+    Naming the variable is not enough to pin this: the shared JSON decoder
+    already refuses an empty value and already names it, so a check matching
+    on the variable alone stays green with the bespoke branch deleted — and
+    the operator is then told the variable "is required and is unset", which
+    is the opposite instruction for the one pool value that is optional.
+    What the branch exists to say is that unsetting it is the fix.
+    """
+    env = env_with(**{pool.NON_PROVIDER_MODEL_IDS_VAR: ""})
+
+    with pytest.raises(ValueError, match="unset it") as refusal:
+        pool.verify_boot(env)
+
+    assert pool.NON_PROVIDER_MODEL_IDS_VAR in str(refusal.value)
+    assert "is required" not in str(refusal.value), (
+        "the optional variable must not be reported as a missing required one"
+    )
+
+
+def test_an_unset_non_provider_declaration_declares_no_id() -> None:
+    """The one way this variable differs from the pool's other two.
+
+    Decided through `validate_pool_config`, because `verify_boot` reaches its
+    two connections on a configuration it admits and the `no_database` fixture
+    would fire there.
+    """
+    config = pool.validate_pool_config(env_with())
+
+    assert config.non_provider_model_ids == ()
+
+
 def test_a_non_string_model_id_fails_boot_naming_the_variable() -> None:
     """An array of the right JSON type can still not be a list of model ids."""
     env = env_with(**{pool.ALLOWED_MODEL_IDS_VAR: json.dumps(["stub:counting", 7])})

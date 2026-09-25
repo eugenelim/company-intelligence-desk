@@ -81,6 +81,7 @@ from ced.adapters.framework_contract import (
 )
 from ced.adapters.postgres.event_log import append_step_event
 from ced.adapters.postgres.roles import RoleLoadError
+from ced.adapters.reasoning_disable import ReasoningDisable, reasoning_disable_of
 from ced.agents.ceilings import compile_ceiling
 from ced.agents.models import RoleCompileError, resolve_model
 from ced.agents.toolsets import (
@@ -108,6 +109,7 @@ __all__ = [
     "ReferenceSelection",
     "RoleCompileError",
     "SoleToolsetError",
+    "ThinkingDisableUnreachable",
     "ToolBodyNotInstalled",
     "append_role_refusal",
     "check_sole_toolset",
@@ -127,6 +129,23 @@ class SoleToolsetError(Exception):
 
 class ToolBodyNotInstalled(Exception):
     """A domain tool body was reached. Nothing in this spec may reach one."""
+
+
+class ThinkingDisableUnreachable(RoleCompileError):
+    """AC-0275: the resolved model would send no provider-level disable.
+
+    **Declared here and not in `ced.agents.models`**, which is where
+    `RoleCompileError` has to live because that module raises it and cannot
+    import the compiler. This refusal has the opposite shape: `compile_role`
+    is the only place that raises it, and the question it reports on is asked
+    of `ced.adapters.reasoning_disable`, which the compiler already reaches.
+    Nothing would be gained by pushing it across an edge it does not cross.
+
+    A `RoleCompileError` subclass, so `append_role_refusal` files it as a
+    compile refusal and a caller catching the one compile type still catches
+    it. It is its own type because "this role disagrees with the pool" and
+    "this model would reason at the provider" are different operator problems.
+    """
 
 
 class ReferenceSelection(BaseModel):
@@ -442,6 +461,62 @@ def _bound_integrations(
             )
 
 
+def _check_reasoning_disable(
+    label: str,
+    model_id: str,
+    answer: ReasoningDisable,
+    declared: Sequence[str],
+) -> None:
+    """AC-0275. Refuse unless the resolved model would disable reasoning.
+
+    `answer` is `ced.adapters.reasoning_disable`'s, taken over the model the
+    compiled agent carries; this function only decides what to do with it, so
+    no provider rendering is named here.
+
+    **The deployment's declaration is evaluated first and wins**, which is the
+    ordinary shape of a fixture: an id declared non-provider-backed and wired
+    to an in-process double is admitted, and without a stated order that case
+    fires two clauses at once. A declared id that resolves to anything else is
+    refused — otherwise the declaration is an operator-supplied bypass.
+
+    **What the seam answers `NOT_PROVIDER_BACKED` for is a positive
+    identification, not the absence of one**, and that is what makes the
+    declaration safe to honour. An earlier build classified by identity with
+    one adapter class, so a `WrapperModel` around a live Bedrock adapter — and
+    any other provider's adapter — read as a fixture and a declared id wired
+    to one compiled green while the model reasoned at the provider. The seam
+    now unwraps wrappers and refuses anything it cannot prove local.
+
+    Residual, stated rather than closed: an id that resolves to **nothing**
+    and is wrongly declared is not caught here, because the pool returns no
+    model for it and there is nothing to interrogate.
+
+    Everything else fails closed: only an affirmative disable is admitted, so
+    a rendering carrying thinking enabled or adaptive, a model id resolving to
+    no profile, and a class the seam cannot interrogate are all refused.
+    """
+    if model_id in declared:
+        if answer is ReasoningDisable.NOT_PROVIDER_BACKED:
+            return
+        raise ThinkingDisableUnreachable(
+            f"{label} resolves model id {model_id!r}, which this deployment declares "
+            "reaches no provider, to a model that does reach one; the declaration is "
+            "not a bypass of the reasoning disable"
+        )
+    if answer is ReasoningDisable.CARRIED:
+        return
+    if answer is ReasoningDisable.NOT_PROVIDER_BACKED:
+        raise ThinkingDisableUnreachable(
+            f"{label} resolves model id {model_id!r} to an in-process double, and this "
+            "deployment has not declared that id non-provider-backed; declare the id to "
+            "admit it"
+        )
+    raise ThinkingDisableUnreachable(
+        f"{label} resolves model id {model_id!r} to a model whose request would carry "
+        f"no provider-level reasoning disable for thinking={COMPILED_THINKING!r}"
+    )
+
+
 def compile_role(
     role: Mapping[str, Any],
     integrations: Sequence[Mapping[str, Any]],
@@ -489,6 +564,22 @@ def compile_role(
     # § 5: set, never merely admitted. An omitted key leaves the provider's
     # default, so the compiled agent carries the value rather than the record.
     settings["thinking"] = COMPILED_THINKING
+
+    # AC-0275, asked of the instance the compiled agent carries and with the
+    # settings it will carry — a second instance, or the probe value alone,
+    # would answer about something other than this agent's requests. A pool
+    # that wired no factory resolves no model, and that compile is admitted
+    # here and guarded at the call by AC-0276.
+    model_id = str(model_settings["model_id"])
+    model = resolve_model(model_id, pool)
+    if model is not None:
+        _check_reasoning_disable(
+            label,
+            model_id,
+            reasoning_disable_of(model, cast(ModelSettings, settings)),
+            tuple(pool.get("non_provider_model_ids") or ()),
+        )
+
     limits = _resolved_limits(
         label, model_settings.get("limits", {}), pool.get("default_limits", {})
     )
@@ -504,7 +595,7 @@ def compile_role(
     check_stack_order(stack)
 
     agent: Agent[None, Any] = Agent(
-        model=resolve_model(str(model_settings["model_id"]), pool),
+        model=model,
         output_type=output_type,
         toolsets=[stack],
         retries=QUARANTINED_RETRIES if quarantined else None,

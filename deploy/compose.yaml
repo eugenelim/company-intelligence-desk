@@ -122,6 +122,11 @@ services:
          "tool_calls_limit": 40,
          "count_tokens_before_request": false}
       CED_POOL_ALLOWED_MODEL_IDS: '["stub:counting"]'
+      # Optional where the two above are required — an unset value declares no
+      # id. It is set here because `stub:counting` reaches no provider, which
+      # is what AC-0275 admits past the reasoning-disable guard; a present but
+      # malformed value is refused at boot like the other two.
+      CED_POOL_NON_PROVIDER_MODEL_IDS: '["stub:counting"]'
       # A sleep, not a model call: this suite needs no credential and no spend.
       CED_STEP_BODY_SECONDS: "600"
     depends_on:
@@ -155,4 +160,5 @@ services:
          "tool_calls_limit": 40,
          "count_tokens_before_request": false}
       CED_POOL_ALLOWED_MODEL_IDS: '["stub:counting"]'
+      CED_POOL_NON_PROVIDER_MODEL_IDS: '["stub:counting"]'
       CED_STEP_BODY_SECONDS: "600"
