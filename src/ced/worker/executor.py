@@ -9,8 +9,13 @@ execution sequence for one claimed step:
  4. Write the producer tuple as a content-addressed payload object — **before**
     the fenced append, per r5 § 3's crash-ordering requirement.
  5. Append ``step.started`` with the payload key as ``payload_ref``.
- 6. Run the compiled agent.
- 7. Append ``step.completed``, or ``step.failed`` on an agent error.
+ 6. Run the compiled agent, with a deadline-bound cancellation token.
+ 7. On suspension (``DeferredToolRequests`` output): write a suspension
+    payload, append ``step.suspended`` with the payload key, then release the
+    lease by clearing ``owner`` — the pool's subsequent ``release`` call is
+    fenced on the old owner and silently finds zero rows.
+ 8. Append ``step.completed``, or ``step.failed`` on an agent error or a
+    deadline-fired cancellation.
 
 On a role load or compile failure ``append_role_refusal`` records the stage
 that refused (AC-0261) and the body returns without appending ``step.completed``.
@@ -31,6 +36,17 @@ keys ``compile_role`` reads.
   ``ced.agents.compiler.CompiledRole``, not imported directly.
 - No ``boto3`` / ``botocore`` import: the object store is reached through
   ``ced.adapters.bedrock.payload``, which lives in ``adapters/``.
+
+**Deadline and suspension (T2):**
+- ``_run_compiled_agent`` is the single call-site for ``agent.run_sync``.
+  Keeping it in one named function lets tests call it directly — which is
+  what makes AC-0263's identity check non-tautological: the test calls the
+  executor's function, not ``agent.run_sync`` itself.
+- The cancellation token is disarmed in a ``finally`` block, so a deadline
+  firing between the agent return and the event commit cannot discard a step
+  that already succeeded (AC-0232).
+- Suspension releases the lease by setting ``owner = NULL``; the pool's own
+  ``release`` is fenced on the caller's worker id and silently no-ops.
 """
 
 from __future__ import annotations
@@ -46,7 +62,12 @@ import psycopg
 
 from ced.adapters.bedrock.model_factory import FETCH_ADAPTER_NAME, MODEL_ADAPTER_NAME
 from ced.adapters.bedrock.payload import write_payload
-from ced.adapters.framework_contract import PINNED_FRAMEWORK_VERSION
+from ced.adapters.framework_contract import (
+    PINNED_FRAMEWORK_VERSION,
+    CancellationToken,
+    DeferredToolRequests,
+    FunctionToolset,
+)
 from ced.adapters.postgres.dsn import database_url
 from ced.adapters.postgres.event_log import append_step_event, read_run_principal
 from ced.adapters.postgres.roles import LoadedRole, RoleLoadError, load_role
@@ -56,6 +77,7 @@ from ced.agents.compiler import (
     append_role_refusal,
     compile_role,
 )
+from ced.agents.tools.approval import request_approval
 from ced.worker.pool import Lease, PoolConfig, StepBody
 
 log = logging.getLogger("ced.worker.executor")
@@ -133,6 +155,58 @@ def _pool_mapping(config: PoolConfig) -> dict[str, Any]:
     }
 
 
+def _cancel_when_stopped(stop: threading.Event, token: CancellationToken) -> None:
+    """Cancel ``token`` when the pool signals drain.  Daemon thread target.
+
+    The pool sets its ``body_stop`` event on drain; wiring it to the
+    cancellation token lets ``run_sync`` raise ``RunCancelled`` rather than
+    finishing a model call nobody will use.  The thread is daemon so it does
+    not prevent the process from exiting if stop is never set.
+    """
+    stop.wait()
+    token.cancel()
+
+
+def _make_approval_toolset() -> FunctionToolset[Any]:
+    """Build the run-time approval toolset the executor injects for each run.
+
+    The toolset is **not** compiled into the agent; it is passed via
+    ``toolsets=[...]`` on ``run_sync`` so the approval gate is outside the
+    policy decision point's authority check (DR1).
+    """
+    toolset: FunctionToolset[Any] = FunctionToolset()
+    toolset.add_function(request_approval, requires_approval=True)
+    return toolset
+
+
+def _run_compiled_agent(
+    compiled: CompiledRole,
+    approval_toolset: FunctionToolset[Any],
+    cancellation_token: CancellationToken | None = None,
+) -> Any:
+    """Call ``agent.run_sync`` with the executor's bound, override, and token.
+
+    **This function is the single call-site for ``agent.run_sync``.** Keeping
+    the call here — rather than inline in ``body()`` — is what makes
+    AC-0263's identity check non-tautological: a test that calls
+    ``_run_compiled_agent`` is not calling ``agent.run_sync`` itself, so the
+    ``usage_limits`` value it observes inside a tool is what the executor chose,
+    not a value the test supplied.
+
+    ``output_type`` is overridden at run time to admit ``DeferredToolRequests``
+    alongside the role's own output type.  ``compiled.agent.output_type`` is
+    unchanged (AC-0203's identity check in ``test_quarantined_role.py`` remains
+    green).
+    """
+    return compiled.agent.run_sync(
+        "Return an empty list of references.",
+        usage_limits=compiled.limits,
+        output_type=[compiled.agent.output_type, DeferredToolRequests],
+        toolsets=[approval_toolset],
+        cancellation_token=cancellation_token,
+    )
+
+
 def make_step_body(config: PoolConfig) -> StepBody:
     """Return a step body that compiles and runs the leased step's role.
 
@@ -143,8 +217,7 @@ def make_step_body(config: PoolConfig) -> StepBody:
     pool_map = _pool_mapping(config)
 
     def body(lease: Lease, stop: threading.Event) -> None:
-        """Execute one step: load, compile, record, run, complete."""
-        del stop  # T1: no cancellation token yet; T2 adds step_deadline.
+        """Execute one step: load, compile, record, run, complete or suspend."""
         role_name = lease.agent_role or ""
         role_version = 1  # T1: agent_role column stores the role name; version 1 assumed.
 
@@ -211,12 +284,22 @@ def make_step_body(config: PoolConfig) -> StepBody:
             )
         # Connection is released here; no transaction is held during the call.
 
+        # AC-0232: arm a deadline-bound cancellation token.  The stop_watcher
+        # also cancels the token on pool drain, so a SIGTERM reaches the model
+        # call promptly rather than waiting out the deadline.
+        token = CancellationToken()
+        threading.Thread(target=_cancel_when_stopped, args=(stop, token), daemon=True).start()
+        deadline_timer: threading.Timer | None = None
+        if config.step_deadline is not None:
+            deadline_timer = threading.Timer(config.step_deadline, token.cancel)
+            deadline_timer.start()
+
         # Run the agent. Any exception is caught and recorded as step.failed.
+        # The finally block disarms the deadline timer whether the run succeeds,
+        # suspends, or fails — so a late-firing timer cannot discard a completed
+        # step (AC-0232).
         try:
-            compiled.agent.run_sync(
-                "Return an empty list of references.",
-                usage_limits=compiled.limits,
-            )
+            result = _run_compiled_agent(compiled, _make_approval_toolset(), token)
         except Exception as exc:
             log.error("executor: agent run failed for step %s: %s", lease.step_id, exc)
             with psycopg.connect(database_url("worker")) as conn:
@@ -229,6 +312,41 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     principal=principal,
                     agent_role=role_name,
                 )
+            return
+        finally:
+            if deadline_timer is not None:
+                deadline_timer.cancel()
+
+        # AC-0237: suspension path.  Write the payload before the fenced append
+        # (crash ordering per r5 § 3), then release the lease by clearing owner.
+        # The pool's subsequent release call is fenced on the old owner value and
+        # silently finds zero rows, so it cannot overwrite the suspension state.
+        if isinstance(result.output, DeferredToolRequests):
+            suspension_ref = write_payload({"pending_approval_count": len(result.output.calls)})
+            with psycopg.connect(database_url("worker")) as conn:
+                append_step_event(
+                    conn,
+                    run_id=lease.run_id,
+                    step_id=lease.step_id,
+                    lease_epoch=lease.epoch,
+                    type="step.suspended",
+                    principal=principal,
+                    agent_role=role_name,
+                    payload_ref=suspension_ref,
+                )
+                conn.execute(
+                    """
+                    UPDATE steps
+                       SET state = 'runnable',
+                           lease_expires_at = NULL,
+                           owner = NULL
+                     WHERE step_id = %s
+                       AND lease_epoch = %s
+                       AND owner = %s
+                    """,
+                    (lease.step_id, lease.epoch, config.worker_id),
+                )
+                conn.commit()
             return
 
         with psycopg.connect(database_url("worker")) as conn:
