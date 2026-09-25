@@ -24,6 +24,14 @@ dependencies = [
     # Imported by no code in the walking-skeleton-foundation spec — it is here
     # so the dependency-direction gate has a real installed package to forbid.
     "pydantic-ai-slim[bedrock]==2.45.0",
+    # Declared because `ced.adapters.bedrock.payload` imports it directly, and
+    # AGENTS.md § Coding conventions counts an import missing from the owning
+    # manifest as a new dependency even when it resolves locally. **No package
+    # is added by this line**: boto3 is already installed as a transitive of
+    # the `[bedrock]` extra above, and the version is deliberately left to that
+    # extra to resolve rather than pinned twice in disagreement. What changes
+    # is that the manifest now records what the code actually imports.
+    "boto3",
     # Recorded in docs/specs/walking-skeleton-authority-containment/plan.md
     # § Dependencies & integration. AC-0215 refuses a `host_in_domain`
     # argument that is a public suffix, and the standard library carries no
@@ -98,6 +106,15 @@ ignore_missing_imports = true
 # boundary is the SQL, and the row shapes are asserted by tests/event_log.
 module = "ced.adapters.postgres.*"
 warn_return_any = false
+
+[[tool.mypy.overrides]]
+# boto3 and botocore ship no py.typed marker and no first-party stubs.
+# Types.AmazonWebServicesClientBuilder and the full service interface are
+# large-surface enough that stub maintenance would cost more than the
+# explicit-credential pattern in ced.adapters.bedrock.payload is worth
+# covering; Any is the correct escape hatch here.
+module = ["boto3", "botocore.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
