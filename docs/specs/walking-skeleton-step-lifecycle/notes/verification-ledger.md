@@ -351,3 +351,78 @@ made the declaration parser lenient or made an unset variable raise. Both
 mutations were then run directly and both checks red. Recorded because "no
 mutation reds it" is only evidence when the mutation set can reach the code:
 an incomplete sweep reports a live check as dead.
+
+## T1 — the first live provider call (2026-09-24)
+
+A step compiled a quarantined role, called Bedrock under a scoped assumed
+role, and reached `step.completed`. Model
+`us.anthropic.claude-haiku-4-5-20251001-v1:0`, chosen because it is
+non-adaptive on the pin: T6's compile guard admits it and the disable reaches
+the wire. Spend was around $0.001, against the spec's $5 ask-first boundary.
+
+Evidence read back from the event log rather than from setup:
+`inference_profile` and `framework_version = 2.45.0` in the producer tuple,
+`model_adapter = BedrockConverseModel`, `fetch_adapter = BedrockProvider`, and
+a 64-hex `tool_manifest_hash`.
+
+### AC-0224 was delivered as a check that observed its own setup
+
+It read `os.environ["AWS_ACCESS_KEY_ID"]` in the pytest process and asserted
+the `ASIA` prefix — a value the fixture in the same file had just placed
+there. It would have held whatever the deployable actually shipped. The
+criterion names the **running worker container**, and the plan says the
+compose file is the intent while the container is the fact.
+
+It now execs into `worker-a` and scans the environment plus every credentials
+file a default AWS chain reads. Mutation-proved: planting
+`AWS_ACCESS_KEY_ID=AKIA…` on the container reds it, reverting passes. The
+measured fact is stronger than the criterion needs — the deployable carries no
+`AWS_*` variable and no credentials file at all.
+
+Two limits are stated in the check rather than implied: a local container scan
+cannot show the deployed-fleet property, and scanning a *running* filesystem
+cannot decide "baked into the image" when a secret may sit in a discarded
+layer. Both were already recorded in § Follow-ons.
+
+### The trust policy was refreshed only at creation
+
+`create_role` is a no-op once the role exists, so each run rewrote the role's
+**permissions** while the predicate deciding **who may assume it** stayed
+whatever the first run wrote. A role pre-created in a shared account with a
+wider principal condition would have kept that trust indefinitely with nothing
+reporting it. `update_assume_role_policy` now runs unconditionally beside
+`put_role_policy`.
+
+### The endpoint guard's first version did not address its own finding
+
+`CED_OBJECT_STORE_ENDPOINT` was unvalidated, so a mistyped or hostile value
+would direct every payload write wherever it pointed. The first guard checked
+only the scheme — and `http://169.254.169.254/` is a well-formed http URL with
+a host, so it was admitted and boto3 tried to connect. That was caught only
+because the verification command hung.
+
+The guard now refuses the link-local range specifically, which covers both the
+instance-metadata address and the ECS task-metadata address at
+`169.254.170.2`. Loopback and ordinary private addresses stay admitted on
+purpose: MinIO is served on one, and refusing them would refuse the deployment
+rather than the hazard. Removing the link-local branch reds the two checks that
+name it.
+
+### boto3 was an undeclared direct dependency
+
+`ced.adapters.bedrock.payload` imports `boto3`, which reached the environment
+only as a transitive of the `[bedrock]` extra. `AGENTS.md` § Coding conventions
+counts an import missing from the owning manifest as a new dependency **even
+when it resolves locally**, and T1's plan states "No new package dependency".
+It is now declared. No package is added by the line: the version stays with the
+extra rather than being pinned twice in disagreement.
+
+### Why the payload writer lives under `adapters/bedrock/`
+
+It is an object-store concern and belongs in `adapters/objectstore/`, which is
+**T3's** `Touches` and not T1's. The event schema accepts only a
+`payload_ref`, never an inline value, so recording the producer tuple required
+writing an object; T1's pinned `Touches` admits `src/**/adapters/bedrock/**`
+and nothing else that could hold it. T3 owns the permanent adapter and
+AC-0231's scope-qualified keys, and should relocate this module rather than
+duplicate it.
