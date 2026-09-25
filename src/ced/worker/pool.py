@@ -74,9 +74,13 @@ dies.
   * It runs an **injected step body**. `walking-skeleton-role-compilation`
     supplies the real one; here the default sleeps, which is what keeps this
     spec's suite offline and free of spend.
-  * There is no cancellation token and no `step_deadline`. Those are
-    `worker-runtime.md` § 6 Deployment and Operations', and the evidence spec
-    measures them.
+  * There is no cancellation token. That is `worker-runtime.md` § 6 Deployment
+    and Operations', and the evidence spec measures it. **`step_deadline` is
+    here** — it is pool configuration, as this spec's plan § Quality attributes
+    says, and `ced.worker.executor` reads it to bound a step that stops short.
+    The bound holding is AC-0232's property; whether the configured value is
+    the right one is the evidence spec's measurement, which is why only the
+    field lives here and no default is asserted to be correct.
   * The boot sequence verifies both database connections and **not** the object
     store: nothing in this spec reads or writes an object, and an S3 client
     here would put the AWS SDK outside `adapters/`, which the
@@ -251,6 +255,12 @@ class PoolConfig:
     lease_ttl_seconds: int = LEASE_TTL_SECONDS
     heartbeat_seconds: int = HEARTBEAT_SECONDS
     poll_seconds: int = POLL_SECONDS
+    #: AC-0232: the wall-clock bound (seconds) after which the cancellation
+    #: token fires and the agent run is interrupted.  ``None`` means no
+    #: deadline — the step runs until it completes, fails, or the pool drains.
+    #: The evidence spec measures the calibration; this spec asserts the bound
+    #: holds against whatever value is configured.
+    step_deadline: float | None = None
 
 
 def _parse_json_variable(env: Mapping[str, str], name: str) -> object:

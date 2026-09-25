@@ -426,3 +426,107 @@ writing an object; T1's pinned `Touches` admits `src/**/adapters/bedrock/**`
 and nothing else that could hold it. T3 owns the permanent adapter and
 AC-0231's scope-qualified keys, and should relocate this module rather than
 duplicate it.
+
+## T2 — step suspension and deadline (2026-09-25)
+
+### AC-0232: CancellationToken fires within deadline
+
+**Test:** `tests/suspension/test_step_deadline.py::test_a_hung_run_is_cancelled_within_the_deadline`
+
+Mutation proof — three mutations and their verdicts:
+
+1. **Remove `cancellation_token=token` from `_run_compiled_agent`'s `run_sync` call.**
+   Without the token the run is never registered for cancellation. The timer fires but
+   nothing cancels the asyncio task. The test hangs beyond `3 × DEADLINE`.
+   Verdict: **reds the test** (confirmed: test hangs without the argument).
+
+2. **Replace `await asyncio.sleep(1000)` with `return ModelResponse(...)` immediately.**
+   The model returns immediately; the `CancellationToken` fires but the run is already
+   done. `RunCancelled` is never raised. The test fails with `Failed: DID NOT RAISE`.
+   Verdict: **reds the test**.
+
+3. **Set `_DEADLINE = 100.0`.**
+   The timer fires after 100 s. The elapsed assertion `< 300 s` still passes (the
+   model's `asyncio.sleep(1000)` is still cancelled promptly), but the test takes
+   over 100 s — any CI wall-clock budget rejects it.
+   Verdict: **not a cancellation regression** but confirms the timer controls elapsed.
+
+**Why async model function is required.** `pydantic_ai._utils.run_in_executor` calls
+`anyio.to_thread.run_sync(func, abandon_on_cancel=_abandon_on_cancel.get())`. Outside
+the `abandon_threads_on_cancel()` context manager `_abandon_on_cancel.get()` is `False`,
+so anyio shields the await: the `CancelledError` is only delivered after the thread
+returns. A sync `time.sleep(1000)` therefore blocks for 1000 s after the token fires.
+An async function is detected by `_utils.is_async_callable` (line 167 of `function.py`)
+and awaited directly — no thread — so `asyncio.sleep(1000)` is cancelled immediately
+when the driving asyncio task is cancelled. Reproduced by switching to sync sleep:
+test hangs indefinitely.
+
+### AC-0237: suspended step releases lease
+
+**Test:** `tests/suspension/test_step_suspends.py::test_a_step_suspends_releases_its_lease_and_is_claimable` (substrate)
+
+Mutation proof — three mutations:
+
+1. **Remove the `UPDATE steps SET … owner = NULL` block from the suspension path.**
+   The lease is never cleared. Assertion 2 (`owner = NULL`) fails. Assertion 3
+   (`claim_one` returns non-None) also fails because the row stays in `state='leased'`.
+   Verdict: **reds assertions 2 and 3**.
+
+2. **Change `isinstance(result.output, DeferredToolRequests)` to `False` (never suspend).**
+   The executor takes the normal return path. No `step.suspended` event is written.
+   Assertion 1 (`len(suspended) == 1`) fails.
+   Verdict: **reds assertion 1**.
+
+3. **Write the `step.suspended` event after clearing the lease (reverse code order).**
+   **Reds, and this entry previously said it did not.** The implementer recorded
+   the ordering as a documentation claim that no test predicate asserts; the
+   controller ran the mutation on 2026-09-25 and the test failed — so the
+   correction is kept rather than quietly replaced, because "not pinned" is the
+   claim that stops the next reader looking.
+
+   The mutation reds for exactly the criterion's own reason, and the fence is
+   what does it rather than an assertion: with `owner` already cleared, the
+   fenced append refuses and raises `Fenced`. That is AC-0237's clause "without
+   the release making that append unfenced", enforced by the database rather
+   than asserted by the suite. Both statements share one transaction, so the
+   ordering is invisible to an outside reader after the commit — which is why
+   reading final state proves nothing and why the mutation, not the assertion,
+   is the evidence here.
+
+### AC-0263: usage limits identity and enforcement
+
+**Tests:** `tests/usage_limits/test_usage_limits_in_force.py`
+
+**Identity mutation:** Replace `usage_limits=compiled.limits` in `_run_compiled_agent`
+with `usage_limits=UsageLimits()` (a fresh object). The `ctx.usage_limits is compiled.limits`
+assertion fails with `AssertionError`. Verdict: **reds the identity check**.
+
+**Enforcement mutation:** Remove `usage_limits=compiled.limits` argument from `run_sync`
+entirely. The framework enforces no limits; a `request_limit=0` pool runs without
+raising `UsageLimitExceeded`. Verdict: **reds the enforcement check**.
+
+**Why `request_limit=0` and not `tool_calls_limit=0`.** `requires_approval=True` tools
+are intercepted by pydantic_ai before the tool-calls counter increments. Setting
+`tool_calls_limit=0` returns `DeferredToolRequests` instead of raising
+`UsageLimitExceeded` because the deferred intercept fires before the counter check.
+`request_limit=0` fires before the first model request and is not bypassed by the
+deferred mechanism. Confirmed by switching to `tool_calls_limit=0`: test fails with
+`Failed: DID NOT RAISE <class '...UsageLimitExceeded'>`.
+
+### T2 mutations re-run by the controller (2026-09-25)
+
+Every T2 check was re-checked against a mutation rather than taken from the
+implementer's report. Two results differ from what that report claimed.
+
+| mutation | result |
+| --- | --- |
+| release the lease before the fenced append | **reds** `test_a_step_suspends_releases_its_lease_and_is_claimable` with `Fenced` — recorded above as unpinned, which was wrong |
+| executor threads a different `UsageLimits` object | **reds both** `test_usage_limits_identity` and `test_usage_limits_are_enforced` |
+
+The second is the one AC-0263 was restated to make possible. The identity check
+calls `_run_compiled_agent`, the executor's own function, so the executor
+supplies the limits and the test only observes; had the test called
+`agent.run_sync` itself it would have asserted its own argument, since
+`RunContext.usage_limits` is the identical object the caller passes. That is
+the tautology the criterion's 2026-09-24 restatement exists to prevent, and it
+is avoided.
