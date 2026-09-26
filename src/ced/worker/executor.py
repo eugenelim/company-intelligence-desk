@@ -35,7 +35,7 @@ keys ``compile_role`` reads.
 - No ``pydantic_ai`` import: the framework type is reached through
   ``ced.agents.compiler.CompiledRole``, not imported directly.
 - No ``boto3`` / ``botocore`` import: the object store is reached through
-  ``ced.adapters.bedrock.payload``, which lives in ``adapters/``.
+  ``ced.adapters.objectstore.client``, which lives in ``adapters/``.
 
 **Deadline and suspension (T2):**
 - ``_run_compiled_agent`` is the single call-site for ``agent.run_sync``.
@@ -56,21 +56,28 @@ import json
 import logging
 import threading
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 import psycopg
 
 from ced.adapters.bedrock.model_factory import FETCH_ADAPTER_NAME, MODEL_ADAPTER_NAME
-from ced.adapters.bedrock.payload import write_payload
 from ced.adapters.framework_contract import (
     PINNED_FRAMEWORK_VERSION,
     CancellationToken,
     DeferredToolRequests,
     FunctionToolset,
 )
+from ced.adapters.objectstore.client import write_payload
+from ced.adapters.objectstore.history import serialise_history
 from ced.adapters.postgres.dsn import database_url
 from ced.adapters.postgres.event_log import append_step_event, read_run_principal
-from ced.adapters.postgres.roles import LoadedRole, RoleLoadError, load_role
+from ced.adapters.postgres.roles import (
+    LoadedRole,
+    RoleLoadError,
+    load_entitlements,
+    load_role,
+)
+from ced.agents.ceilings import compile_ceiling
 from ced.agents.compiler import (
     CompiledRole,
     RoleCompileError,
@@ -78,6 +85,8 @@ from ced.agents.compiler import (
     compile_role,
 )
 from ced.agents.tools.approval import request_approval
+from ced.agents.toolsets import PolicyDecisionPoint
+from ced.agents.toolsets.step_events import StepContext, StepEventToolset
 from ced.worker.pool import Lease, PoolConfig, StepBody
 
 log = logging.getLogger("ced.worker.executor")
@@ -283,10 +292,42 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 payload_ref=payload_ref,
             )
         # Connection is released here; no transaction is held during the call.
+        # The two the step context holds are opened next and closed in the
+        # outer finally, because a tool call records through them mid-run.
+        step_conn = psycopg.connect(database_url("worker"))
+        policy_conn = psycopg.connect(database_url("policy"))
 
         # AC-0232: arm a deadline-bound cancellation token.  The stop_watcher
         # also cancels the token on pool drain, so a SIGTERM reaches the model
         # call promptly rather than waiting out the deadline.
+        # **Bind the step context before the run, or a ceiling-bearing role
+        # cannot execute at all.** Until AC-0227 needed one, every role this
+        # executor ran was quarantined — an empty ceiling means no domain tool
+        # exists and the decision point is never consulted — so the absence of
+        # a binding was invisible. A domain tool reaching an unbound decision
+        # point is refused with "no step context", which is the decision
+        # point's own fail-closed behaviour and not a defect in it: a call it
+        # cannot record is a call it must not admit.
+        #
+        # The entitlements conjunct is resolved here for the same principal the
+        # run record names, which is the initial-run counterpart of what
+        # `ced.worker.persistence.resume_step` does on the resume path.
+        step_ctx = StepContext(
+            connection=step_conn,
+            policy_connection=policy_conn,
+            run_id=lease.run_id,
+            step_id=lease.step_id,
+            lease_epoch=lease.epoch,
+            principal=principal,
+            agent_role=role_name,
+        )
+        decision_point = cast(PolicyDecisionPoint, compiled.stack)
+        decision_point.step = step_ctx
+        cast(StepEventToolset, decision_point.wrapped).step = step_ctx
+        decision_point.entitlements = compile_ceiling(
+            "entitlements", list(load_entitlements(principal))
+        )
+
         token = CancellationToken()
         threading.Thread(target=_cancel_when_stopped, args=(stop, token), daemon=True).start()
         deadline_timer: threading.Timer | None = None
@@ -316,13 +357,27 @@ def make_step_body(config: PoolConfig) -> StepBody:
         finally:
             if deadline_timer is not None:
                 deadline_timer.cancel()
+            step_conn.close()
+            policy_conn.close()
 
         # AC-0237: suspension path.  Write the payload before the fenced append
         # (crash ordering per r5 § 3), then release the lease by clearing owner.
         # The pool's subsequent release call is fenced on the old owner value and
         # silently finds zero rows, so it cannot overwrite the suspension state.
         if isinstance(result.output, DeferredToolRequests):
-            suspension_ref = write_payload({"pending_approval_count": len(result.output.calls)})
+            # AC-0228: strip reasoning parts before serialising (DR8 storage
+            # backstop). AC-0226: write the full history so the suspended step
+            # can be resumed from bytes alone (AC-0227).
+            messages = result.all_messages()
+            history_json_list = json.loads(serialise_history(messages))
+            pending_call_ids = [call.tool_call_id for call in result.output.approvals]
+            suspension_ref = write_payload(
+                {
+                    "schema_version": 1,
+                    "history": history_json_list,
+                    "pending_approval_call_ids": pending_call_ids,
+                }
+            )
             with psycopg.connect(database_url("worker")) as conn:
                 append_step_event(
                     conn,

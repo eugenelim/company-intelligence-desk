@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from ced.adapters.bedrock.payload import _checked_endpoint
+from ced.adapters.objectstore.client import _checked_endpoint
 
 
 @pytest.mark.parametrize(

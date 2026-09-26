@@ -526,11 +526,11 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
             unset=(_LOCK_TIMEOUT_ENV_VAR,),
         )
         assert retried.returncode == 0, retried.stderr
-        assert _current_revision(probe_url) == "0003"
+        assert _current_revision(probe_url) == "0004"
         assert "tools" in _column_names(probe_url, "integration_registry"), (
-            "the retry exited 0 without applying 0003 — a bounded wait that "
-            "makes the migration unrunnable rather than retryable is not the "
-            "bargain env.py records"
+            "the retry exited 0 without applying the pending migrations — "
+            "a bounded wait that makes migrations unrunnable rather than "
+            "retryable is not the bargain env.py records"
         )
 
 
@@ -644,7 +644,7 @@ def test_the_lock_timeout_override_reaches_the_migration_session(
                 "reader the default gave up on, and gave up too, so the value "
                 f"is not reaching the migration session.\n{patient.stderr}"
             )
-            assert _current_revision(probe_url) == "0003"
+            assert _current_revision(probe_url) == "0004"
         finally:
             release.set()
             keeper.join(timeout=30)
