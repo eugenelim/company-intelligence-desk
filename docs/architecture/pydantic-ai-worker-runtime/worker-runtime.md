@@ -1,8 +1,12 @@
 # Subsystem Design — the reasoning worker and its pool
 
-**STATUS: PLANNED** — the pool, the lease protocol, the privilege split, the
-agent layer and the authorization boundary are built; the provider call is
-not. The agent layer here means the role compiler, the four-layer toolset
+**STATUS: BUILT for Phase 1** — the pool, the lease protocol, the privilege
+split, the agent layer, the authorization boundary **and the provider call**
+are built. `walking-skeleton-step-lifecycle` cleared the last clause: a step
+calls Bedrock under a scoped assumed role, suspends for approval, releases its
+lease, and resumes in a different process from the persisted bytes. What
+remains unbuilt here is the evidence spec's: the run state machine's remaining
+transitions, the browser stream, and the Phase 1 measurements. The agent layer here means the role compiler, the four-layer toolset
 stack, the compile-time refusals, and the quarantined role with its
 deterministic parser. The decision point now ships with its **predicate** as
 well as its position: it decodes a stored ceiling into the containment
