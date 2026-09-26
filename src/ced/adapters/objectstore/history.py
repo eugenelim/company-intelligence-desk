@@ -23,6 +23,8 @@ from pydantic_ai import DeferredToolResults
 from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelResponse, ThinkingPart
 from pydantic_ai.toolsets import FunctionToolset
 
+from ced.adapters.reasoning_disable_guard import ReasoningDisableGuard
+
 __all__ = [
     "deserialise_history",
     "run_with_approval",
@@ -70,6 +72,11 @@ def run_with_approval(
         output_type=output_type,
         toolsets=[approval_toolset],
         cancellation_token=cancellation_token,
+        # AC-0276: refuse any resumed call that would reach a provider without
+        # disabling reasoning.  Same guard as the initial-run path in
+        # executor._run_compiled_agent; both are needed because they are separate
+        # agent.run_sync call sites.
+        capabilities=[ReasoningDisableGuard()],
     )
 
 
