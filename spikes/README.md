@@ -892,3 +892,44 @@ spec at all.
   stale-suffix `host_in_domain` on any other domain type.
 - **Nothing about a provider, a cost, or a latency.** No model is called
   anywhere in this spec.
+
+## What the walking skeleton's step lifecycle established, and what it did not
+
+Phase 0's spikes are hypothesis checks; this section records which of them the
+delivered runtime confirmed, and where the delivery's own evidence stops
+short. It is separated from the spike records above because a spike's setup is
+not evidence about the shipped system.
+
+**Confirmed by the delivered runtime.** Spike 1's IAM shape carried over
+unchanged and admits the call: inference-profile ARN pinned to the calling
+region, foundation-model ARN region-wildcarded, no requested-region condition.
+Both tightenings spike 1 measured as denials were not re-derived and not
+re-applied. Spike 7's byte-identical history round trip holds for a history
+carrying a tool call, a tool return, a retry part and a pending approval —
+the combination that spike never asserted — and a resume now happens in a
+process sharing nothing with the original but those bytes.
+
+**What the credential evidence does not reach.** The scan reads a locally
+running container and shows it holds no static key and no credentials file.
+On a deployed fleet the task role supplies credentials with no session key in
+the process environment at all, and that is a strictly stronger property than
+a local scan can see. Scanning a *running* filesystem also cannot decide
+"baked into the image": a secret added in one layer and removed in a later one
+remains recoverable from the image, and no image scanner is wired here.
+
+**What the reasoning-disable control does not reach.** A role cannot compile,
+and a call cannot be issued, against a model whose request would carry no
+provider-level disable — asked through a seam that runs the model's own
+settings-to-request resolution rather than restating it. Three residuals are
+stated rather than closed: an id declared non-provider-backed and resolving to
+nothing is not caught; identification of an in-process double is by class, so
+a subclass of one that delegates to a provider inherits the admit; and a
+fallback chain is refused rather than read, because `FallbackModel` is not a
+wrapper on the pinned version.
+
+**How the delivery's own checks were judged.** Every criterion's check was put
+against a mutation that should red it. Six checks that could not fail were
+found and repaired during the work, and the ones that cost most were those
+whose weakness nobody had written down — which is why
+`docs/specs/walking-skeleton-step-lifecycle/notes/verification-ledger.md`
+records the checks that remain weak alongside the mutations that pin the rest.

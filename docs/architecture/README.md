@@ -37,9 +37,28 @@ points — `ced-api` and `ced-worker`.
 | The dependency-direction gate | `tests/architecture/dependency_direction.py` | An AST walk refusing `pydantic_ai` outside `agents/` and `adapters/`, and the AWS SDK outside `adapters/` | The spec's Never-do |
 | The local substrate | `deploy/` | Postgres 17 with `deadlock_timeout` at 200 ms, MinIO, and two worker containers | `worker-runtime.md` § 6 Deployment and Operations |
 
-**What is designed and not built.** The provider call, the run state machine's
+**What the step lifecycle added.** `walking-skeleton-step-lifecycle` built the
+model seam, the approval gate and persistence. A step reaches a real provider
+under a scoped assumed role; a step that asks for approval writes its history,
+releases its lease and is resumed from those bytes by a different process; a
+step whose model call hangs is bounded; and a role cannot compile, nor a call
+be issued, against a model that would reason at the provider.
+
+**What is designed and not built.** The run state machine's remaining
 transitions, the browser stream, and the Phase 1 measurements. Those belong to
-`walking-skeleton-step-lifecycle` and `walking-skeleton-evidence`.
+`walking-skeleton-evidence`.
+
+**What the step lifecycle established, and what it did not.** The credential
+scan reads a locally running container and shows it holds no static key; on a
+deployed fleet the task role supplies credentials with no session key in the
+process environment at all, and that stronger property is not demonstrated
+here. No image scanner is wired, so a secret in a discarded layer is invisible
+to a scan of a running filesystem. The reasoning-disable guard admits a model
+the deployment declares non-provider-backed, and identification is by class —
+a subclass of an in-process double that delegates to a provider inherits the
+admit. A fallback chain is refused rather than read, because `FallbackModel`
+is not a wrapper on the pinned framework version. Each of these is stated in
+the spec's own criteria rather than left for a reader to discover.
 
 **What the authorization boundary establishes, and what it does not.** Fifteen
 criteria hold that the boundary refuses a value outside the ceiling, refuses a
