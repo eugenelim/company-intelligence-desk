@@ -530,3 +530,185 @@ supplies the limits and the test only observes; had the test called
 `RunContext.usage_limits` is the identical object the caller passes. That is
 the tautology the criterion's 2026-09-24 restatement exists to prevent, and it
 is avoided.
+
+## T3 — incomplete: the resume path is not exercised (2026-09-25)
+
+T3's implementation died on an infrastructure limit before writing its
+mutation record. The controller ran the sweep instead, and it found the
+largest gap in this delivery so far.
+
+### `resume_step` is called by nothing
+
+`src/ced/worker/persistence.py` defines `resume_step`, the function that *is*
+the resume path. It appears nowhere else in `src/` or `tests/` except its own
+`__all__`. Three sabotages of it left the entire suite green:
+
+| mutation to `resume_step` | result |
+| --- | --- |
+| read the principal from the history bytes instead of the run record | **survived** |
+| compile the role at `role_version + 1` instead of the suspended version | **survived** |
+| return no entitlements at all instead of looking them up | **survived** |
+
+The checks exercise the components — `load_role`, `read_run_principal`,
+`load_entitlements` — and the module docstring then reasons in prose that the
+resume path calls them, recording mutations as thought experiments
+("Recorded as: bypassing `load_role` at resume causes the test to see stale
+instructions"). Those mutations were never run, because nothing runs the path.
+
+**Five criteria are written about the resumed step, not about its parts.**
+AC-0245: "a **resumed step's** entitlements conjunct is looked up for the
+principal named in the run record". AC-0241: "a **resumed step's** tool calls
+are authorized against the ceiling of the role version the step was suspended
+under". That `load_role` returns the right ceiling does not establish that the
+resumed step uses it.
+
+### AC-0227 is weaker than its wording
+
+The criterion requires "a fresh agent **in a separate process**, sharing
+nothing with the original run but those bytes, resumes the suspended step
+**and applies the approval decision**". The delivered check calls
+`load_suspension_payload` in-process and asserts the messages deserialise — it
+reconstructs a history. It does not resume a step, does not use a separate
+process, and applies no decision. The plan is explicit that same-process reuse
+"would pass on in-memory state the design forbids relying on".
+
+### What the new check establishes, and what still blocks it
+
+`tests/persistence/test_resume_runs_in_a_separate_process.py` drives
+`resume_step` through `resume_runner.py` in a genuine subprocess, which
+receives only identifiers and the object-store key and builds its own pool
+wiring. It then reads the event log back, so the evidence is what the system
+recorded rather than what the harness arranged.
+
+**It currently fails, and the failure is the finding, not a defect in the
+check.** The subprocess resumes cleanly and records *nothing*: the fixture's
+role carries an empty ceiling, so no domain tool exists to run. The plan
+already states the requirement this exposes — "the approved tool needs a
+ceiling entry the installed containment predicate admits, which is why
+`walking-skeleton-authority-containment` and
+`walking-skeleton-policy-decision-point` are hard dependencies and not peers".
+
+### Recovery, 2026-09-26
+
+Two production fixes were needed, not just a test.
+
+**The executor bound no `StepContext`.** Any ceiling-bearing role failed with
+"reached the decision point with no step context" — the decision point's own
+fail-closed behaviour, since a call it cannot record is a call it must not
+admit. T1 and T2 never exposed it because both ran only quarantined roles,
+whose empty ceiling means no domain tool exists and the decision point is
+never consulted. The binding now mirrors what `resume_step` already did, and
+T3's `Touches` was amended under owner authority to admit `executor.py`.
+
+**`resume_step` wrote nothing to the log.** A resumed step left no trace, so
+AC-0227's "applies the approval decision" had no observable outcome under any
+configuration. It now appends `step.resumed` carrying the principal read from
+the run record.
+
+The resume is driven through `resume_runner.py` in a genuine subprocess. Two
+facts learned on the way are worth keeping:
+
+* `fence_step` requires `owner IS NOT NULL AND lease_expires_at >
+  clock_timestamp()` — proof of **possession**, not knowledge of an epoch. An
+  epoch handed across a process boundary goes stale, so the subprocess claims
+  the step itself, which is also what a real resuming worker does and what
+  AC-0237 released the lease for.
+* A ceiling entry's `predicates` is a mapping keyed by argument name. `{}`
+  places no constraint and admits; `[]` admits nothing. The first attempt used
+  a list, so the ceiling refused before `may_act`'s conjunction could reach
+  the entitlements term.
+
+| sabotage of `resume_step` | before | after |
+| --- | --- | --- |
+| principal taken from the history bytes | survived | **reds** |
+| role compiled at the wrong version | survived | **reds** |
+| entitlements not read at resume | survived | **still survives** |
+
+### AC-0253 closed, after four corrections
+
+All three sabotages of `resume_step` now red:
+
+| sabotage | at discovery | now |
+| --- | --- | --- |
+| principal taken from the history bytes | survived | **reds** |
+| role compiled at the wrong version | survived | **reds** |
+| entitlements not read at resume | survived | **reds** |
+
+Four things had to be corrected to get there, and two were defects in the
+checks rather than in the code.
+
+**`TestModel` does not re-call tools on a resume.** Measured on the pin:
+`['fetch_filing']` on a fresh run, `[]` when resumed from a history — it goes
+straight to final output. A resumed model that calls nothing leaves the
+decision point unconsulted, so the resuming process uses a `FunctionModel`
+that issues exactly one domain call.
+
+**An empty `predicates` admits nothing**, in either encoding. `compile_ceiling`
+says so: "an entry whose `predicates` encoding is absent or empty contributes
+**no** entry, so a call to that tool denies by lookup miss". Both `[]` and `{}`
+were tried before that line was read. The ceiling now carries a real argument
+predicate, and that is load-bearing rather than incidental: `may_act`
+short-circuits, so a ceiling that refuses first decides the call before the
+entitlements term is reached and a revocation can never be seen to bite.
+
+**`ToolBodyNotInstalled` is the admitted terminus, not a failure.** No tool
+body executes in this spec by design, so a call the decision point admits ends
+there having already recorded its decision. Treating it as failure made the
+admitted and denied cases indistinguishable.
+
+**The revocation assertion was wrong, and wrong in the way this delivery keeps
+catching.** It asserted that no `policy.decision` would be recorded after a
+revocation. But that event records what was decided — admit *or* deny — so the
+refusal is itself a decision, and the assertion was checking an expectation
+rather than what the system records. The pair now asserts that a decision is
+recorded either way, that the revoked call is denied rather than admitted to
+the body, and that the denial names the entitlements conjunct — the only term
+that can carry a revocation, since AC-0241 pins the ceiling half to the
+suspended role version.
+
+### Superseded: the gap this section previously recorded
+
+The resumed model produces final output without calling the domain tool, so no
+`policy.decision` is recorded on resume. Both halves of the pair written for
+AC-0253 were therefore removed rather than shipped: the revocation check would
+have passed vacuously, because there is never a decision to be absent, and the
+admitted half could not hold at all. A check that cannot fail is worse than
+none, which is the rule this delivery has now applied four times.
+
+AC-0253 is consequently decided only by the sibling module's component check
+on `load_entitlements`, not on the resume path the criterion names. Closing it
+needs the resumed run to actually issue a tool call the ceiling admits, so the
+entitlements term is the one that decides — AC-0241 pins the ceiling half to
+the suspended version and it cannot carry revocation.
+
+**Narrowed on 2026-09-26.** This note previously listed AC-0227, AC-0229, AC-0241, AC-0245, AC-0248 and AC-0253 as component-only. Three of them — AC-0227, AC-0245 and AC-0253 — are now decided on the resume path itself by `test_resume_runs_in_a_separate_process.py`, in a genuine subprocess whose outcome is read back from the event log. **AC-0229, AC-0241 and AC-0248 remain component-only**: they are asserted against `load_role`'s return value rather than against what the resumed step compiled from it. Stating the smaller set matters, because an overstated remainder costs the next reader the time to re-establish what is already covered.
+
+
+## T3 — AC-0264's non-vacuity proof, run and recorded (2026-09-26)
+
+T3's pinned `Tests` requires this demonstration and requires it recorded here:
+the check must red "when the new enforcement is absent and not merely when a
+pre-existing grant denies the writer". The implementation's module docstring
+described the mutation as a plan rather than a result, and no ledger entry
+existed — a proof described and not run satisfies neither obligation. Run by
+the controller on 2026-09-26:
+
+```
+DROP TRIGGER prevent_pinned_registry_rewrite ON integration_registry;
+pytest tests/persistence/test_immutable_registry.py
+  FAILED test_ac0264_pinned_row_is_refused_by_trigger
+  FAILED test_ac0264_delete_pinned_row_is_refused_by_trigger
+  2 failed, 1 passed
+trigger restored -> 3 passed
+```
+
+**The check that stayed green is the one that makes the other two mean
+something.** `test_ac0264_unpinned_row_is_updateable` writes an *unpinned* row
+as the `migration` role — an identity that does hold `UPDATE` — and must
+succeed. Without it, the two refusals would be satisfied by a writer who was
+simply denied: `0001_base_schema.py` grants `app_api` and `app_worker` only
+`SELECT` on `integration_registry` and `app_policy` nothing at all, so three
+of the four fixtures in `tests/conftest.py` would pass the refusal assertion
+for the wrong reason. That is the fourth dead-check shape this delivery has
+had to guard against, and the only one caught before it was written rather
+than after.
