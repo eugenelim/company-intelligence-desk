@@ -174,9 +174,33 @@ class FindingSet(BaseModel):
 #: module** (§ 2). Two members: the quarantined role's closed-vocabulary type
 #: and the analysis role's typed result. `walking-skeleton-step-lifecycle`'s
 #: AC-0255 adds a third.
+class FreeForm(BaseModel):
+    """The permissive contract, and the one the parser has to outlive.
+
+    AC-0255 adds this as the output set's third member, and it exists to be
+    *refused* for a quarantined role rather than to be used by one. Its whole
+    point is that the framework's schema accepts it unparsed: a single
+    unconstrained string validates against anything a model emits. A boundary
+    that rested on the serializer would therefore admit attacker-authored
+    filing text through this contract, which is why the criterion drives its
+    widening arm through this member specifically — what refuses the value is
+    `ced.domain.quarantine.parser`, outside the agent, and the assembler that
+    calls it.
+    """
+
+    text: str
+
+
 OUTPUT_CONTRACTS: Final[dict[str, type[BaseModel]]] = {
     "reference-selection": ReferenceSelection,
     "finding-set": FindingSet,
+    # **Third member, and declarable by no quarantined role.** The guard is
+    # `_check_derived_class` below, which admits exactly
+    # `QUARANTINED_OUTPUT_CONTRACT` for an empty-ceiling role — so adding this
+    # member does not widen what a quarantined role may declare, and the
+    # refusal is the existing one rather than a second rule saying the same
+    # thing in a different place.
+    "free-form": FreeForm,
 }
 
 #: The one contract a quarantined role may declare, both ways round: an

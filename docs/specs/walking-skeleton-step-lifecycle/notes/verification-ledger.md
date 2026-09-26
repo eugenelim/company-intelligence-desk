@@ -712,3 +712,196 @@ of the four fixtures in `tests/conftest.py` would pass the refusal assertion
 for the wrong reason. That is the fourth dead-check shape this delivery has
 had to guard against, and the only one caught before it was written rather
 than after.
+
+Records per-task mutation proofs and interception-point attributions where the
+plan requires them. One section per task, ordered by task id. Entries are
+closed by the task that writes them and are not updated by later tasks unless
+the later task explicitly supersedes an earlier one.
+
+---
+
+## T7 — No path to the provider can re-enable reasoning (AC-0276)
+
+### Guard placement
+
+`ReasoningDisableGuard` is an `AbstractCapability` at the `'innermost'`
+ordering tier whose `before_model_request` hook enforces AC-0276. It is
+installed at every `agent.run_sync` call site:
+
+- `src/ced/worker/executor.py` — `_run_compiled_agent` (initial step runs)
+- `src/ced/adapters/objectstore/history.py` — `run_with_approval` (resumed runs)
+
+**Why `before_model_request` at `'innermost'`:**  
+`before_model_request` runs before both `request()` and `count_tokens()`, and at
+the `'innermost'` tier it sees the model and settings *after* all per-step model
+substitution and capability layering by any non-innermost capability. A guard at
+a non-innermost tier would be bypassed by any innermost capability that later
+replaces the model.
+
+**Residual:** a capability's `wrap_model_request` that replaces the model *after*
+`before_model_request` has run is not seen by this guard. The framework's bundled
+durable-execution capabilities use `before_model_request` for model replacement
+on this pin, so the residual does not apply to Phase 1's deployment.
+
+### Method attribution
+
+Both provider-reaching methods of `BedrockConverseModel` are covered by the
+single interception point:
+
+| Method | Path in the framework | Covered by `before_model_request`? |
+|---|---|---|
+| `request()` | `before_model_request` → `wrap_model_request` → `model.request()` | Yes — runs before the wrap chain |
+| `count_tokens()` | `before_model_request` → `model.count_tokens()` (outside wrap chain) | Yes — runs before `count_tokens` |
+
+A guard inside `wrap_model_request` would cover `request()` but miss
+`count_tokens()`. `before_model_request` is the only hook that precedes both.
+
+### Per-route mutation table
+
+Each route is proved by two mutations run independently:
+
+**Mutation A — disable the guard (guard always admits):**
+Changed `raise ReasoningReachesTheProvider(...)` to `return request_context` and
+ran all `refused` tests. Result: all 7 refused tests red, all 8 admitted tests
+green. This proves the guard is the only check between the adversary and the
+model.
+
+**Mutation B — remove the adversary (admitted base, no route-specific trigger):**
+The admitted test for each route uses the same base setup (compiled sentinel,
+`thinking=False`) without the adversarial element. It gets `_ModelReached` rather
+than `ReasoningReachesTheProvider`. This proves the adversary is what triggers
+the refusal, not some base property of the guard.
+
+| Route | Adversarial element | A: refused test goes red | B: admitted test gets `_ModelReached` |
+|---|---|---|---|
+| 1 — per-run settings | `model_settings={"thinking": True}` | yes | yes |
+| 2 — Thinking capability | `Thinking(True)` capability | yes | yes |
+| 3 — adapter-native carrier | `bedrock_additional_model_requests_fields={"thinking": {"type": "enabled", ...}}` | yes | yes |
+| 4 — model substituted after compilation | `model=a_bedrock_model(ADAPTIVE_MODEL_ID)` | yes | yes |
+| 5 — innermost capability replaces context | `_ModelReplacer(a_bedrock_model(ADAPTIVE_MODEL_ID))` at `'innermost'` tier | yes | yes |
+| count_tokens coverage | `model_settings={"thinking": True}` + `count_tokens_before_request=True` | yes | yes (count_tokens path) |
+| unwired factory | `model=None` in `ModelRequestContext` directly | yes (seam returns NOT_CARRIED for None) | — (no admitted pair; framework blocks None at run_sync level) |
+
+**Mutation A run detail:**  
+```
+FAILED test_per_run_settings_that_enable_reasoning_are_refused
+FAILED test_thinking_capability_that_enables_reasoning_is_refused
+FAILED test_adapter_native_carrier_that_enables_reasoning_is_refused
+FAILED test_model_substituted_to_adaptive_after_compilation_is_refused
+FAILED test_innermost_capability_replacing_to_adaptive_model_is_refused
+FAILED test_count_tokens_refused_when_reasoning_is_enabled
+FAILED test_unwired_factory_call_is_refused
+7 failed, 8 deselected
+```
+All 8 admitted/non-refused tests remained green.
+
+### Where this record was written, and why that matters
+
+T7's implementation wrote the block above to `notes/verification-ledger.md` at
+the **repository root** — a new top-level directory, which `AGENTS.md`
+§ Development workflow says to propose through an RFC rather than create, and
+which left the spec's own ledger with no T7 entry at all. The content was
+moved here and the stray directory removed. It is recorded rather than
+silently relocated because the same shape has now appeared twice: T3's
+AC-0264 proof was run and not written down, and this one was written to a
+place nothing reads. A proof that exists somewhere nobody looks is the same
+defect as a proof that was never run.
+
+## T5 — the quarantine boundary through a running step (2026-09-26)
+
+The implementation terminated on an authentication failure at the moment it
+was about to write this section, so the record is the controller's. That is
+the third task in a row whose mutation evidence existed only in a report:
+T3's AC-0264 proof was run and not written, T7's was written to a directory
+nothing reads, and this one was never reached.
+
+### AC-0255 was delivered with its two stated clauses unimplemented
+
+The criterion is explicit that this spec "adds `free-form` as the output set's
+third member and the compiler guard that keeps a quarantined role from
+declaring it, since it is the spec that needs one". The first delivery
+substituted a different widening — a `list[str]` carrying free text, which the
+framework's schema accepts and the assembler refuses. That demonstration is
+sound and is kept, but it discharges neither clause, and ticking the criterion
+on it would have recorded a false disposition: exactly the shape AC-0275's own
+amendment exists to prevent.
+
+Both clauses now land, under an owner-authorised `Touches` amendment adding
+`src/**/agents/compiler.py`. **The guard is the one already there.**
+`_check_derived_class` admits exactly `QUARANTINED_OUTPUT_CONTRACT` for an
+empty-ceiling role, so a third member widens what the compiler *knows* without
+widening what a quarantined role may *declare* — and the next member added
+inherits the refusal for free rather than needing a second rule that says the
+same thing somewhere else.
+
+### Mutations
+
+| mutation | reds |
+| --- | --- |
+| remove `free-form` from `OUTPUT_CONTRACTS` | `test_a_quarantined_role_cannot_declare_the_permissive_contract` |
+| disable `_check_derived_class`'s quarantined branch | that check **and** the pre-existing `test_an_empty_ceiling_declaring_another_output_contract_fails_to_compile` |
+
+The second is the useful one: it shows the new member is refused by the
+existing guard rather than by a rule written alongside it, which is what makes
+the pairing worth having.
+
+### What the contract's permissiveness is for
+
+`FreeForm` carries a single unconstrained string, so the framework's schema
+validates the very free text the boundary exists to stop. That is not a
+weakness in the member — it is the member's purpose. A boundary resting on the
+serializer would admit attacker-authored filing text through it, and the
+criterion drives its widening arm through this contract specifically to show
+that what refuses the value is `ced.domain.quarantine.parser`, outside the
+agent, and the assembler that calls it.
+
+### The no-stub proof obligation was not discharged as the plan words it
+
+T5's pinned `Tests` requires, for the three `no stub
+(implementation-discovered)` criteria, "one compilable red assertion per
+criterion against the assembler as discovered, prove each red, and record the
+seam in `notes/verification-ledger.md` **before production code**". **That
+sequence was not followed and saying so is the record.** The implementation
+wrote `context.py` and its checks together, and terminated before writing
+anything here; the controller reconstructed the evidence afterwards. An
+after-the-fact mutation is weaker than a proved red before the code existed,
+because it cannot show the check ever failed for the absence of the thing it
+tests — only that it fails when that thing is removed again.
+
+**The discovered seam** is `ced.worker.context.assemble_planning_context`,
+which calls `ced.domain.quarantine.parser` and raises `ContextAssemblyError`
+before any agent is constructed.
+
+Mutation run 2026-09-26 — the assembler admits everything, its refusal
+removed:
+
+| criterion | check | reds |
+| --- | --- | --- |
+| AC-0256 | `test_free_text_in_context_fails_before_agent_construction` | yes |
+| AC-0256 | `test_free_text_in_list_value_fails_the_assembler` | yes |
+| AC-0256 | `test_assembler_rejects_reference_without_candidate_set` | yes |
+| AC-0242 | `test_refused_output_leaves_no_trace_in_events_or_payloads` | yes |
+| AC-0255 | `test_assembler_is_the_boundary_not_the_schema` | yes |
+| AC-0255 | `test_the_permissive_contract_accepts_what_the_parser_refuses` | yes |
+| AC-0222 | `test_admitted_values_present_after_db_round_trip` | **no** |
+
+### AC-0222's absence half cannot fail, and the criterion anticipated it
+
+The last row is not an oversight to repair. `assert _DISTINCTIVE_FREE_TEXT not
+in assembled` holds trivially: the quarantined model emits only the admitted
+label, so the distinctive text never enters the system and no assembler
+mutation can make it appear. Nothing that could be done to the enforcement
+code reds that line.
+
+**The criterion says so itself.** AC-0222 requires both halves precisely
+because "the absence alone is satisfied by an assembler that passes nothing
+through, which is a severed channel rather than a held boundary" — the
+*presence* half is the guard, and it is asserted and does bite. The refusal
+property the absence half gestures at is isolated by AC-0256 and AC-0242,
+which red under the mutation above.
+
+So the absence assertion is retained as a cheap regression tripwire and is
+recorded here as **not independently isolating**, rather than left to read as
+evidence it is not. That distinction is the whole reason this ledger exists:
+six checks that could not fail have been found in this delivery, and the ones
+that cost the most were the ones nobody had written down as weak.

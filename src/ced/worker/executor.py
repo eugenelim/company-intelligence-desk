@@ -77,9 +77,11 @@ from ced.adapters.postgres.roles import (
     load_entitlements,
     load_role,
 )
+from ced.adapters.reasoning_disable_guard import ReasoningDisableGuard
 from ced.agents.ceilings import compile_ceiling
 from ced.agents.compiler import (
     CompiledRole,
+    ReferenceSelection,
     RoleCompileError,
     append_role_refusal,
     compile_role,
@@ -87,6 +89,7 @@ from ced.agents.compiler import (
 from ced.agents.tools.approval import request_approval
 from ced.agents.toolsets import PolicyDecisionPoint
 from ced.agents.toolsets.step_events import StepContext, StepEventToolset
+from ced.worker.context import ContextAssemblyError, assemble_planning_context
 from ced.worker.pool import Lease, PoolConfig, StepBody
 
 log = logging.getLogger("ced.worker.executor")
@@ -213,6 +216,13 @@ def _run_compiled_agent(
         output_type=[compiled.agent.output_type, DeferredToolRequests],
         toolsets=[approval_toolset],
         cancellation_token=cancellation_token,
+        # AC-0276: refuse any call that would reach a provider without disabling
+        # reasoning.  The guard is at the 'innermost' ordering tier so it sees
+        # the model and settings after all per-step substitution and capability
+        # layering.  It covers both request() and count_tokens() — count_tokens
+        # runs before wrap_model_request and after before_model_request, so a
+        # guard in before_model_request is the single point that precedes both.
+        capabilities=[ReasoningDisableGuard()],
     )
 
 
@@ -404,6 +414,44 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 conn.commit()
             return
 
+        # T5: For quarantined roles, validate the agent's output through the
+        # context assembler before writing step.completed.  A refused value
+        # never reaches any stored artifact (AC-0242): the assembler runs here
+        # — outside the agent — so the parser, not the framework's schema
+        # serializer, is the admitting component (AC-0255).  A valid output is
+        # written as a content-addressed payload object *before* the fenced
+        # append, honouring the crash-ordering requirement of r5 § 3.
+        output_payload_ref: str | None = None
+        if compiled.quarantined:
+            refs = (
+                result.output.references
+                if isinstance(result.output, ReferenceSelection)
+                else []
+            )
+            try:
+                assemble_planning_context({"references": refs})
+            except ContextAssemblyError as exc:
+                log.error(
+                    "executor: quarantine output refused for step %s: %s",
+                    lease.step_id,
+                    exc,
+                )
+                with psycopg.connect(database_url("worker")) as conn:
+                    append_step_event(
+                        conn,
+                        run_id=lease.run_id,
+                        step_id=lease.step_id,
+                        lease_epoch=lease.epoch,
+                        type="step.failed",
+                        principal=principal,
+                        agent_role=role_name,
+                    )
+                return
+            # Crash ordering: write the payload object before the fenced
+            # append that references it.  A crash between the two leaves an
+            # unreferenced object rather than a dangling payload_ref.
+            output_payload_ref = write_payload({"references": refs})
+
         with psycopg.connect(database_url("worker")) as conn:
             append_step_event(
                 conn,
@@ -413,6 +461,7 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 type="step.completed",
                 principal=principal,
                 agent_role=role_name,
+                payload_ref=output_payload_ref,
             )
 
     return body
