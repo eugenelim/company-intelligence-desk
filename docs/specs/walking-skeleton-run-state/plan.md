@@ -31,7 +31,8 @@ a rationalisation.
 
 - `runtime-architecture.md` r8 and `worker-runtime.md` r5 — ratified. r8 disagrees with itself at § 4 line 460 against § 3 line 344; T0 records which reading is taken.
 - **Hard dependencies:** the five shipped walking-skeleton specs. This spec adds no agent.
-- **It adds schema.** Revision 0005 is expand-only and has four parts: the run-terminal definer function, the approval-decision definer function, `steps.approval_cycles`, and the `EXECUTE` grants. It also **closes the `append_step_event` denylist gap** for the two approval types, without which AC-0324's type-level exclusivity is unassertable.
+- **It adds schema, and it is not purely expand-only.** Revision 0005 has five parts: the run-terminal definer function, the approval-decision definer function, the `steps.approval_cycles` column, their `EXECUTE` grants, and a **`CREATE OR REPLACE FUNCTION public.append_step_event`** carrying a widened refusal list. That fifth part **narrows** what `app_worker` may append, which is the safe direction and still a contracting change to a foundation-owned function.
+- **The narrowing must be a `CREATE OR REPLACE`, not an edit to revision 0002.** `NON_STEP_EVENT_TYPES` is a module constant rendered into `append_step_event`'s body at `CREATE FUNCTION` time, so editing the tuple changes only what a *fresh* volume builds: every already-migrated database keeps the old body and `app_worker` keeps the capability. Since the `substrate` suite rebuilds from a clean volume, that edit would go green precisely where the control exists and blind where it does not. 0002's text stays untouched.
 - **It revokes nothing.** Both roles keep their table-level `UPDATE ON runs`; `0001_base_schema.py` records that grant as r7's identity table verbatim and declines to narrow it unilaterally.
 - **Out of scope:** the browser, the Phase 1 measurements, the re-baseline and the Phase 1 record — all `walking-skeleton-evidence`'s, which depends on this spec.
 
@@ -57,7 +58,7 @@ a rationalisation.
 
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
-| Schema — `migrations/versions/` | T1 | Revision 0005 applying on a clean volume with the grant set asserted disjoint | Expand-only, revokes nothing |
+| Schema — `migrations/versions/` | T1 | Revision 0005's five parts applying both on a clean volume and on a database upgraded from 0002, with the grant set asserted disjoint | The `append_step_event` replacement narrows what `app_worker` may append, stated rather than described as expand-only |
 | Recorded decisions — `docs/adr/` | T0 | The gate-placement and append-path ADRs | Each cited from the criterion resting on it |
 | Interface compatibility — `contracts/openapi/runs.yaml` | T2 | The approval-decision operation documented, route count three to four | Served and committed agree under AC-0009 |
 | Current architecture — `docs/architecture/README.md` | T4 | The run-state row moved, with uncommitted transitions named | The map matches the repository |
@@ -100,6 +101,8 @@ deterministically.
 - Goal-based: `python3 tools/hooks/pre-pr.py` passes its ADR shape lint over each new record.
 - `no stub (mode)` — goal-based.
 
+**Approach (T2's correctness fix, stated because it is not obvious from the criteria alone):** the suspension path today sets `steps.state = 'runnable'`, so a flagged step is re-claimable by any worker before the approver acts at all. T2 changes it to write `'suspended'` with its `step.suspended` event in one transaction, and the resume returns it to `runnable` only after reading a committed decision. That is what makes AC-0324's predicate live and AC-0330's refusal reachable.
+
 **Approach:** Two records. **The gate placement**: the shipped run-time injection stands against r8 § 3. **The append paths**: r8 § 4 line 460 and § 3 line 344 disagree, § 3's reading is kept, and the approval path's `app_api` grant and its unfenced commit are recorded with it.
 
 **Done when:** both records exist and each criterion resting on a deviation cites the record that carries it.
@@ -111,10 +114,23 @@ deterministically.
 **Touches:** migrations/versions/**, src/**/domain/events.py, src/**/adapters/postgres/event_log.py, tests/schema/**, tests/event_log/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
 
 **Tests:**
-- AC-0320 and AC-0324, `substrate`. For each: the grant set stays disjoint and carries no direct `INSERT` on `events`; the path is granted to exactly the named role; each predicate is driven by a call that violates it and observed to refuse; and for AC-0320, with the append forced to fail, `runs.state` does not move. AC-0324 additionally asserts **at the type level** that no role other than `app_api` commits `approval.granted` or `approval.rejected` by any path, including `append_step_event`.
-- `stub: true` — the exact red test code is written into this plan before EXECUTE begins, per `spec-and-plan-contract.md`.
+- AC-0320 and AC-0324, `substrate`. For each: the grant set stays disjoint and carries no direct `INSERT` on `events`; the path is granted to exactly the named role; each predicate is driven by a call that violates it and observed to refuse; and for AC-0320, with the append forced to fail, `runs.state` does not move. AC-0324 additionally asserts **at the type level** that no role other than `app_api` commits `approval.granted` or `approval.rejected` by any path, including `append_step_event` — and asserts it **against a database upgraded from 0002 as well as a freshly built one**, because a clean-volume-only check is green exactly where the control exists.
+- `stub: true` — `test_the_run_terminal_append_path_exists` (AC-0320), `test_the_approval_decision_append_path_exists` (AC-0324). Both validated red against the running substrate on 2026-09-27: the routines do not exist.
 
-**Approach:** Revision 0005's four parts, written against the three shipped append functions. The denylist gap is closed by adding the two approval types to `NON_STEP_EVENT_TYPES`, which is what makes AC-0324's exclusivity assertable.
+```python
+# STUB: AC-0320
+def test_the_run_terminal_append_path_exists() -> None:
+    """Revision 0005 adds the only path that may commit a run-terminal move."""
+    assert _routine_exists("append_run_terminal")
+
+
+# STUB: AC-0324
+def test_the_approval_decision_append_path_exists() -> None:
+    """Revision 0005 adds the path `app_api` alone may commit a decision through."""
+    assert _routine_exists("append_approval_decision")
+```
+
+**Approach:** Revision 0005's five parts, written against the three shipped append functions. The denylist gap is closed by re-issuing `append_step_event` through `CREATE OR REPLACE` under 0002's owner and definer preamble with the two approval types added to its refusal list — **not** by editing 0002's constant, which would reach no database that has already migrated.
 
 **Done when:** AC-0320 and AC-0324 are green with their mutation proofs in the ledger.
 
@@ -128,9 +144,37 @@ deterministically.
 - AC-0301 end to end; AC-0302 on the offered tool set; AC-0303 on the flagged branch with the flag driven both ways; AC-0327 reading the snapshot between steps; AC-0328 driving the new operation and a foreign origin.
 - **`tests/api/test_contract_agreement.py` moves from three routes to four** — its `test_the_contract_file_describes_three_routes` asserts the committed count and reds the moment the contract gains an operation, which is why that file is in this task's `Touches`.
 - The liveness probe is asserted by stalling the poll loop without killing the process; a probe checking only process existence would pass.
-- `stub: true` for AC-0302 and AC-0327; `no stub (mode)` for AC-0301, AC-0303 and AC-0328, which are end-to-end and manual-QA respectively.
+- `stub: true` — `test_a_clean_run_offers_the_model_no_approval_gated_tool` (AC-0302), `test_steps_carries_the_durable_cycle_counter` (AC-0327, the durable seam its projection reads), `test_a_resume_with_no_committed_decision_refuses_to_run` (AC-0330). All validated red on 2026-09-27 against absent symbols and an absent column.
 
-**Done when:** AC-0301, AC-0302, AC-0303, AC-0327 and AC-0328 are green, the contract carries four operations, and the probe is observed failing on a stalled loop.
+```python
+# STUB: AC-0302
+def test_a_clean_run_offers_the_model_no_approval_gated_tool() -> None:
+    """Conditionality is decidable on the offered set, not the compiled one."""
+    from ced.worker.executor import offered_toolsets
+
+    offered = offered_toolsets(prerelease_failed=False)
+    assert all(not ts.requires_approval for ts in offered)
+
+
+# STUB: AC-0330
+def test_a_resume_with_no_committed_decision_refuses_to_run() -> None:
+    """The gate must not rubber-stamp: absent decision is a refusal."""
+    from ced.worker.persistence import approval_results_from_log
+
+    with pytest.raises(LookupError):
+        approval_results_from_log(step_id=_ABSENT, pending_call_ids=["c1"])
+
+
+# STUB: AC-0327
+def test_steps_carries_the_durable_cycle_counter() -> None:
+    """AC-0321's count must survive a worker handoff, so it is a column."""
+    assert _column_exists("steps", "approval_cycles")
+```
+
+- `no stub (implementation-discovered)` for **AC-0331**. *Discovery predicate:* the probe's callable seam is a worker-side command whose invocation shape the container healthcheck fixes, and neither the module nor its entry point exists; inventing one now would manufacture a symbol the rule forbids. *Proof obligation:* before T2 closes, the probe is driven by stalling the poll loop without killing the process, and the observed unhealthy result is written to the verification ledger with the mutation that reds it — replacing the heartbeat-recency check with a process-existence check must make it pass.
+- `no stub (mode)` for AC-0301 and AC-0303 (end-to-end) and AC-0328 (end-to-end against the shipped route). AC-0328's mode is end-to-end in both documents; an earlier revision of this plan called it manual QA while the spec's Testing Strategy placed it in the TDD group, which is two gate-read fields disagreeing about what a third gate enforces.
+
+**Done when:** AC-0301, AC-0302, AC-0303, AC-0327, AC-0328, AC-0330 and AC-0331 are green with their mutation proofs in the ledger, and the approval operation is contracted and served.
 
 ### T3: The loop and the spend are bounded
 
@@ -141,7 +185,22 @@ deterministically.
 **Tests:**
 - AC-0321 drives the cycles **across a worker handoff** and asserts the cap fires with a recorded cause; a second case asserts a `PoolConfig` declaring no cap still bounds the loop.
 - AC-0325 accumulates usage past the ceiling and asserts the pre-dispatch check appends the step-scoped page event and does not abort; a second case asserts a `PoolConfig` declaring no ceiling still gets a finite one.
-- `stub: true` for both.
+- `stub: true` — `test_the_cycle_cap_configuration_carries_a_finite_default` (AC-0321), `test_the_per_run_spend_ceiling_carries_a_finite_default` (AC-0325). Both validated red on 2026-09-27: `PoolConfig` carries neither field.
+
+```python
+# STUB: AC-0321
+def test_the_cycle_cap_configuration_carries_a_finite_default() -> None:
+    """A deployment that declares no cap still gets a bounded loop."""
+    cap = PoolConfig.approval_cycle_cap
+    assert cap is not None and cap > 0
+
+
+# STUB: AC-0325
+def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
+    """A deployment that declares no ceiling still gets one."""
+    ceiling = PoolConfig.per_run_token_ceiling
+    assert ceiling is not None and ceiling > 0
+```
 
 **Approach:** Both controls are configured rather than constant, and both carry a finite default, because a criterion that configures its own control in its fixture passes while a deployment declaring nothing has none. `step_deadline`'s `None` default is the same class and is the sibling spec's to set.
 
@@ -164,7 +223,7 @@ deterministically.
 
 - **Delivery:** five PRs — T0, T1, T2, T3, T4.
 - **Review shape:** T1 is **MIXED** — a migration plus its assertions. T2 is **DEEP** and decomposes in dependency order: the transition table, the pre-release gate and publication, then the approval operation.
-- **Reversible:** revision 0005 is expand-only with no downgrade path, so reversal is a forward revision that revokes the grants.
+- **Reversible:** revision 0005 has no downgrade path, so reversal is a forward revision. It is **not** purely expand-only: its `append_step_event` replacement removes a capability `app_worker` holds today, so reversing it restores that capability rather than merely dropping something added.
 
 ## Risks
 
