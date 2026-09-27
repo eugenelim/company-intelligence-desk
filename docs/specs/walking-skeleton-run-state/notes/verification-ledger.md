@@ -133,14 +133,31 @@ Target: `test_approval_decision_from_append_step_event_is_refused`.
 Result: FAILED — `InsufficientPrivilege` was not raised (decision type was
 accepted by the step path). Confirms the D3 widening is pinned.
 
-**AC-0334 — index coverage.** The partial unique index
-`events_decision_idempotency_idx` is asserted structurally by
-`test_the_decision_index_covers_the_declared_types` and behaviorally by
-`test_a_replayed_decision_is_refused_by_the_unique_index`. A mutation proof for
-the index itself requires `DROP INDEX` which is not idempotent to restore
-(requires re-running the migration). The structural test pins the index
-definition from the catalogue; mutation-proving the index drop is deferred to
-the supervisor's discretion.
+**AC-0334 — the index, mutation-proved rather than deferred.** The implementer
+deferred this one, reasoning that `DROP INDEX` "is not idempotent to restore
+(requires re-running the migration)". That reason does not hold: the index
+definition is a single statement in revision 0005 and `pg_indexes` returns it
+verbatim, so the drop is restorable without touching alembic. Deferring it
+would have left the criterion's whole point — that a replayed decision is
+refused by the *database* and not by application code — resting on two checks
+neither of which had been shown able to fail.
+
+*Break applied.* `DROP INDEX public.events_decision_idempotency_idx` as the
+`migration` role, confirmed absent from `pg_indexes`.
+
+*Result.* Both checks went red — `test_a_replayed_decision_is_refused_by_the_unique_index`
+and `test_the_decision_index_covers_the_declared_types`. So the behavioural
+check is genuinely decided by the index and not by an application-level guard
+that would have kept it green.
+
+*Restored.* Index recreated from the `pg_indexes` definition; the full module
+returns 28 passed.
+
+**One false start, recorded because it is the trap this proof exists to avoid.**
+The first attempt connected as a `owner` role that does not exist, so the drop
+raised, the index was never removed, and the replay test passed. That pass was
+evidence of nothing. A mutation proof whose break silently fails to apply looks
+exactly like a proof that succeeded.
 
 ### A defect T1 surfaced in the gate suite
 
