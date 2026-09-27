@@ -159,7 +159,9 @@ def test_the_run_terminal_append_path_exists(require_substrate: None) -> None:
 
 @pytest.mark.substrate
 # STUB: AC-0332
-def test_exactly_one_append_step_event_survives_the_replacement(require_substrate: None) -> None:
+def test_exactly_one_append_step_event_survives_the_replacement(
+    require_substrate: None,
+) -> None:
     """A signature drift creates a second overload carrying EXECUTE TO PUBLIC."""
     with psycopg.connect(database_url("worker")) as conn:
         rows = conn.execute(
