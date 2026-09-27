@@ -50,7 +50,8 @@ a sentence written afterwards.
 - `runtime-architecture.md` r8 — ratified with its five accepted limits in § 9 accepted **open**. The `5–15%` escalation figure is a calibration target, explicitly not a release gate, and this spec does not turn it into one.
 - `worker-runtime.md` r5 — see § DR dispositions below.
 - **Hard dependencies:** `walking-skeleton-foundation` (schema, append paths, pool, API), `walking-skeleton-role-compilation` (the compiled agent and the quarantine boundary), `walking-skeleton-authority-containment` (the containment fragment), `walking-skeleton-policy-decision-point` (the decision point that installs it) and `walking-skeleton-step-lifecycle` (the provider call, the step deadline, persistence). **This spec adds no agent.**
-- **It does add schema, and an earlier revision of this plan said twice that it did not.** Revision 0005 is expand-only and opens two append paths the shipped privilege split has no room for. The terminal path: `append_run_event` admits `run.requested` and `run.cancelled` only, `append_step_event` refuses the terminal namespace, and direct `INSERT` on `events` is revoked from every application role, so AC-0301 has no writer. The grant path: r5 line 604 releases the lease *before* the approver acts, which clears `owner`, so `fence_step`'s possession predicate fails and every fenced append raises `serialization_failure` — AC-0303's grant has no writer either, at the moment r5 places it. AC-0320 fixes what the new paths must satisfy; two new top-level directories are **not** implied, but one is (see `ui/` below).
+- **It adds no schema.** The two append paths and the `steps.approval_cycles` column this work once carried moved to `walking-skeleton-run-state` on 2026-09-27, with the migration. What remains here reads the log and renders it. **That claim was false twice before** — in this same field and in § Rollout — while publication and the approval grant were still in scope, and it is true now only because those left.
+- **Hard dependency on a sibling that is not yet built:** `walking-skeleton-run-state` ships the transitions, publication, the approval gate and its interface. T1's sample needs completed steps that only publication produces; T2's browser criteria need the terminal event that closes a stream.
 - **`ui/` is a sixth top-level directory.** ADR-0003 D1 records five and D2 makes a sixth an Ask-first boundary needing a superseding record; `tests/architecture/test_recorded_layout.py::test_no_top_level_directory_is_unrecorded` reds on any tracked directory neither ADR-0003 nor ADR-0007 names. Owner decision 2026-09-26: an ADR amends the recorded layout, written in T0 before T3 tracks a file under it. The shaping-phase exception has not expired, so an ADR is the route and no RFC is owed.
 - **Out of scope:** the AWS deployment, by the owner's decision of 2026-09-18; the assistant surface and `legible-refusal-and-readiness`, both Draft and unauthorised.
 
@@ -58,10 +59,10 @@ a sentence written afterwards.
 
 | DR | Decision | Disposition |
 | --- | --- | --- |
-| DR1 | Publication is an executor transition, not a tool | **Lands**, T1 — the transition is the application's; the agent's only lever is the contentless tool the agent-runtime spec built |
-| DR4 | The liveness probe is the out-of-loop watchdog | **Lands**, T1 — the probe fails when no heartbeat has been *attempted* within twice the lease TTL, which is what makes it catch a starved event loop rather than merely a dead process |
-| DR5 | Rejection resumes the conversation, capped at three cycles | **Lands**, T1, under AC-0321, at r5's three and unmeasured. An earlier revision of this row said "lands, unmeasured" while T1 carried no `Tests` entry, no `Done when` clause and no `Touches` path that could hold a cap — and nothing in `src/` implements one, so the row described a control that did not exist rather than one that existed uncalibrated. AC-0321 drives the transition the cap counts and requires the configuration to carry a finite default, so a deployment declaring nothing still gets a bounded loop. The *number* is still arbitrary: r5 asks Phase 1 to replace it with an observed one, this skeleton runs too few cycles to observe anything, and the spec's Follow-ons says so rather than implying the cap is now evidence-based |
-| DR6 | Three spend ceilings | **Partly here** — the per-run ceiling checked by the executor before dispatching each step lands in T1, **under AC-0325**. It **pages rather than aborts**, because for a single operator killing a legitimate long analysis is the worse error, and the criterion asserts the page rather than a halt for that reason. An earlier revision dispositioned this as landing with no `Tests` entry, no `Done when` clause and no criterion — the identical defect round 1 found in DR5 and the first revision repaired for DR5 alone. The per-step ceilings are the agent-runtime spec's; the per-account budget alarm is outside the application |
+| DR1 | Publication is an executor transition, not a tool | **`walking-skeleton-run-state`'s**, T2 there |
+| DR4 | The liveness probe is the out-of-loop watchdog | **`walking-skeleton-run-state`'s**, T2 there |
+| DR5 | Rejection resumes the conversation, capped at three cycles | **`walking-skeleton-run-state`'s**, T3 there, under its AC-0321 |
+| DR6 | Three spend ceilings | **`walking-skeleton-run-state`'s** per-run half, T3 there under its AC-0325. The per-step ceilings are the agent-runtime spec's; the per-account alarm is outside the application |
 | DR7 | Analytical quality is re-baselined at Phase 1 | **Lands**, T5 |
 | DR13 | `trust_class` is a construction | **Agent-runtime's**, and AC-0313 measures what its narrowing costs |
 | DR2, DR3, DR8, DR9, DR10, DR11, DR12 | — | **Not this spec's** — owned by the sibling specs, triggered at Phase 2, or already applied |
@@ -77,11 +78,7 @@ a sentence written afterwards.
 ## Construction tests
 
 **Integration tests:**
-- One clean-run end-to-end through local Compose: requested, planned, quarantine classifies, analysis calls its tool, artifact published, stream closed, no human. This is the spine AC-0301 reads and the harness every measurement task reuses to generate steps.
-- One flagged-run end-to-end that suspends, releases its lease, and resumes to publication on a grant, so the clean path is a branch rather than the only path.
-
-**Schema tests (`substrate`):**
-- AC-0320's grant-disjointness and single-transaction assertions run against the applied revision, because a grant set is a property of the schema Postgres holds and not of the migration's text.
+- One clean-run end-to-end through local Compose, driven against the publication path `walking-skeleton-run-state` ships. It is not this spec's criterion — it is the harness every measurement task reuses to generate real steps.
 
 **Manual verification:**
 - AC-0304, AC-0305 and AC-0322 are driven by a real browser and the observed result recorded in the verification ledger. A rendered outcome is the evidence; a green assertion over a response body is not.
@@ -102,8 +99,7 @@ counts.
 
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
-| Schema — `migrations/versions/`, `docs/adr/` | T0, T1 | Revision 0005 applying on a clean volume, with the grant set asserted disjoint by AC-0320 and AC-0324; the append-path ADR T0 writes | The revision is expand-only and revokes nothing, and the ADR is cited from the criteria resting on it |
-| Recorded decisions — `docs/adr/` | T0 | The layout record superseding ADR-0003 D1, and the gate-placement deviation record | Each is cited from the criterion or task that rests on it, and the layout test is green against the widened recorded set |
+| Recorded decisions — `docs/adr/` | T0 | The layout record superseding ADR-0003 D1 | Cited from the task that rests on it, and the layout test is green against the widened recorded set |
 | Operations — `docs/architecture/pydantic-ai-worker-runtime/operations.md` | T4 | Each recorded value with its sample size and platform | Values satisfy the ordering invariant and cite their sample size |
 | Reusable learning — `spikes/README.md` | T6 | A Phase 1 section separating established, substituted and not-established | Hypothesis checks reported separately from setup |
 | Current architecture — r8 header, `docs/architecture/README.md` | T6 | Markers moved off `PLANNED` for what exists | Headers match the repository |
@@ -126,38 +122,7 @@ The run state machine is r8's, plus `awaiting_input` and its two events. Both
 recoverable and never silently discarded, and `approval_timeout` defaults to
 none in MVP.
 
-The approval gate is conditional and the condition is computed outside any
-model. Pre-release checks run in the step executor **before** the agent run and
-their result commits as an event. On a clean run the agent is offered no
-callable approval-gated tool and no human is in the path, which is the ratified
-charter amendment this spec must not reverse.
-
-**Where the gated tool sits, and why this plan no longer says what r8 says.**
-r8 § 3 lines 400–403 puts the tool in the *compiled* toolset, present only when
-a check failed, and an earlier revision of this section repeated that. The
-shipped tree does the opposite and does it deliberately:
-`src/ced/agents/tools/approval.py` builds the tool as a run-time
-`FunctionToolset` and `src/ced/worker/executor.py` passes it through
-`toolsets=[…]` on the agent call, keeping it outside the compiled stack so the
-policy decision point never judges it against the acting role's ceiling.
-Building to r8 would move approval *inside* that authority check and change
-behaviour a shipped spec already delivered. **Owner decision 2026-09-26: the
-shipped placement stands**, T0 records the deviation in an ADR, and this
-section describes what is built rather than what r8 describes. The consequence
-for verification is AC-0302's: on this design the compiled toolset is empty of
-gated tools in every possible world, so the criterion reads the tool set the
-model is actually offered. Traces to: AC-0301, AC-0302, AC-0303.
-
-**Who closes a run.** Nothing in the tree writes a run-terminal event or moves
-`runs.state`; the column is read by `append_run_event`'s terminal guard and by
-the pool's heartbeat, and written by no code at all. Revision 0005 adds a
-definer function that commits the state change and its terminal event in one
-transaction, granted to `app_worker` alone and fenced on the step that
-completed the run while writing `step_id` null. The single-transaction shape is
-load-bearing rather than tidy: `app_worker` already holds a table-level
-`GRANT UPDATE ON runs` from revision 0001, so a state move with no event is
-reachable today and would leave a run terminal with nothing in the log saying
-so. Traces to: AC-0301, AC-0320 · ADR written in T0.
+The run state machine and the approval gate are `walking-skeleton-run-state`'s. This spec reads what they commit.
 
 ### Interfaces & contracts
 
@@ -236,44 +201,11 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 - Goal-based: `python3 tools/hooks/pre-pr.py` passes its ADR shape lint over each new record.
 
 **Approach:**
-- Three decisions, three records, none of them resolvable by an implementer at the keyboard. **The layout amendment**: ADR-0003 D1's five directories become six, superseded rather than edited, with `ui/` named and the layout test's recorded set widened in the same change. The same record settles two more layout questions this spec would otherwise decide in passing — that `src/ced` gains `ops/` and `eval/` beyond D3's five layers, which the layout test admits by a subset assertion and so records nowhere; and that D3's "two deployables" governs distributions and services rather than console scripts, so T4's measurement command may take a third `[project.scripts]` entry. Both were about to be settled in a task's Approach and a `pyproject.toml` comment, which is the class this task exists to prevent. **The gate-placement deviation**: r8 § 3 lines 400–403 compile the approval tool in conditionally; `walking-skeleton-step-lifecycle` ships run-time injection instead, and the ADR records that the shipped placement stands because it keeps approval outside the decision point's authority check. **The terminal-transition identity**: r8 § 4 line 460 and § 3 line 344 disagree about whether the worker may write a run-lifecycle type, and the ADR records that § 3's diagram is the reading kept, with the fence and the null `step_id` as what keeps § 4's disjointness intact. It also records the approval-grant path AC-0324 fixes, since that path crosses the same invariant for the same reason.
-- An ADR records a deviation from a ratified document; it does not amend one. The r9 consistency pass is named as owed in the spec's Follow-ons and is not attempted here.
+- One decision, one record, not resolvable by an implementer at the keyboard. **The layout amendment**: ADR-0003 D1's five directories become six, superseded rather than edited, with `ui/` named and the layout test's recorded set widened in the same change. The same record settles two more layout questions this spec would otherwise decide in passing — that `src/ced` gains `ops/` and `eval/` beyond D3's five layers, which the layout test admits by a subset assertion and so records nowhere; and that D3's "two deployables" governs distributions and services rather than console scripts, so T4's measurement command may take a third `[project.scripts]` entry. Both were about to be settled in a task's Approach and a `pyproject.toml` comment, which is the class this task exists to prevent. The gate-placement and append-path records moved to `walking-skeleton-run-state`'s T0 with the criteria that rest on them.
 
-**Done when:** the three records exist, the layout test is green against the widened set, and each criterion that rests on a deviation cites the record that carries it.
+### T1: Real steps accumulate under a deadline that will not fire
 
-### T1: A clean run publishes with nobody watching
-
-**Depends on:** T0
-
-**Touches:** migrations/versions/**, src/**/domain/run_state.py, src/**/domain/events.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/pool.py, src/**/adapters/postgres/event_log.py, src/**/adapters/objectstore/**, src/**/worker/liveness.py, src/**/api/main.py, deploy/compose.yaml, contracts/openapi/runs.yaml, tests/e2e/**, tests/schema/**, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
-
-**Tests:**
-- AC-0301 reads the run's outcome end to end: terminal `run.completed`, an artifact published, no `approval.requested` appended.
-- AC-0320 and AC-0324 are the schema-level half and carry the `substrate` marker. For each: the grant set after revision 0005 is still disjoint and still carries no direct `INSERT` on `events`; the path is granted to exactly one role; each of its predicates is driven by a call that violates it and observed to refuse — for AC-0320 **lease possession**, the type allowlist, the step-belongs-to-run check, the already-terminal refusal and the null `step_id`, and for AC-0324 the type allowlist, the step-belongs-to-run check, the not-suspended refusal and the already-decided refusal; and with the append forced to fail, `runs.state` does not move.
-
-  **Mutation proof is owed before either counts as coverage.** The named break for the atomicity assertion is to split the definer function's single body into two caller-issued statements — the update, then the append — which is the separable wrapper the criterion means; the assertion must then red. The named break for each predicate is to delete that predicate from the function body. A check that passes with a predicate removed is asserting the happy path, which is the shape three of the last delivery's six dead checks had.
-
-  **AC-0320 does not assert that no path moves `runs.state` without an event**, and the test must not be written as though it does: `app_worker` keeps its table-level `UPDATE ON runs` by the owner decision of 2026-09-26, so that bypass stays open and AC-0314 records it. Nor does either criterion range over `run.cancelled`, which `app_api` already commits through `append_run_event` while moving no state — a shipped sibling's route, left alone.
-- AC-0325 accumulates usage in the event log past the configured per-run ceiling and asserts the executor's pre-dispatch check appends the page event and does not abort the run — read from the appended event, not from the ceiling's configuration. A second case asserts that a `PoolConfig` declaring no ceiling still gets a finite one. **Mutation proofs owed**: remove the check and the first must red; remove the finite default and the second must red.
-- The liveness probe (DR4) is asserted by stalling the poll loop without killing the process and observing the probe fail. **It is a worker-side command run by the container healthcheck, not an HTTP route** — `deploy/compose.yaml` invokes it, `src/ced/worker/liveness.py` implements it, and it reads heartbeat recency rather than process existence. Making it an API route would put a fifth operation on a surface the spec's Contract line fixes at four and `tests/api/test_contract_agreement.py` asserts is exactly the committed set. Out-of-process is also what DR4 asks for: a probe inside the loop it watches cannot see the loop starve.
-- AC-0302 inspects the tool set the model is offered at run time, which on the shipped placement is where conditionality is decidable at all. **Mutation proof is owed**: make the gate unconditional on a clean run and this must red. The criterion as previously written — over the compiled toolset — could not red under any mutation, because the shipped design never compiles the tool in.
-- AC-0303 forces a pre-release failure and drives the suspension through to publication on a grant, which is what makes AC-0301's "clean" one branch of a real condition. It also reads back the appended grant and asserts it names the granting principal and carries the `require_distinct_approver` state — **read from the log, not from the value the test supplied**, which is the read-back-what-you-placed shape.
-- AC-0321 drives a step past the cycle cap and asserts it fails with a recorded cause, then asserts a pool configuration declaring no cap still bounds the loop. The second half is what stops a configuration read satisfying the criterion. **The cycles are driven across a worker handoff**, not inside one process, and this half is `substrate`: r5 releases the lease before each approval, so a counter in worker memory is reset by the handoff the loop performs every cycle and three rejections inside one process would pass against an unbounded loop. **Mutation proof is owed**: move the count into worker memory and the handoff assertion must red.
-- AC-0303's two added clauses. The grant event is read back from the log and asserted to name the granting principal. The `require_distinct_approver` state is driven **both ways** — the flag configured true and false, two runs, two different appended values — because a single-value read-back is satisfied by a module constant written into the payload, which is the derive-the-input-from-the-constant shape. The flag's configuration surface is `PoolConfig`; it exists nowhere in `src/` today. Suspension is made deterministic by the role under test resolving to a model that calls `request_approval` on every flagged run, named here so the criterion is not resting on a real model's discretion.
-  A probe that only checks process existence would pass on a stalled loop, which is the failure mode it exists to catch.
-
-**Approach:**
-- Revision 0005 comes first and is expand-only, and has **three** parts rather than two: the run-terminal definer function granted to `app_worker` (AC-0320); the approval-grant function granted to `app_api` (AC-0324); and **a `steps.approval_cycles` column**, `integer NOT NULL DEFAULT 0`, which is where AC-0321's cycle count durably lives. Plus their `EXECUTE` grants. An earlier revision described the count as living in "durable per-step state" and then enumerated the revision as two functions, which named no place for it — and the two candidates, a column versus deriving the count by scanning `approval.rejected` events, carry different migration, grant and concurrency consequences, so leaving it unnamed left a real choice to the keyboard. The column is chosen because the derived read would have the worker scan the event log on every resume to compute a bound. **It revokes nothing** — `app_worker` keeps its table-level `UPDATE ON runs`, by the owner decision of 2026-09-26 and for the reason `0001_base_schema.py` already records: that grant is r7's identity table verbatim and narrowing it unilaterally would deviate from ratified authority. Both functions are written against the lock ordering the existing functions use — `steps` before `runs` — because a third order is what the foundation's deadlock suite exists to catch, and both carry the predicate set their shipped siblings carry rather than only the grant that names their caller.
-- The cycle cap's count lives in `steps.approval_cycles`, not in the worker, so it survives the lease release r5 performs before every approval.
-- The per-run spend ceiling pages rather than aborts and now has AC-0325 reading it. DR5 and DR6 were dispositioned the same way and only DR5 was repaired in the first revision; both now carry a criterion, which is the level the defect sits at rather than the one it was reported on.
-- `awaiting_input` and its two events are authored into the transition table here, unexercised. No row carries the value, so `runs.state`'s CHECK is left alone; r8 § 10 line 1134 records that this needs no stored-state migration, and the CHECK is what would have to widen on the day something writes the state. The first spec to wire the input tool owes that, and owes r8 § 3's two safety constraints with it.
-- The per-run spend ceiling pages rather than aborts.
-
-**Done when:** AC-0301, AC-0302, AC-0303, AC-0320, AC-0321, AC-0324 and AC-0325 are green, each with its mutation proof written to `notes/verification-ledger.md`, and the liveness probe is observed failing on a stalled loop.
-
-### T2: Real steps accumulate under a deadline that will not fire
-
-**Depends on:** T1
+**Depends on:** T0, and `walking-skeleton-run-state` shipped
 
 **Touches:** deploy/compose.yaml, tests/e2e/**
 
@@ -287,9 +219,9 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 
 **Done when:** a sample of completed real steps exists in the event log, none truncated by a deadline.
 
-### T3: A browser watches a run and survives losing the connection
+### T2: A browser watches a run and survives losing the connection
 
-**Depends on:** T1
+**Depends on:** T0, and `walking-skeleton-run-state` shipped
 
 **Touches:** src/**/api/stream.py, src/**/api/main.py, ui/**, ui/package.json, pyproject.toml, contracts/openapi/runs.yaml, AGENTS.md, tests/browser/**, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
 
@@ -308,9 +240,9 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 
 **Done when:** AC-0304, AC-0305 and AC-0322 are observed in a real browser and recorded with their mutation proofs, AC-0323 and AC-0326 are green, the contract carries the new operation in full, and **`ui/`'s lockfile is committed with the install command recorded in `AGENTS.md` in its frozen, lockfile-respecting form** — so a clean clone resolves the same tree rather than a fresh one, which is the only pinning control either ecosystem has while no scanner covers them.
 
-### T4: The deadline is calibrated against a measurement, not a guess
+### T3: The deadline is calibrated against a measurement, not a guess
 
-**Depends on:** T2
+**Depends on:** T1
 
 **Touches:** src/**/ops/**, src/**/adapters/aws/**, src/**/worker/pool.py, deploy/compose.yaml, pyproject.toml, AGENTS.md, docs/architecture/pydantic-ai-worker-runtime/operations.md, tests/ops/**, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
 
@@ -330,9 +262,9 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 
 **Done when:** AC-0307 through AC-0311 are recorded in the operations document with their sample sizes and platform, the quota read's identity and its single action `servicequotas:GetServiceQuota` are recorded beside the value — naming that it runs under the operator's own admin profile rather than the worker's Bedrock role, so the breadth of that credential is written down rather than implied, AC-0306 is green against the recorded values, and the configured `step_deadline` the criterion reads is the one the workers actually run with.
 
-### T5: Analytical quality is re-baselined, whatever it says
+### T4: Analytical quality is re-baselined, whatever it says
 
-**Depends on:** T2
+**Depends on:** T1
 
 **Touches:** src/**/eval/**, tests/eval/**, docs/specs/walking-skeleton-evidence/notes/rebaseline.md, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
 
@@ -346,9 +278,9 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 
 **Done when:** AC-0312 and AC-0313 are recorded with their costs and their limits.
 
-### T6: The record says what Phase 1 did not establish
+### T5: The record says what Phase 1 did not establish
 
-**Depends on:** T3, T4, T5
+**Depends on:** T2, T3, T4
 
 **Touches:** spikes/README.md, docs/architecture/README.md, docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md, docs/specs/walking-skeleton-evidence/spec.md, docs/specs/walking-skeleton-evidence/plan.md, workspace.toml
 
@@ -375,9 +307,9 @@ input tool owes both, and inherits a transition table that looks finished.
 
 ## Rollout
 
-- **Delivery:** six PRs. T0, then T1; **T2 and T3 both branch from T1 and run in parallel** rather than stacking, because T3 depends only on T1 and a linear stack would put its merge behind the spend-bearing task exactly as bundling them did; then T4+T5, then T6. T0 is first and separate because its records must exist before the code they govern, and a record written after the build it justifies is a rationalisation. **T2 and T3 ship separately**, which an earlier revision did not do while claiming the benefit: it bundled them as one PR and justified the arrangement with "T3 forks from T1 rather than following T2, so the browser work does not wait on a spend-bearing task" — true of the dependency and false of the delivery unit, since a shared PR makes T3's merge wait on T2 anyway. Split, the rationale holds.
+- **Delivery:** five PRs — T0, then T1 and T2 branching from it in parallel, then T3+T4, then T5. T2 does not wait on the spend-bearing T1, and branching rather than stacking is what makes that true of the merge as well as the dependency. T0 is first and separate because its records must exist before the code they govern, and a record written after the build it justifies is a rationalisation. **T2 and T3 ship separately**, which an earlier revision did not do while claiming the benefit: it bundled them as one PR and justified the arrangement with "T3 forks from T1 rather than following T2, so the browser work does not wait on a spend-bearing task" — true of the dependency and false of the delivery unit, since a shared PR makes T3's merge wait on T2 anyway. Split, the rationale holds.
 - **Review shape:** T1 is now **DEEP** rather than MIXED and is decomposed in dependency order — revision 0005 and its grants; the transition table and the terminal commit; the pre-release checks and the gate; the cycle cap and the liveness probe — each leaving the repository working. It grew when the append paths turned out to be missing rather than present, and an ambiguous shape is DEEP by the sizing rule. T4 and T5 are small in code and large in recorded output, which is the inverse of the usual shape and the reason their `Done when` names a document rather than a suite.
-- **Reversible, but no longer entirely.** Nothing is deployed, and no key derivation is added. **Revision 0005 is a one-way door in the ordinary expand-only sense**: migrations here have no downgrade path by construction, so the reversal story is a forward revision that revokes the grants, not a rollback. An earlier revision of this line said "this spec adds no schema", which was the claim a reviewer would read to conclude no migration was in play — the most load-bearing place for it to be wrong.
+- **Reversible:** entirely. Nothing is deployed, this spec adds no schema and no key derivation, and the one-way door that made an earlier revision qualify this line went with the state machine.
 - **Infrastructure:** the foundation spec's local Compose plus a browser for T3. Bedrock is reached under the scoped role for T2 and T5.
 - **Deployment sequencing:** T4 must set `step_deadline` in the same change that records the measurement, or the recorded value and the configured one can diverge silently.
 
@@ -390,6 +322,8 @@ input tool owes both, and inherits a transition table that looks finished.
 - **This spec cannot start until both siblings ship.** It is the one place the three-spec split adds real serialisation, and it is unavoidable: there is nothing to measure until there is a system.
 
 ## Changelog
+
+- 2026-09-27: **the run state machine was split out into `walking-skeleton-run-state`** by owner decision, after a fourth pre-EXECUTE review round found this layer failing in a shape more criteria could not fix: publication, the approval grant and the spend-ceiling page each needed an append path no shipped identity could use, discovered one criterion at a time; the approval grant had no interface a person could reach; and ten of r8 § 3's eleven transitions were unowned, so the browser's state badge would have read `requested` for a whole run. Seven criteria moved unchanged in substance — AC-0301, AC-0302, AC-0303, AC-0320, AC-0321, AC-0324, AC-0325 — taking the migration, the two ADRs about append identity and gate placement, and the old T1 with them. What stays is what four rounds found converging: the browser stream, the four measurements, the re-baseline and the Phase 1 record.
 
 - 2026-09-18: initial plan. Split out of a single `walking-skeleton` spec after three review rounds did not converge and the findings clustered by subsystem. This spec took the measurement and presentation criteria; the two uncomfortable outputs — an abandoned cancellation and a second falsification — are written as recordable results rather than bars, which is the main thing the split let this plan say clearly.
 - 2026-09-18: spec approved by eugenelim
