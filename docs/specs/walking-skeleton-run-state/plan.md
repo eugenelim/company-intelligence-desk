@@ -60,7 +60,7 @@ a rationalisation.
 | --- | --- | --- | --- |
 | Schema — `migrations/versions/` | T1 | Revision 0005's five parts applying both on a clean volume and on a database upgraded from 0002, with the grant set asserted disjoint | The `append_step_event` replacement narrows what `app_worker` may append, stated rather than described as expand-only |
 | Recorded decisions — `docs/adr/` | T0 | The gate-placement and append-path ADRs | Each cited from the criterion resting on it |
-| Interface compatibility — `contracts/openapi/runs.yaml` | T2 | The approval-decision operation documented, route count three to four | Served and committed agree under AC-0009 |
+| Interface compatibility — `contracts/openapi/runs.yaml` | T2 | The approval-decision operation documented, the operation this spec adds; the total is the last-landing spec's | Served and committed agree under AC-0009 |
 | Current architecture — `docs/architecture/README.md` | T4 | The run-state row moved, with uncommitted transitions named | The map matches the repository |
 
 ## Design (LLD)
@@ -101,7 +101,7 @@ deterministically.
 - Goal-based: `python3 tools/hooks/pre-pr.py` passes its ADR shape lint over each new record.
 - `no stub (mode)` — goal-based.
 
-**Approach (T2's correctness fix, stated because it is not obvious from the criteria alone):** the suspension path today sets `steps.state = 'runnable'`, so a flagged step is re-claimable by any worker before the approver acts at all. T2 changes it to write `'suspended'` with its `step.suspended` event in one transaction, and the resume returns it to `runnable` only after reading a committed decision. That is what makes AC-0324's predicate live and AC-0330's refusal reachable.
+**Approach (T2's correctness fix, stated because it is not obvious from the criteria alone):** the suspension path keeps writing `steps.state = 'runnable'` — **unchanged**, because the shipped AC-0237 makes lease release how a *different* worker resumes, and a step written to `'suspended'` is unclaimable under the pool's predicate and stranded forever. An earlier revision of this plan made that change and would have deadlocked every flagged run. What T2 adds is the `step.suspended` **event**, appended on the worker's fenced path while it still holds the lease: that is the fact `app_api` cannot forge, so AC-0324 rests on it, and the gate itself is enforced by AC-0330 refusing a resume with no committed decision for the current cycle.
 
 **Approach:** Two records. **The gate placement**: the shipped run-time injection stands against r8 § 3. **The append paths**: r8 § 4 line 460 and § 3 line 344 disagree, § 3's reading is kept, and the approval path's `app_api` grant and its unfenced commit are recorded with it.
 
@@ -115,20 +115,37 @@ deterministically.
 
 **Tests:**
 - AC-0320 and AC-0324, `substrate`. For each: the grant set stays disjoint and carries no direct `INSERT` on `events`; the path is granted to exactly the named role; each predicate is driven by a call that violates it and observed to refuse; and for AC-0320, with the append forced to fail, `runs.state` does not move. AC-0324 additionally asserts **at the type level** that no role other than `app_api` commits `approval.granted` or `approval.rejected` by any path, including `append_step_event` — and asserts it **against a database upgraded from 0002 as well as a freshly built one**, because a clean-volume-only check is green exactly where the control exists.
-- `stub: true` — `test_the_run_terminal_append_path_exists` (AC-0320), `test_the_approval_decision_append_path_exists` (AC-0324). Both validated red against the running substrate on 2026-09-27: the routines do not exist.
+- `stub: true` — `test_the_run_terminal_append_path_exists` (AC-0320), `test_exactly_one_append_step_event_survives_the_replacement` (AC-0332). Both re-validated red against the running substrate on 2026-09-27. **An earlier revision of this plan recorded blocks calling `_routine_exists` and `_column_exists`, helpers that exist nowhere** — they would have red with `NameError` whether or not revision 0005 shipped, and could never have gone green. Each block below is self-contained.
 
 ```python
 # STUB: AC-0320
 def test_the_run_terminal_append_path_exists() -> None:
     """Revision 0005 adds the only path that may commit a run-terminal move."""
-    assert _routine_exists("append_run_terminal")
+    with psycopg.connect(database_url("worker")) as conn:
+        found = conn.execute(
+            "SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'public' AND p.proname = 'append_run_terminal'"
+        ).fetchone()
+    assert found is not None
 
 
-# STUB: AC-0324
-def test_the_approval_decision_append_path_exists() -> None:
-    """Revision 0005 adds the path `app_api` alone may commit a decision through."""
-    assert _routine_exists("append_approval_decision")
+# STUB: AC-0332
+def test_exactly_one_append_step_event_survives_the_replacement() -> None:
+    """A signature drift creates a second overload carrying EXECUTE TO PUBLIC."""
+    with psycopg.connect(database_url("worker")) as conn:
+        rows = conn.execute(
+            "SELECT p.prosecdef, p.proconfig, p.prosrc FROM pg_proc p"
+            " JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'public' AND p.proname = 'append_step_event'"
+        ).fetchall()
+    assert len(rows) == 1
+    secdef, proconfig, body = rows[0]
+    assert secdef is True
+    assert "pg_temp" in " ".join(proconfig or [])
+    assert "approval.granted" in body and "approval.rejected" in body
 ```
+
+  **AC-0332's preserved half cannot red on its own** — the shipped function already has one overload, `SECURITY DEFINER` and a pinned `search_path`, so a stub asserting only those passes today, as running it proved. The block therefore also asserts the refusal list revision 0005 *adds*, which is absent and reds.
 
 **Approach:** Revision 0005's five parts, written against the three shipped append functions. The denylist gap is closed by re-issuing `append_step_event` through `CREATE OR REPLACE` under 0002's owner and definer preamble with the two approval types added to its refusal list — **not** by editing 0002's constant, which would reach no database that has already migrated.
 
@@ -138,38 +155,37 @@ def test_the_approval_decision_append_path_exists() -> None:
 
 **Depends on:** T1
 
-**Touches:** src/**/domain/run_state.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/liveness.py, src/**/api/**, contracts/openapi/runs.yaml, deploy/compose.yaml, tests/api/**, tests/e2e/**, tests/suspension/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
+**Touches:** src/**/domain/run_state.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/liveness.py, src/**/worker/pool.py, src/**/api/**, contracts/openapi/runs.yaml, deploy/compose.yaml, tests/api/**, tests/e2e/**, tests/suspension/**, tests/persistence/**, tests/schema/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
 
 **Tests:**
 - AC-0301 end to end; AC-0302 on the offered tool set; AC-0303 on the flagged branch with the flag driven both ways; AC-0327 reading the snapshot between steps; AC-0328 driving the new operation and a foreign origin.
 - **`tests/api/test_contract_agreement.py` moves from three routes to four** — its `test_the_contract_file_describes_three_routes` asserts the committed count and reds the moment the contract gains an operation, which is why that file is in this task's `Touches`.
 - The liveness probe is asserted by stalling the poll loop without killing the process; a probe checking only process existence would pass.
-- `stub: true` — `test_a_clean_run_offers_the_model_no_approval_gated_tool` (AC-0302), `test_steps_carries_the_durable_cycle_counter` (AC-0327, the durable seam its projection reads), `test_a_resume_with_no_committed_decision_refuses_to_run` (AC-0330). All validated red on 2026-09-27 against absent symbols and an absent column.
+- `stub: true` — `test_a_clean_run_offers_the_model_no_callable_approval_gated_tool` (AC-0302), `test_a_resume_with_no_committed_decision_refuses_to_run` (AC-0330). Both re-validated red on 2026-09-27 on absent imports.
 
 ```python
 # STUB: AC-0302
-def test_a_clean_run_offers_the_model_no_approval_gated_tool() -> None:
-    """Conditionality is decidable on the offered set, not the compiled one."""
-    from ced.worker.executor import offered_toolsets
+def test_a_clean_run_offers_the_model_no_callable_approval_gated_tool() -> None:
+    """Toolset-level `requires_approval` is False even when the tool is gated."""
+    from ced.worker.executor import offered_approval_gated_tools
 
-    offered = offered_toolsets(prerelease_failed=False)
-    assert all(not ts.requires_approval for ts in offered)
+    assert offered_approval_gated_tools(prerelease_failed=False) == []
 
 
 # STUB: AC-0330
 def test_a_resume_with_no_committed_decision_refuses_to_run() -> None:
-    """The gate must not rubber-stamp: absent decision is a refusal."""
-    from ced.worker.persistence import approval_results_from_log
+    """Absent decision for this cycle is a refusal, not an approval."""
+    from ced.worker.persistence import approval_results_for_cycle
 
     with pytest.raises(LookupError):
-        approval_results_from_log(step_id=_ABSENT, pending_call_ids=["c1"])
-
-
-# STUB: AC-0327
-def test_steps_carries_the_durable_cycle_counter() -> None:
-    """AC-0321's count must survive a worker handoff, so it is a column."""
-    assert _column_exists("steps", "approval_cycles")
+        approval_results_for_cycle(
+            step_id="11111111-2222-3333-4444-5555aaaabbbb", cycle=1, pending_call_ids=["c1"]
+        )
 ```
+
+  **AC-0302's stub asserts the offered *tools*, not the toolset object.** An earlier revision asserted `all(not ts.requires_approval for ts in offered)` — and `requires_approval` is a toolset-level flag that stays `False` when `add_function(..., requires_approval=True)` sets it on the tool, verified by executing it against the installed framework. That assertion passed in the failing world, which is the vacuity shape this criterion exists to catch.
+
+  **AC-0327 has no stub and records `no stub (implementation-discovered)`.** *Discovery predicate:* its oracle is the ordered event projection, and the projection's callable seam — what reads the log and folds it into a state sequence — does not exist and is T2's to design; the column check an earlier revision filed under AC-0327 belonged to AC-0321 and is green by the time T2 runs, since T1 creates it. *Proof obligation:* before T2 closes, the projection is driven over a committed run and the ledger records the mutation that reds it — dropping the event append from any one committed transition must break the projection's agreement with the snapshot.
 
 - `no stub (implementation-discovered)` for **AC-0331**. *Discovery predicate:* the probe's callable seam is a worker-side command whose invocation shape the container healthcheck fixes, and neither the module nor its entry point exists; inventing one now would manufacture a symbol the rule forbids. *Proof obligation:* before T2 closes, the probe is driven by stalling the poll loop without killing the process, and the observed unhealthy result is written to the verification ledger with the mutation that reds it — replacing the heartbeat-recency check with a process-existence check must make it pass.
 - `no stub (mode)` for AC-0301 and AC-0303 (end-to-end) and AC-0328 (end-to-end against the shipped route). AC-0328's mode is end-to-end in both documents; an earlier revision of this plan called it manual QA while the spec's Testing Strategy placed it in the TDD group, which is two gate-read fields disagreeing about what a third gate enforces.
@@ -185,7 +201,7 @@ def test_steps_carries_the_durable_cycle_counter() -> None:
 **Tests:**
 - AC-0321 drives the cycles **across a worker handoff** and asserts the cap fires with a recorded cause; a second case asserts a `PoolConfig` declaring no cap still bounds the loop.
 - AC-0325 accumulates usage past the ceiling and asserts the pre-dispatch check appends the step-scoped page event and does not abort; a second case asserts a `PoolConfig` declaring no ceiling still gets a finite one.
-- `stub: true` — `test_the_cycle_cap_configuration_carries_a_finite_default` (AC-0321), `test_the_per_run_spend_ceiling_carries_a_finite_default` (AC-0325). Both validated red on 2026-09-27: `PoolConfig` carries neither field.
+- `stub: true` — `test_the_cycle_cap_configuration_carries_a_finite_default` (AC-0321), `test_the_per_run_spend_ceiling_carries_a_finite_default` (AC-0325). Both re-validated red on 2026-09-27: `PoolConfig` carries neither field.
 
 ```python
 # STUB: AC-0321
@@ -213,7 +229,7 @@ def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
 **Touches:** docs/architecture/README.md, docs/specs/walking-skeleton-run-state/spec.md, docs/specs/walking-skeleton-run-state/plan.md, workspace.toml
 
 **Tests:**
-- AC-0329 is checked by reading: the record must name all five residuals the criterion binds, including the five uncommitted r8 § 3 transitions and the safety constraints `awaiting_input` owes.
+- AC-0329 is checked by reading: the record must name every residual AC-0329 enumerates, including the uncommitted transitions it lists and the safety constraints `awaiting_input` owes.
 - `python3 .agents/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green across all seven specs.
 - `no stub (mode)` — record review.
 
