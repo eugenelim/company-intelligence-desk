@@ -62,7 +62,13 @@ def test_the_definer_functions_are_configured_to_resist_temp_capture(
     assert len(rows) == 6, f"expected six definer functions, found {rows}"
     for name, config in rows:
         assert config is not None, f"{name} sets no search_path at all"
-        assert "pg_temp" in config, f"{name} omits pg_temp: {config!r}"
+        # "pg_temp" in the joined config is too weak: search_path=pg_temp,public
+        # would pass while putting pg_temp first — exactly the temp-capture
+        # ordering the pin exists to prevent. Assert the exact entry instead.
+        assert "search_path=pg_catalog, pg_temp" in config, (
+            f"{name} does not carry the exact entry "
+            f"'search_path=pg_catalog, pg_temp': {config!r}"
+        )
 
 
 def test_a_temp_events_table_does_not_capture_the_append(

@@ -82,20 +82,23 @@ after T0 at spec `841d0959a731` / plan `1e8cd06feefd`.
   (unfenced, `app_api` only, suspension-keyed), the partial unique index
   `events_decision_idempotency_idx`, disjoint EXECUTE grants, and `CREATE OR
   REPLACE` of `append_step_event` adding decision types to its refusal list.
-- `src/ced/domain/events.py` — `STEP_SUSPENDED`, `APPROVAL_GRANTED`,
+- `src/ced/domain/events.py` — `APPROVAL_GRANTED`,
   `APPROVAL_REJECTED`, `DECISION_TYPES` constants added.
 - `src/ced/adapters/postgres/event_log.py` — `RunNotRunning`, `DecisionRefused`
   exceptions; `append_run_terminal` and `append_approval_decision` Python
   wrappers added.
-- `tests/schema/test_run_state_paths.py` — 28 `@pytest.mark.substrate` tests
+- `tests/schema/test_run_state_paths.py` — 34 `@pytest.mark.substrate` tests
   covering AC-0320, AC-0324, AC-0332, and AC-0334 with the four plan stubs
-  materialized byte-identically.
+  materialized byte-identically (count as of clean-volume run, 2026-09-27).
 - `tests/event_log/test_definer_hardening.py` — definer count updated 4 → 6;
   `DECISION_TYPES` added to the refused-set comparison; `approval.granted` and
   `approval.rejected` added to the step-path parametrize.
 
-**Gates (901 passed, 3 skipped, 0 failures):** `ruff format --check`, `ruff
-check`, `mypy`, `pytest -m 'not substrate'` (640 passed), `pytest` (901 passed).
+**Gates (907 passed, 3 skipped, 0 failures — clean-volume rebuild, 2026-09-27):**
+`ruff format --check`, `ruff check`, `mypy`, `pytest -m 'not substrate'`,
+`pytest` (full substrate suite). The initial commit recorded 901 passed; the
+difference reflects tests added across Rounds 6 and 7 before the clean-volume
+evidence retake.
 
 ### Mutation proofs
 
@@ -151,7 +154,7 @@ check is genuinely decided by the index and not by an application-level guard
 that would have kept it green.
 
 *Restored.* Index recreated from the `pg_indexes` definition; the full module
-returns 28 passed.
+returns 34 passed (count as of clean-volume run after all rounds, 2026-09-27).
 
 **One false start, recorded because it is the trap this proof exists to avoid.**
 The first attempt connected as a `owner` role that does not exist, so the drop
@@ -254,11 +257,10 @@ the function correctly. The comment-substring trap is recorded because a body.in
 fallback on a function with "FOR UPDATE" in a comment would silently pass; this
 proof shows the check is correct when comments are neutral. Restored, PASSED.
 
-*Incidental finding: the `try/except ValueError` fallback in the structural
-check can be fooled by a comment containing "FOR UPDATE" appearing before
-"UPDATE public.runs" in the function body. The check passes for the right reason
-on the actual shipped functions because they carry no such comment. This is noted
-as a known fragility of string-position checks on SQL bodies, not fixed here.*
+*Note: the `try/except ValueError` fallback concern (a comment containing "FOR
+UPDATE" before the actual SQL) was raised during this round. It is resolved in
+the Round 6 second-pass section below: `re.sub` strips all `--` comments from
+`prosrc` before any `index()` call, removing the fragility entirely.*
 
 **AC-0332 — `proowner` assertion: test temporarily mutated to `assert owner ==
 "not_ced_owner"`.**
@@ -315,6 +317,54 @@ reason, comment wins). Stripped positions: `FOR UPDATE` at 1910 (actual SQL),
 `append_approval_decision acquires a runs lock before the steps lock,
 inverting the ratified lock order (assert 1910 < 1701)`. The check now names
 the function correctly regardless of comment placement. Restored, PASSED.
+
+### Round 7: the evidence was about the wrong database
+
+Round 7 sustained nine findings. Two were blockers and the second one is the
+reason this section exists rather than being another list of repairs.
+
+**The guard that was never a guard.** Revision 0005 rendered the empty-`call_id`
+predicate as `p_call_ids[v_i] = ''''` inside a dollar-quoted `AS $$ … $$` body.
+No quote-doubling applies there, so Postgres lexes `''''` as the one-character
+literal `'`: on this substrate `('''' = '')` is false, `length('''')` is 1 and
+`ascii('''')` is 39. The guard asked whether the call id was a single
+apostrophe. An empty one passed, took the hold, cleared `awaiting_decision`,
+advanced the counter and committed an event keyed `<seq>:`. Revision 0002
+contains no occurrence of `''''`, so the precedent was available and unread.
+
+**Why three rounds of green said nothing.** The running database carried
+`= ''` while the file carried `''''` — a body that existed in no file and was
+never produced by this migration. It got there because a mutation proof
+restored its original by pasting a body rather than by re-executing the
+revision. From that moment the suite measured a database nobody was shipping,
+and `test_approval_decision_refuses_an_empty_call_id` — added specifically to
+close a predicate that had no asserting call — passed on a function that did
+not contain the predicate.
+
+**The rule this establishes, which costs nothing to follow.** Restore a mutant
+by re-executing the migration's generator, never by pasting a body. Before
+recording any `substrate` result as evidence, diff `pg_proc.prosrc` against the
+rendered migration and the index definitions against `pg_indexes`, and say in
+the record that they matched. A green suite is a claim about whatever schema is
+loaded; without that diff it is not a claim about the tree.
+
+**Evidence retaken.** `docker-compose down -v`, fresh volume, `alembic upgrade
+head`, workers, full suite: 907 passed, 3 skipped in 224.95s. Every earlier
+proof in this file was re-run against that database, restoring by generator.
+The live bodies were then diffed against the rendered migration: across
+`append_approval_decision`, `append_run_terminal` and `append_step_event` the
+only lines that differ are the f-string interpolation sites — the `_sql_list`
+expansions and the canonicaliser character class — which is what a match looks
+like.
+
+**AC-0324 — M (the empty-`call_id` guard), proved rather than assumed.** This
+check had never been shown able to fail. The migration's SQL was rendered by
+capturing `op.execute`, the single occurrence of `= ''` was replaced by `= ''''`
+and installed, and the mutant was confirmed present in `prosrc` before the run.
+Result: `test_approval_decision_refuses_an_empty_call_id` FAILED with
+`Failed: DID NOT RAISE DecisionRefused`, and the two sibling refusal checks
+stayed green — so the break is located, not diffuse. Restored by re-executing
+the rendered original, confirmed absent from `prosrc`, module returns 34 passed.
 
 ### A defect T1 surfaced in the gate suite
 

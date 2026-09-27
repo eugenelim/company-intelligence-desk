@@ -243,12 +243,12 @@ def upgrade() -> None:
             END IF;
 
             -- Source-state predicate and terminal guard in one statement.
-            -- `state = ''running''` refuses both a run still at `requested`
+            -- `state = 'running'` refuses both a run still at `requested`
             -- (which has not entered the committed transition set) and a run
             -- already terminal (which cannot re-enter it). The state change
             -- and the seq advance commit together: neither can land without
             -- the other. ADR-0009 D1: the null step_id in the event is what
-            -- keeps §4''s disjointness intact while §3''s
+            -- keeps §4's disjointness intact while §3's
             -- worker-appends-terminal reading is used.
             UPDATE public.runs
                SET state = CASE
@@ -321,7 +321,7 @@ def upgrade() -> None:
                     session_user
                     USING ERRCODE = 'serialization_failure';
             END IF;
-            IF array_length(p_decisions, 1) <> v_n THEN
+            IF coalesce(array_length(p_decisions, 1), 0) <> v_n THEN
                 RAISE EXCEPTION
                     'append_approval_decision: p_call_ids and p_decisions must '
                     'have the same length (caller %)',
@@ -338,7 +338,7 @@ def upgrade() -> None:
             -- DecisionRefused — the only SQLSTATE this function raises that no
             -- other failure on the same call can produce for these sites.
             FOR v_i IN 1..v_n LOOP
-                IF p_call_ids[v_i] IS NULL OR p_call_ids[v_i] = '''' THEN
+                IF p_call_ids[v_i] IS NULL OR p_call_ids[v_i] = '' THEN
                     RAISE EXCEPTION
                         'append_approval_decision refuses a null or empty '
                         'call_id at position % (caller %)',
@@ -432,8 +432,8 @@ def upgrade() -> None:
             END IF;
 
             -- Clear the hold and advance the cycle counter exactly once for
-            -- this call. Both are read by AC-0324''s and AC-0330''s predicates.
-            -- The pre-advance value is what AC-0330''s resume matches on (the
+            -- this call. Both are read by AC-0324's and AC-0330's predicates.
+            -- The pre-advance value is what AC-0330's resume matches on (the
             -- cycle that opened the suspension); stamping the post-advance value
             -- would make every resume refuse. The counter is advanced here
             -- rather than by the worker, so the resume reads a stable value
@@ -444,7 +444,7 @@ def upgrade() -> None:
              WHERE step_id = p_step_id;
 
             -- Append one event per (call_id, decision) pair. Each event gets
-            -- its own seq from the run''s counter. The runs lock is taken inside
+            -- its own seq from the run's counter. The runs lock is taken inside
             -- the loop but is already held from the first iteration onward
             -- within the same transaction. idempotency_key = suspension_seq:call_id.
             -- Duplicate call_ids are caught by events_decision_idempotency_idx:
@@ -453,6 +453,12 @@ def upgrade() -> None:
             FOR v_i IN 1..v_n LOOP
                 UPDATE public.runs SET next_seq = next_seq + 1
                  WHERE run_id = p_run_id RETURNING next_seq INTO v_seq;
+                -- Defence against the FK on steps(run_id) being dropped: if
+                -- that constraint were removed the run could be deleted between
+                -- the membership check above and this UPDATE. While the FK
+                -- exists the check is redundant; it mirrors the sibling guard in
+                -- 0002's append_step_event and must not be removed so the two
+                -- paths stay in parallel shape.
                 IF NOT FOUND THEN
                     RAISE EXCEPTION 'no such run %', p_run_id
                         USING ERRCODE = 'foreign_key_violation';

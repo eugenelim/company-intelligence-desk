@@ -204,10 +204,13 @@ def test_the_run_terminal_path_is_granted_to_app_worker_only(
     ).fetchall()
     grantees = {row[0] for row in rows}
 
-    assert "app_worker" in grantees, f"app_worker missing EXECUTE on {sig}"
-    assert "app_api" not in grantees, f"app_api holds EXECUTE on {sig}"
-    assert "app_policy" not in grantees, f"app_policy holds EXECUTE on {sig}"
-    assert "PUBLIC" not in grantees, f"PUBLIC holds EXECUTE on {sig}"
+    # spec.md:135 binds the path to "app_worker and to no other role".
+    # Named exclusions leave later additions silent; equality pins the full set.
+    assert grantees == {"ced_owner", "app_worker"}, (
+        f"append_run_terminal EXECUTE grantee set is {grantees!r}, "
+        "expected exactly {{'ced_owner', 'app_worker'}}; "
+        "an added grantee would satisfy the named-exclusion checks above"
+    )
 
 
 @pytest.mark.substrate
@@ -1096,7 +1099,13 @@ def test_the_replaced_step_function_retains_security_definer_and_search_path(
     secdef, proconfig, owner = row
     assert secdef is True
     assert proconfig is not None
-    assert "pg_temp" in " ".join(proconfig)
+    # "pg_temp" in the joined string is too weak: search_path=pg_temp,public
+    # would pass while putting pg_temp first — exactly the temp-capture ordering
+    # the pin exists to prevent. Assert the exact entry instead.
+    assert "search_path=pg_catalog, pg_temp" in proconfig, (
+        f"append_step_event has proconfig {proconfig!r}; "
+        "expected entry 'search_path=pg_catalog, pg_temp' to be present"
+    )
     assert owner == "ced_owner", (
         f"append_step_event owner is {owner!r}, expected 'ced_owner'; "
         "a CREATE OR REPLACE that changed the owner would alter the definer context"
