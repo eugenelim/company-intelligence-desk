@@ -107,7 +107,7 @@ counts.
 | Operations — `docs/architecture/pydantic-ai-worker-runtime/operations.md` | T4 | Each recorded value with its sample size and platform | Values satisfy the ordering invariant and cite their sample size |
 | Reusable learning — `spikes/README.md` | T6 | A Phase 1 section separating established, substituted and not-established | Hypothesis checks reported separately from setup |
 | Current architecture — r8 header, `docs/architecture/README.md` | T6 | Markers moved off `PLANNED` for what exists | Headers match the repository |
-| Interface compatibility — `contracts/openapi/runs.yaml` | T3 | The reconnect semantics documented and asserted | Contract and implementation agree under test |
+| Interface compatibility — `contracts/openapi/runs.yaml` | T3 | The fourth operation documented with its media type, cursor bounds, refusal status and close semantics, each asserted | Contract and implementation agree under test, and the generated document matches the hand-authored one |
 
 ## Design (LLD)
 
@@ -161,11 +161,23 @@ so. Traces to: AC-0301, AC-0320 · ADR written in T0.
 
 ### Interfaces & contracts
 
-The stream endpoint gains its reconnect semantics here: the server prefers
-`Last-Event-ID` over the `after=` query parameter, because the browser's
-`EventSource` re-requests the original URL with a now-stale cursor on
-reconnect. The client persists its own cursor and reopens explicitly, and the
-sink is idempotent on the run-and-sequence pair. Traces to: AC-0304, AC-0305 ·
+The new stream operation carries its reconnect semantics here: the server
+prefers `Last-Event-ID` over the `after=` query parameter, because the
+browser's `EventSource` re-requests the original URL with a now-stale cursor on
+reconnect and supplies the header itself.
+
+**The client uses `EventSource`'s native automatic reconnect, and that choice
+is what makes AC-0305 testable.** An earlier revision of this paragraph said
+both that the browser re-requests the original URL *and* that "the client
+persists its own cursor and reopens explicitly" — mutually exclusive, because a
+freshly constructed `EventSource` sends no `Last-Event-ID` at all and the API
+offers no way to set one. AC-0305 requires a stale `after=0` **and** a
+`Last-Event-ID` on each of ten reconnects, which is exactly what the native
+path produces: the URL carries `after=0` forever and the browser attaches the
+header from the last `id:` field it saw. So the server emits `id:` on every
+event, the client sets no cursor of its own, and the sink stays idempotent on
+the run-and-sequence pair as a second line of defence rather than as the
+mechanism under test. Traces to: AC-0304, AC-0305, AC-0323 ·
 `contracts/openapi/runs.yaml`.
 
 ### Component / module decomposition
@@ -217,7 +229,7 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 
 **Depends on:** none
 
-**Touches:** docs/adr/**, tests/architecture/test_recorded_layout.py, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
+**Touches:** docs/adr/**, docs/specs/walking-skeleton-evidence/spec.md, tests/architecture/test_recorded_layout.py, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
 
 **Tests:**
 - Goal-based: `./.venv/bin/python -m pytest tests/architecture/test_recorded_layout.py` is green with `ui` in the recorded set and the directory not yet created — the layout record admits it before anything tracks a file under it, which is the order ADR-0003 D2 asks for.
@@ -233,26 +245,26 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 
 **Depends on:** T0
 
-**Touches:** migrations/versions/**, src/**/domain/run_state.py, src/**/domain/events.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/pool.py, src/**/adapters/postgres/event_log.py, src/**/adapters/objectstore/**, src/**/api/health.py, src/**/api/main.py, deploy/compose.yaml, contracts/openapi/runs.yaml, tests/e2e/**, tests/schema/**, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
+**Touches:** migrations/versions/**, src/**/domain/run_state.py, src/**/domain/events.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/pool.py, src/**/adapters/postgres/event_log.py, src/**/adapters/objectstore/**, src/**/worker/liveness.py, src/**/api/main.py, deploy/compose.yaml, contracts/openapi/runs.yaml, tests/e2e/**, tests/schema/**, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
 
 **Tests:**
 - AC-0301 reads the run's outcome end to end: terminal `run.completed`, an artifact published, no `approval.requested` appended.
-- AC-0320 and AC-0324 are the schema-level half and carry the `substrate` marker. For each: the grant set after revision 0005 is still disjoint and still carries no direct `INSERT` on `events`; the path is granted to exactly one role; each of its predicates is driven by a call that violates it and observed to refuse — for AC-0320 the type allowlist, the step-belongs-to-run check, the already-terminal refusal and the null `step_id`, and for AC-0324 the type allowlist, the step-belongs-to-run check and the not-suspended refusal; and with the append forced to fail, `runs.state` does not move.
+- AC-0320 and AC-0324 are the schema-level half and carry the `substrate` marker. For each: the grant set after revision 0005 is still disjoint and still carries no direct `INSERT` on `events`; the path is granted to exactly one role; each of its predicates is driven by a call that violates it and observed to refuse — for AC-0320 **lease possession**, the type allowlist, the step-belongs-to-run check, the already-terminal refusal and the null `step_id`, and for AC-0324 the type allowlist, the step-belongs-to-run check, the not-suspended refusal and the already-decided refusal; and with the append forced to fail, `runs.state` does not move.
 
   **Mutation proof is owed before either counts as coverage.** The named break for the atomicity assertion is to split the definer function's single body into two caller-issued statements — the update, then the append — which is the separable wrapper the criterion means; the assertion must then red. The named break for each predicate is to delete that predicate from the function body. A check that passes with a predicate removed is asserting the happy path, which is the shape three of the last delivery's six dead checks had.
 
   **AC-0320 does not assert that no path moves `runs.state` without an event**, and the test must not be written as though it does: `app_worker` keeps its table-level `UPDATE ON runs` by the owner decision of 2026-09-26, so that bypass stays open and AC-0314 records it. Nor does either criterion range over `run.cancelled`, which `app_api` already commits through `append_run_event` while moving no state — a shipped sibling's route, left alone.
-- AC-0325 accumulates usage in the event log past the configured per-run ceiling and asserts the executor's pre-dispatch check pages and does not abort, read from what the executor did rather than from the ceiling's configuration. **Mutation proof is owed**: remove the check and this must red.
-- AC-0326 asserts the API serves the built `ui/` bundle at its own origin, and that a request carrying a foreign `Origin` header is refused on the state-changing routes. **Mutation proof is owed**: add a permissive cross-origin allowance and the refusal assertion must red.
+- AC-0325 accumulates usage in the event log past the configured per-run ceiling and asserts the executor's pre-dispatch check appends the page event and does not abort the run — read from the appended event, not from the ceiling's configuration. A second case asserts that a `PoolConfig` declaring no ceiling still gets a finite one. **Mutation proofs owed**: remove the check and the first must red; remove the finite default and the second must red.
+- The liveness probe (DR4) is asserted by stalling the poll loop without killing the process and observing the probe fail. **It is a worker-side command run by the container healthcheck, not an HTTP route** — `deploy/compose.yaml` invokes it, `src/ced/worker/liveness.py` implements it, and it reads heartbeat recency rather than process existence. Making it an API route would put a fifth operation on a surface the spec's Contract line fixes at four and `tests/api/test_contract_agreement.py` asserts is exactly the committed set. Out-of-process is also what DR4 asks for: a probe inside the loop it watches cannot see the loop starve.
 - AC-0302 inspects the tool set the model is offered at run time, which on the shipped placement is where conditionality is decidable at all. **Mutation proof is owed**: make the gate unconditional on a clean run and this must red. The criterion as previously written — over the compiled toolset — could not red under any mutation, because the shipped design never compiles the tool in.
 - AC-0303 forces a pre-release failure and drives the suspension through to publication on a grant, which is what makes AC-0301's "clean" one branch of a real condition. It also reads back the appended grant and asserts it names the granting principal and carries the `require_distinct_approver` state — **read from the log, not from the value the test supplied**, which is the read-back-what-you-placed shape.
 - AC-0321 drives a step past the cycle cap and asserts it fails with a recorded cause, then asserts a pool configuration declaring no cap still bounds the loop. The second half is what stops a configuration read satisfying the criterion. **The cycles are driven across a worker handoff**, not inside one process, and this half is `substrate`: r5 releases the lease before each approval, so a counter in worker memory is reset by the handoff the loop performs every cycle and three rejections inside one process would pass against an unbounded loop. **Mutation proof is owed**: move the count into worker memory and the handoff assertion must red.
 - AC-0303's two added clauses. The grant event is read back from the log and asserted to name the granting principal. The `require_distinct_approver` state is driven **both ways** — the flag configured true and false, two runs, two different appended values — because a single-value read-back is satisfied by a module constant written into the payload, which is the derive-the-input-from-the-constant shape. The flag's configuration surface is `PoolConfig`; it exists nowhere in `src/` today. Suspension is made deterministic by the role under test resolving to a model that calls `request_approval` on every flagged run, named here so the criterion is not resting on a real model's discretion.
-- The liveness probe (DR4) is asserted by stalling the poll loop without killing the process and observing the probe fail — a probe that only checks process existence would pass, which is the failure mode it exists to catch.
+  A probe that only checks process existence would pass on a stalled loop, which is the failure mode it exists to catch.
 
 **Approach:**
-- Revision 0005 comes first and is expand-only: the run-terminal definer function granted to `app_worker` (AC-0320), the approval-grant function that commits while `owner` is null (AC-0324), and their `EXECUTE` grants. **It revokes nothing** — `app_worker` keeps its table-level `UPDATE ON runs`, by the owner decision of 2026-09-26 and for the reason `0001_base_schema.py` already records: that grant is r7's identity table verbatim and narrowing it unilaterally would deviate from ratified authority. Both functions are written against the lock ordering the existing functions use — `steps` before `runs` — because a third order is what the foundation's deadlock suite exists to catch, and both carry the predicate set their shipped siblings carry rather than only the grant that names their caller.
-- The cycle cap's count lives in durable per-step state, not in the worker, so it survives the lease release r5 performs before every approval.
+- Revision 0005 comes first and is expand-only, and has **three** parts rather than two: the run-terminal definer function granted to `app_worker` (AC-0320); the approval-grant function granted to `app_api` (AC-0324); and **a `steps.approval_cycles` column**, `integer NOT NULL DEFAULT 0`, which is where AC-0321's cycle count durably lives. Plus their `EXECUTE` grants. An earlier revision described the count as living in "durable per-step state" and then enumerated the revision as two functions, which named no place for it — and the two candidates, a column versus deriving the count by scanning `approval.rejected` events, carry different migration, grant and concurrency consequences, so leaving it unnamed left a real choice to the keyboard. The column is chosen because the derived read would have the worker scan the event log on every resume to compute a bound. **It revokes nothing** — `app_worker` keeps its table-level `UPDATE ON runs`, by the owner decision of 2026-09-26 and for the reason `0001_base_schema.py` already records: that grant is r7's identity table verbatim and narrowing it unilaterally would deviate from ratified authority. Both functions are written against the lock ordering the existing functions use — `steps` before `runs` — because a third order is what the foundation's deadlock suite exists to catch, and both carry the predicate set their shipped siblings carry rather than only the grant that names their caller.
+- The cycle cap's count lives in `steps.approval_cycles`, not in the worker, so it survives the lease release r5 performs before every approval.
 - The per-run spend ceiling pages rather than aborts and now has AC-0325 reading it. DR5 and DR6 were dispositioned the same way and only DR5 was repaired in the first revision; both now carry a criterion, which is the level the defect sits at rather than the one it was reported on.
 - `awaiting_input` and its two events are authored into the transition table here, unexercised. No row carries the value, so `runs.state`'s CHECK is left alone; r8 § 10 line 1134 records that this needs no stored-state migration, and the CHECK is what would have to widen on the day something writes the state. The first spec to wire the input tool owes that, and owes r8 § 3's two safety constraints with it.
 - The per-run spend ceiling pages rather than aborts.
@@ -271,7 +283,7 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 **Approach:**
 - **The sample runs with no `step_deadline` configured at all**, which is the honest description of what happens here. An earlier revision said the deadline "is set deliberately generous" — but `PoolConfig.step_deadline` defaults to `None`, no environment variable reaches it, and T4 is the task that builds that surface. A generous value was therefore unsettable at the moment T2 runs. `None` means no deadline, which satisfies this task's only requirement — that nothing truncates a step and contaminates the p99 — for a more direct reason than a large number would.
 - The real value is set in T4 from the measurement, which is why no criterion is demonstrated against whatever is in force here.
-- This is the task that spends money. It is bounded by the spec's Ask-first threshold, which is an instruction to the operator and not a mechanism; the mechanical bound in this delivery is the per-run ceiling AC-0325 reads, and it pages rather than aborting by r5's ratified decision.
+- **This is the task that spends money, and no mechanism in this delivery halts it.** The spec's Ask-first `$5` threshold is an instruction to the operator, and the per-run ceiling AC-0325 asserts **pages rather than aborting** by r5's ratified decision — so a run past the ceiling keeps calling the provider and the page is a notification, not a brake. An earlier revision of this bullet called that ceiling "the mechanical bound in this delivery", which it is not. What bounds T2 in practice is the operator watching: the sample is 30 completed steps against a cheap model, the re-baseline cost $0.022 the first time, and the Ask-first threshold stops the task rather than the system stopping it.
 
 **Done when:** a sample of completed real steps exists in the event log, none truncated by a deadline.
 
@@ -294,13 +306,13 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 - The client is deliberately small — an event list, a state badge, a cursor. **Every value the page did not author renders as a text node** — agent text, typed-artifact field values, and envelope fields alike. Typed artifacts render through the application's own components, which controls *layout and affordances* from structured fields; it does not make the field values trusted, and AC-0322 asserts over that path too.
 - `playwright` provisions browser binaries by downloading them at install time. Record that command in `AGENTS.md` beside the `ui/` install and build commands, in this same change, so a clean clone can run the browser criteria.
 
-**Done when:** AC-0304, AC-0305 and AC-0322 are observed in a real browser and recorded with their mutation proofs, AC-0323 and AC-0326 are green, and the contract carries the new operation in full.
+**Done when:** AC-0304, AC-0305 and AC-0322 are observed in a real browser and recorded with their mutation proofs, AC-0323 and AC-0326 are green, the contract carries the new operation in full, and **`ui/`'s lockfile is committed with the install command recorded in `AGENTS.md` in its frozen, lockfile-respecting form** — so a clean clone resolves the same tree rather than a fresh one, which is the only pinning control either ecosystem has while no scanner covers them.
 
 ### T4: The deadline is calibrated against a measurement, not a guess
 
 **Depends on:** T2
 
-**Touches:** src/**/ops/measure.py, src/**/adapters/aws/quotas.py, src/**/worker/pool.py, deploy/compose.yaml, pyproject.toml, AGENTS.md, docs/architecture/pydantic-ai-worker-runtime/operations.md, tests/ops/**, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
+**Touches:** src/**/ops/**, src/**/adapters/aws/**, src/**/worker/pool.py, deploy/compose.yaml, pyproject.toml, AGENTS.md, docs/architecture/pydantic-ai-worker-runtime/operations.md, tests/ops/**, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
 
 **Tests:**
 - AC-0307 refuses to emit a p99 below the sample floor rather than reporting a figure the sample cannot support.
@@ -316,13 +328,13 @@ Service Quotas is read once by T4. SEC EDGAR is not reached at all.
 - The measurement command ships as product code and gains a `[project.scripts]` entry, recorded in `AGENTS.md` § Build and test commands in the same change. That a console script is not one of ADR-0003 D3's "two deployables" is settled by T0's layout record rather than by a comment in `pyproject.toml`.
 - If cancellation comes back *abandoned*, that is the recorded result.
 
-**Done when:** AC-0307 through AC-0311 are recorded in the operations document with their sample sizes and platform, AC-0306 is green against the recorded values, and the configured `step_deadline` the criterion reads is the one the workers actually run with.
+**Done when:** AC-0307 through AC-0311 are recorded in the operations document with their sample sizes and platform, the quota read's identity and its single action `servicequotas:GetServiceQuota` are recorded beside the value — naming that it runs under the operator's own admin profile rather than the worker's Bedrock role, so the breadth of that credential is written down rather than implied, AC-0306 is green against the recorded values, and the configured `step_deadline` the criterion reads is the one the workers actually run with.
 
 ### T5: Analytical quality is re-baselined, whatever it says
 
 **Depends on:** T2
 
-**Touches:** src/**/eval/rebaseline.py, tests/eval/**, docs/specs/walking-skeleton-evidence/notes/rebaseline.md, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
+**Touches:** src/**/eval/**, tests/eval/**, docs/specs/walking-skeleton-evidence/notes/rebaseline.md, docs/specs/walking-skeleton-evidence/notes/verification-ledger.md
 
 **Tests:**
 - AC-0312 re-runs the A/B against the same recorded 10-Q and reports against the same three loss categories, so the result is comparable to the original rather than merely new. The producer tuple labels the run; without it the comparison has no identity.
@@ -363,7 +375,7 @@ input tool owes both, and inherits a transition table that looks finished.
 
 ## Rollout
 
-- **Delivery:** six stacked PRs — T0, T1, T2, T3, T4+T5, T6. T0 is first and separate because its records must exist before the code they govern, and a record written after the build it justifies is a rationalisation. **T2 and T3 ship separately**, which an earlier revision did not do while claiming the benefit: it bundled them as one PR and justified the arrangement with "T3 forks from T1 rather than following T2, so the browser work does not wait on a spend-bearing task" — true of the dependency and false of the delivery unit, since a shared PR makes T3's merge wait on T2 anyway. Split, the rationale holds.
+- **Delivery:** six PRs. T0, then T1; **T2 and T3 both branch from T1 and run in parallel** rather than stacking, because T3 depends only on T1 and a linear stack would put its merge behind the spend-bearing task exactly as bundling them did; then T4+T5, then T6. T0 is first and separate because its records must exist before the code they govern, and a record written after the build it justifies is a rationalisation. **T2 and T3 ship separately**, which an earlier revision did not do while claiming the benefit: it bundled them as one PR and justified the arrangement with "T3 forks from T1 rather than following T2, so the browser work does not wait on a spend-bearing task" — true of the dependency and false of the delivery unit, since a shared PR makes T3's merge wait on T2 anyway. Split, the rationale holds.
 - **Review shape:** T1 is now **DEEP** rather than MIXED and is decomposed in dependency order — revision 0005 and its grants; the transition table and the terminal commit; the pre-release checks and the gate; the cycle cap and the liveness probe — each leaving the repository working. It grew when the append paths turned out to be missing rather than present, and an ambiguous shape is DEEP by the sizing rule. T4 and T5 are small in code and large in recorded output, which is the inverse of the usual shape and the reason their `Done when` names a document rather than a suite.
 - **Reversible, but no longer entirely.** Nothing is deployed, and no key derivation is added. **Revision 0005 is a one-way door in the ordinary expand-only sense**: migrations here have no downgrade path by construction, so the reversal story is a forward revision that revokes the grants, not a rollback. An earlier revision of this line said "this spec adds no schema", which was the claim a reviewer would read to conclude no migration was in play — the most load-bearing place for it to be wrong.
 - **Infrastructure:** the foundation spec's local Compose plus a browser for T3. Bedrock is reached under the scoped role for T2 and T5.
