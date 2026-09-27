@@ -59,7 +59,7 @@ a rationalisation.
 
 | Durable output | Tasks | Implementation evidence | Closeout evidence |
 | --- | --- | --- | --- |
-| Schema — `migrations/versions/` | T1 | Revision 0005's five parts applying both on a clean volume and on a database upgraded from 0002, with the grant set asserted disjoint | The `append_step_event` replacement narrows what `app_worker` may append, stated rather than described as expand-only |
+| Schema — `migrations/versions/` | T1 | Revision 0005's parts (see § Constraints) applying both on a clean volume and on a database upgraded from 0002, with the grant set asserted disjoint | The `append_step_event` replacement narrows what `app_worker` may append, stated rather than described as expand-only |
 | Recorded decisions — `docs/adr/` | T0 | The gate-placement and append-path ADRs | Each cited from the criterion resting on it |
 | Interface compatibility — `contracts/openapi/runs.yaml` | T2 | The approval-decision operation documented, the operation this spec adds; the total is the last-landing spec's | Served and committed agree under AC-0009 |
 | Current architecture — `docs/architecture/README.md` | T4 | The run-state row moved, with uncommitted transitions named | The map matches the repository |
@@ -117,9 +117,10 @@ deterministically.
 **Touches:** migrations/versions/**, src/**/domain/events.py, src/**/adapters/postgres/event_log.py, tests/schema/**, tests/event_log/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
 
 **Tests:**
-- AC-0320 and AC-0324, `substrate`. For each: the grant set stays disjoint and carries no direct `INSERT` on `events`; the path is granted to exactly the named role; each predicate is driven by a call that violates it and observed to refuse; and for AC-0320, with the append forced to fail, `runs.state` does not move. - AC-0334 drives a suspension carrying several pending calls and asserts a mixed decision yields different per-call outcomes, and that a replayed decision is refused by the partial unique index rather than by application code. `substrate`.
+- AC-0320 and AC-0324, `substrate`. For each: the grant set stays disjoint and carries no direct `INSERT` on `events`; the path is granted to exactly the named role; each predicate is driven by a call that violates it and observed to refuse; and for AC-0320, with the append forced to fail, `runs.state` does not move.
+- AC-0334 drives a suspension carrying several pending calls and asserts a mixed decision yields different per-call outcomes, and that a replayed decision is refused by the partial unique index rather than by application code. `substrate`.
 - AC-0324 additionally asserts **at the type level** that no role other than `app_api` commits `approval.granted` or `approval.rejected` by any path, including `append_step_event` — and asserts it **against a database upgraded from 0002 as well as a freshly built one**, because a clean-volume-only check is green exactly where the control exists.
-- `stub: true` — `test_the_run_terminal_append_path_exists` (AC-0320), `test_the_approval_decision_append_path_exists` (AC-0324), `test_exactly_one_append_step_event_survives_the_replacement` (AC-0332). Both re-validated red against the running substrate on 2026-09-27 — **an isolation downgrade, recorded as one**: the intended-red pass reached a live database rather than a network-denying harness, so these are validated-with-downgrade rather than validated outright. **An earlier revision of this plan recorded blocks calling `_routine_exists` and `_column_exists`, helpers that exist nowhere** — they would have red with `NameError` whether or not revision 0005 shipped, and could never have gone green. Each block below is self-contained.
+- `stub: true` — `test_the_run_terminal_append_path_exists` (AC-0320), `test_the_approval_decision_append_path_exists` (AC-0324), `test_exactly_one_append_step_event_survives_the_replacement` (AC-0332), `test_a_decision_key_is_unique_per_suspension_and_call` (AC-0334). Both re-validated red against the running substrate on 2026-09-27 — **an isolation downgrade, recorded as one**: the intended-red pass reached a live database rather than a network-denying harness, so these are validated-with-downgrade rather than validated outright. **An earlier revision of this plan recorded blocks calling `_routine_exists` and `_column_exists`, helpers that exist nowhere** — they would have red with `NameError` whether or not revision 0005 shipped, and could never have gone green. Each block below is self-contained.
 
 Each block below materializes into the module named beside it and carries its own imports, so the proven red comes from the absent production surface rather than a `NameError`. An earlier revision recorded blocks whose helpers existed nowhere, and the round-2 repair carried the helpers' bodies inline but still left `psycopg`, `database_url`, `pytest` and `PoolConfig` unimported.
 
@@ -134,7 +135,7 @@ from ced.adapters.postgres.dsn import database_url
 
 @pytest.mark.substrate
 # STUB: AC-0324
-def test_the_approval_decision_append_path_exists() -> None:
+def test_the_approval_decision_append_path_exists(require_substrate: None) -> None:
     """Revision 0005 adds the path `app_api` alone may commit a decision through."""
     with psycopg.connect(database_url("worker")) as conn:
         found = conn.execute(
@@ -146,7 +147,7 @@ def test_the_approval_decision_append_path_exists() -> None:
 
 @pytest.mark.substrate
 # STUB: AC-0320
-def test_the_run_terminal_append_path_exists() -> None:
+def test_the_run_terminal_append_path_exists(require_substrate: None) -> None:
     """Revision 0005 adds the only path that may commit a run-terminal move."""
     with psycopg.connect(database_url("worker")) as conn:
         found = conn.execute(
@@ -158,7 +159,7 @@ def test_the_run_terminal_append_path_exists() -> None:
 
 @pytest.mark.substrate
 # STUB: AC-0332
-def test_exactly_one_append_step_event_survives_the_replacement() -> None:
+def test_exactly_one_append_step_event_survives_the_replacement(require_substrate: None) -> None:
     """A signature drift creates a second overload carrying EXECUTE TO PUBLIC."""
     with psycopg.connect(database_url("worker")) as conn:
         rows = conn.execute(
@@ -171,11 +172,25 @@ def test_exactly_one_append_step_event_survives_the_replacement() -> None:
     assert secdef is True
     assert "pg_temp" in " ".join(proconfig or [])
     assert "approval.granted" in body and "approval.rejected" in body
+
+
+@pytest.mark.substrate
+# STUB: AC-0334
+def test_a_decision_key_is_unique_per_suspension_and_call(require_substrate: None) -> None:
+    """The replay refusal is a database fact, not application logic."""
+    with psycopg.connect(database_url("worker")) as conn:
+        found = conn.execute(
+            "SELECT 1 FROM pg_indexes WHERE schemaname = 'public'"
+            " AND tablename = 'events'"
+            " AND indexdef ILIKE '%approval.granted%'"
+            " AND indexdef ILIKE '%idempotency_key%'"
+        ).fetchone()
+    assert found is not None
 ```
 
   **AC-0332's preserved half cannot red on its own** — the shipped function already has one overload, `SECURITY DEFINER` and a pinned `search_path`, so a stub asserting only those passes today, as running it proved. The block therefore also asserts the refusal list revision 0005 *adds*, which is absent and reds.
 
-**Approach:** Revision 0005's five parts, written against the three shipped append functions. The denylist gap is closed by re-issuing `append_step_event` through `CREATE OR REPLACE` under 0002's owner and definer preamble with the two approval types added to its refusal list — **not** by editing 0002's constant, which would reach no database that has already migrated.
+**Approach:** Revision 0005's parts as § Constraints enumerates them — that enumeration is canonical and is not restated here — written against the three shipped append functions. The denylist gap is closed by re-issuing `append_step_event` through `CREATE OR REPLACE` under 0002's owner and definer preamble with the two approval types added to its refusal list — **not** by editing 0002's constant, which would reach no database that has already migrated.
 
 **Done when:** AC-0320, AC-0324, AC-0332 and AC-0334 are green with their mutation proofs in the ledger.
 
@@ -208,7 +223,7 @@ def test_the_gated_tool_is_offered_only_when_a_check_failed() -> None:
 
 @pytest.mark.substrate
 # STUB: AC-0330
-def test_a_resume_with_no_committed_decision_refuses_to_run() -> None:
+def test_a_resume_with_no_committed_decision_refuses_to_run(require_substrate: None) -> None:
     """Absent decision for this cycle is a refusal, not an approval."""
     from ced.worker.persistence import approval_results_for_cycle
 
@@ -222,14 +237,14 @@ def test_a_resume_with_no_committed_decision_refuses_to_run() -> None:
 
   **AC-0327 has no stub and records `no stub (implementation-discovered)`.** *Discovery predicate:* its oracle is the ordered event projection, and the projection's callable seam — what reads the log and folds it into a state sequence — does not exist and is T2's to design; the column check an earlier revision filed under AC-0327 belonged to AC-0321 and is green by the time T2 runs, since T1 creates it. *Proof obligation:* before T2 closes, the projection is driven over a committed run and the ledger records the mutation that reds it — dropping the event append from any one committed transition must break the projection's agreement with the snapshot.
 
-- `stub: true` — `test_a_step_awaiting_a_decision_is_not_claimed` (AC-0333), re-validated red on 2026-09-27: the column does not exist.
+- `stub: true` — `test_a_step_awaiting_a_decision_is_not_claimed` (AC-0333), re-validated red on 2026-09-27 against the running substrate — an isolation downgrade, recorded as one: the column does not exist.
 
 **Appended to `tests/schema/test_run_state_paths.py`, inheriting the imports T1's blocks establish there:**
 
 ```python
 @pytest.mark.substrate
 # STUB: AC-0333
-def test_a_step_awaiting_a_decision_is_not_claimed() -> None:
+def test_a_step_awaiting_a_decision_is_not_claimed(require_substrate: None) -> None:
     """The exclusion is a column the decision path clears, not a step state."""
     with psycopg.connect(database_url("worker")) as conn:
         found = conn.execute(
@@ -312,9 +327,9 @@ def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
 
 ## Risks
 
-- **The denylist change is a foundation-owned behaviour change.** Adding two types to `NON_STEP_EVENT_TYPES` narrows what `app_worker` may append, which is the safe direction, but it is a shipped rule this spec edits — and `tests/event_log/` asserts against it.
+- **The denylist change is a foundation-owned behaviour change.** Re-issuing `append_step_event` through `CREATE OR REPLACE` with two more refused types narrows what `app_worker` may append — **not** by editing `NON_STEP_EVENT_TYPES`, which is rendered into the function body at creation time and would reach no already-migrated database, which is the safe direction, but it is a shipped rule this spec edits — and `tests/event_log/` asserts against it.
 - **AC-0327's snapshot reads are timing-sensitive** between steps. Mitigated by asserting the sequence of observed states rather than a state at a wall-clock moment.
 
 ## Changelog
 
-- 2026-09-27: split out of `walking-skeleton-evidence` by owner decision, after four pre-EXECUTE review rounds found this layer failing repeatedly while that spec's measurement and record tasks converged. Seven criteria moved across unchanged in substance — AC-0301, AC-0302, AC-0303, AC-0320, AC-0321, AC-0324, AC-0325 — and three were added for gaps round 4 surfaced: AC-0327 the transitions a reader can see, AC-0328 the approver's interface, AC-0329 this spec's own residual record.
+- 2026-09-27: split out of `walking-skeleton-evidence` by owner decision, after four pre-EXECUTE review rounds found this layer failing while that spec's measurement and record tasks converged. **Every criterion's origin, so no tally can drift from it:** seven moved across unchanged in substance — AC-0301, AC-0302, AC-0303, AC-0320, AC-0321, AC-0324, AC-0325. Three were added at the split for gaps round 4 of that spec surfaced — AC-0327 the transitions a reader can see, AC-0328 the approver's interface, AC-0329 this spec's residual record. Five more were added across this spec's own review rounds: AC-0330 binding the resume to the committed decision and AC-0331 contracting the DR4 probe, both round 1; AC-0332 bounding what the `CREATE OR REPLACE` preserves, round 2; AC-0333 the suspension hold, round 3; AC-0334 the decision's recorded form, round 4 and rebound to the suspension `seq` in round 5. Fifteen in total.
