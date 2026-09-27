@@ -31,7 +31,8 @@ a rationalisation.
 
 - `runtime-architecture.md` r8 and `worker-runtime.md` r5 — ratified. r8 disagrees with itself at § 4 line 460 against § 3 line 344; T0 records which reading is taken.
 - **Hard dependencies:** the five shipped walking-skeleton specs. This spec adds no agent.
-- **It adds schema, and it is not purely expand-only.** Revision 0005 has six parts: the run-terminal definer function, the approval-decision definer function, the `steps.approval_cycles` and `steps.awaiting_decision` columns, their `EXECUTE` grants, and a **`CREATE OR REPLACE FUNCTION public.append_step_event`** carrying a widened refusal list. That fifth part **narrows** what `app_worker` may append, which is the safe direction and still a contracting change to a foundation-owned function.
+- **It adds schema, and it is not purely expand-only.** Revision 0005 has **seven parts, enumerated here once and referenced elsewhere rather than restated**: the run-terminal definer function; the approval-decision definer function; `steps.approval_cycles` as `integer NOT NULL DEFAULT 0`; `steps.awaiting_decision` as `boolean NOT NULL DEFAULT false`; a partial unique index over the two decision types on `(run_id, idempotency_key)`, which is what makes AC-0334's replay refusal a database fact; their `EXECUTE` grants; and a `CREATE OR REPLACE FUNCTION public.append_step_event` carrying a widened refusal list. Both defaults are load-bearing rather than tidy — a nullable `awaiting_decision` makes the claim predicate three-valued and stalls the pool on every pre-existing row.
+
 - **The narrowing must be a `CREATE OR REPLACE`, not an edit to revision 0002.** `NON_STEP_EVENT_TYPES` is a module constant rendered into `append_step_event`'s body at `CREATE FUNCTION` time, so editing the tuple changes only what a *fresh* volume builds: every already-migrated database keeps the old body and `app_worker` keeps the capability. Since the `substrate` suite rebuilds from a clean volume, that edit would go green precisely where the control exists and blind where it does not. 0002's text stays untouched.
 - **It revokes nothing.** Both roles keep their table-level `UPDATE ON runs`; `0001_base_schema.py` records that grant as r7's identity table verbatim and declines to narrow it unilaterally.
 - **Out of scope:** the browser, the Phase 1 measurements, the re-baseline and the Phase 1 record — all `walking-skeleton-evidence`'s, which depends on this spec.
@@ -116,19 +117,22 @@ deterministically.
 **Touches:** migrations/versions/**, src/**/domain/events.py, src/**/adapters/postgres/event_log.py, tests/schema/**, tests/event_log/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
 
 **Tests:**
-- AC-0320 and AC-0324, `substrate`. For each: the grant set stays disjoint and carries no direct `INSERT` on `events`; the path is granted to exactly the named role; each predicate is driven by a call that violates it and observed to refuse; and for AC-0320, with the append forced to fail, `runs.state` does not move. AC-0324 additionally asserts **at the type level** that no role other than `app_api` commits `approval.granted` or `approval.rejected` by any path, including `append_step_event` — and asserts it **against a database upgraded from 0002 as well as a freshly built one**, because a clean-volume-only check is green exactly where the control exists.
-- `stub: true` — `test_the_run_terminal_append_path_exists` (AC-0320), `test_the_approval_decision_append_path_exists` (AC-0324), `test_exactly_one_append_step_event_survives_the_replacement` (AC-0332). Both re-validated red against the running substrate on 2026-09-27. **An earlier revision of this plan recorded blocks calling `_routine_exists` and `_column_exists`, helpers that exist nowhere** — they would have red with `NameError` whether or not revision 0005 shipped, and could never have gone green. Each block below is self-contained.
+- AC-0320 and AC-0324, `substrate`. For each: the grant set stays disjoint and carries no direct `INSERT` on `events`; the path is granted to exactly the named role; each predicate is driven by a call that violates it and observed to refuse; and for AC-0320, with the append forced to fail, `runs.state` does not move. - AC-0334 drives a suspension carrying several pending calls and asserts a mixed decision yields different per-call outcomes, and that a replayed decision is refused by the partial unique index rather than by application code. `substrate`.
+- AC-0324 additionally asserts **at the type level** that no role other than `app_api` commits `approval.granted` or `approval.rejected` by any path, including `append_step_event` — and asserts it **against a database upgraded from 0002 as well as a freshly built one**, because a clean-volume-only check is green exactly where the control exists.
+- `stub: true` — `test_the_run_terminal_append_path_exists` (AC-0320), `test_the_approval_decision_append_path_exists` (AC-0324), `test_exactly_one_append_step_event_survives_the_replacement` (AC-0332). Both re-validated red against the running substrate on 2026-09-27 — **an isolation downgrade, recorded as one**: the intended-red pass reached a live database rather than a network-denying harness, so these are validated-with-downgrade rather than validated outright. **An earlier revision of this plan recorded blocks calling `_routine_exists` and `_column_exists`, helpers that exist nowhere** — they would have red with `NameError` whether or not revision 0005 shipped, and could never have gone green. Each block below is self-contained.
 
 Each block below materializes into the module named beside it and carries its own imports, so the proven red comes from the absent production surface rather than a `NameError`. An earlier revision recorded blocks whose helpers existed nowhere, and the round-2 repair carried the helpers' bodies inline but still left `psycopg`, `database_url`, `pytest` and `PoolConfig` unimported.
 
-**Into `tests/schema/test_run_state_paths.py`:**
+**Into `tests/schema/test_run_state_paths.py`.** Each database-backed block carries the per-function `substrate` marker and the `require_substrate` fixture — per-function marking is the repository's own pattern in `tests/api/test_contract_agreement.py`. Without them these blocks are collected by the `pytest -m 'not substrate'` offline gate and error on `psycopg.OperationalError` rather than skip.
 
 ```python
 import psycopg
+import pytest
 
 from ced.adapters.postgres.dsn import database_url
 
 
+@pytest.mark.substrate
 # STUB: AC-0324
 def test_the_approval_decision_append_path_exists() -> None:
     """Revision 0005 adds the path `app_api` alone may commit a decision through."""
@@ -140,6 +144,7 @@ def test_the_approval_decision_append_path_exists() -> None:
     assert found is not None
 
 
+@pytest.mark.substrate
 # STUB: AC-0320
 def test_the_run_terminal_append_path_exists() -> None:
     """Revision 0005 adds the only path that may commit a run-terminal move."""
@@ -151,6 +156,7 @@ def test_the_run_terminal_append_path_exists() -> None:
     assert found is not None
 
 
+@pytest.mark.substrate
 # STUB: AC-0332
 def test_exactly_one_append_step_event_survives_the_replacement() -> None:
     """A signature drift creates a second overload carrying EXECUTE TO PUBLIC."""
@@ -171,13 +177,13 @@ def test_exactly_one_append_step_event_survives_the_replacement() -> None:
 
 **Approach:** Revision 0005's five parts, written against the three shipped append functions. The denylist gap is closed by re-issuing `append_step_event` through `CREATE OR REPLACE` under 0002's owner and definer preamble with the two approval types added to its refusal list — **not** by editing 0002's constant, which would reach no database that has already migrated.
 
-**Done when:** AC-0320 and AC-0324 are green with their mutation proofs in the ledger.
+**Done when:** AC-0320, AC-0324, AC-0332 and AC-0334 are green with their mutation proofs in the ledger.
 
 ### T2: The transitions, and the interface that releases one
 
 **Depends on:** T1
 
-**Touches:** src/**/domain/run_state.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/liveness.py, src/**/worker/pool.py, src/**/api/**, contracts/openapi/runs.yaml, deploy/compose.yaml, tests/api/**, tests/e2e/**, tests/suspension/**, tests/persistence/**, tests/schema/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
+**Touches:** src/**/domain/run_state.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/liveness.py, src/**/worker/pool.py, src/**/api/**, contracts/openapi/runs.yaml, deploy/compose.yaml, tests/api/**, tests/e2e/**, tests/suspension/**, tests/persistence/**, tests/schema/**, tests/worker/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
 
 **Tests:**
 - AC-0301 end to end; AC-0302 on the offered tool set; AC-0303 on the flagged branch with the flag driven both ways; AC-0327 reading the snapshot between steps; AC-0328 driving the new operation and a foreign origin.
@@ -200,6 +206,7 @@ def test_the_gated_tool_is_offered_only_when_a_check_failed() -> None:
     assert offered_approval_gated_tools(prerelease_failed=True) != []
 
 
+@pytest.mark.substrate
 # STUB: AC-0330
 def test_a_resume_with_no_committed_decision_refuses_to_run() -> None:
     """Absent decision for this cycle is a refusal, not an approval."""
@@ -217,9 +224,10 @@ def test_a_resume_with_no_committed_decision_refuses_to_run() -> None:
 
 - `stub: true` — `test_a_step_awaiting_a_decision_is_not_claimed` (AC-0333), re-validated red on 2026-09-27: the column does not exist.
 
-**Into `tests/schema/test_run_state_paths.py`:**
+**Appended to `tests/schema/test_run_state_paths.py`, inheriting the imports T1's blocks establish there:**
 
 ```python
+@pytest.mark.substrate
 # STUB: AC-0333
 def test_a_step_awaiting_a_decision_is_not_claimed() -> None:
     """The exclusion is a column the decision path clears, not a step state."""
@@ -231,7 +239,19 @@ def test_a_step_awaiting_a_decision_is_not_claimed() -> None:
     assert found is not None
 ```
 
-- `no stub (implementation-discovered)` for **AC-0331**. *Discovery predicate:* the probe's callable seam is a worker-side command whose invocation shape the container healthcheck fixes, and neither the module nor its entry point exists; inventing one now would manufacture a symbol the rule forbids. *Proof obligation:* before T2 closes, the probe is driven by stalling the poll loop without killing the process, and the observed unhealthy result is written to the verification ledger with the mutation that reds it — replacing the heartbeat-recency check with a process-existence check must make it pass.
+- `stub: true` for **AC-0331** — `test_an_idle_worker_reports_healthy`, asserting the nearest in-process data contract with the out-of-process exit code deferred, which is what `tdd-stubs.md` prescribes for a hard out-of-process surface rather than `implementation-discovered`; T2's `Touches` already names the destination module.
+
+**Into `tests/worker/test_liveness.py`:**
+
+```python
+# STUB: AC-0331
+def test_an_idle_worker_reports_healthy() -> None:
+    """The mark the poll loop refreshes, not the heartbeat a lease drives."""
+    from ced.worker.liveness import liveness_state
+
+    assert liveness_state(seconds_since_poll=1.0, lease_ttl_seconds=60).healthy is True
+```
+
 - `no stub (mode)` for AC-0301 and AC-0303 (end-to-end) and AC-0328 (end-to-end against the shipped route). AC-0328's mode is end-to-end in both documents; an earlier revision of this plan called it manual QA while the spec's Testing Strategy placed it in the TDD group, which is two gate-read fields disagreeing about what a third gate enforces.
 
 **Done when:** AC-0301, AC-0302, AC-0303, AC-0327, AC-0328, AC-0330 and AC-0331 are green with their mutation proofs in the ledger, and the approval operation is contracted and served.
@@ -240,7 +260,7 @@ def test_a_step_awaiting_a_decision_is_not_claimed() -> None:
 
 **Depends on:** T2
 
-**Touches:** src/**/worker/pool.py, src/**/worker/executor.py, deploy/compose.yaml, tests/suspension/**, tests/usage_limits/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
+**Touches:** src/**/worker/pool.py, src/**/worker/executor.py, deploy/compose.yaml, tests/suspension/**, tests/usage_limits/**, tests/worker/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
 
 **Tests:**
 - AC-0321 drives the cycles **across a worker handoff** and asserts the cap fires with a recorded cause; a second case asserts a `PoolConfig` declaring no cap still bounds the loop.
