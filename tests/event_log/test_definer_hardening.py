@@ -47,27 +47,29 @@ def test_the_definer_functions_are_configured_to_resist_temp_capture(
 ) -> None:
     """A structural check, so the behavioural ones below have a named cause.
 
-    `pg_temp` must appear in every definer `search_path`. Postgres searches the
-    temporary schema *first* for relation names when it is not listed, so its
-    absence — not its presence — is the defect.
+    Every definer function must carry the exact entry `search_path=pg_catalog,
+    pg_temp` in its `proconfig`. A substring check on a flattened string is too
+    weak: `search_path=pg_catalog, pg_temp, public` passes the substring but
+    admits a public-schema lookup after `pg_temp`; `search_path=pg_temp,public`
+    passes the substring but puts `pg_temp` first, which is the hazard Postgres
+    closes for the caller but not for the definer body. Postgres stores each
+    `SET` clause as a separate `proconfig` entry, so exact list membership is
+    the right comparison.
     """
     rows = owner_conn.execute(
         """
-        SELECT p.proname, array_to_string(p.proconfig, ',')
+        SELECT p.proname, p.proconfig
           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND p.prosecdef
         """
     ).fetchall()
 
     assert len(rows) == 6, f"expected six definer functions, found {rows}"
-    for name, config in rows:
-        assert config is not None, f"{name} sets no search_path at all"
-        # "pg_temp" in the joined config is too weak: search_path=pg_temp,public
-        # would pass while putting pg_temp first — exactly the temp-capture
-        # ordering the pin exists to prevent. Assert the exact entry instead.
-        assert "search_path=pg_catalog, pg_temp" in config, (
+    for name, proconfig in rows:
+        assert proconfig is not None, f"{name} sets no search_path at all"
+        assert "search_path=pg_catalog, pg_temp" in proconfig, (
             f"{name} does not carry the exact entry "
-            f"'search_path=pg_catalog, pg_temp': {config!r}"
+            f"'search_path=pg_catalog, pg_temp': {proconfig!r}"
         )
 
 

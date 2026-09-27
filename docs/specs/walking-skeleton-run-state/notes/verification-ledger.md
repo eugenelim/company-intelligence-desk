@@ -87,18 +87,16 @@ after T0 at spec `841d0959a731` / plan `1e8cd06feefd`.
 - `src/ced/adapters/postgres/event_log.py` — `RunNotRunning`, `DecisionRefused`
   exceptions; `append_run_terminal` and `append_approval_decision` Python
   wrappers added.
-- `tests/schema/test_run_state_paths.py` — 34 `@pytest.mark.substrate` tests
+- `tests/schema/test_run_state_paths.py` — `@pytest.mark.substrate` tests
   covering AC-0320, AC-0324, AC-0332, and AC-0334 with the four plan stubs
-  materialized byte-identically (count as of clean-volume run, 2026-09-27).
+  materialized byte-identically.
 - `tests/event_log/test_definer_hardening.py` — definer count updated 4 → 6;
   `DECISION_TYPES` added to the refused-set comparison; `approval.granted` and
   `approval.rejected` added to the step-path parametrize.
 
-**Gates (907 passed, 3 skipped, 0 failures — clean-volume rebuild, 2026-09-27):**
-`ruff format --check`, `ruff check`, `mypy`, `pytest -m 'not substrate'`,
-`pytest` (full substrate suite). The initial commit recorded 901 passed; the
-difference reflects tests added across Rounds 6 and 7 before the clean-volume
-evidence retake.
+**Gates:** `ruff format --check`, `ruff check`, `mypy`, `pytest -m 'not substrate'`,
+`pytest` (full substrate suite). Canonical full-suite result after all rounds:
+**910 passed, 3 skipped** (2026-09-27).
 
 ### Mutation proofs
 
@@ -153,8 +151,8 @@ and `test_the_decision_index_covers_the_declared_types`. So the behavioural
 check is genuinely decided by the index and not by an application-level guard
 that would have kept it green.
 
-*Restored.* Index recreated from the `pg_indexes` definition; the full module
-returns 34 passed (count as of clean-volume run after all rounds, 2026-09-27).
+*Restored.* Index recreated from the `pg_indexes` definition; the targeted tests
+returned green.
 
 **One false start, recorded because it is the trap this proof exists to avoid.**
 The first attempt connected as a `owner` role that does not exist, so the drop
@@ -269,8 +267,7 @@ Result: FAILED — `assert 'ced_owner' == 'not_ced_owner'` at the exact assertio
 line, proving the `pg_get_userbyid(p.proowner)` fetch and the equality check are
 the deciding layer. Restored to `"ced_owner"`, PASSED.
 
-**Gate count after supplemental proofs: 907 passed, 3 skipped (full substrate
-suite, 2026-09-27). Offline suite: 640 passed, 270 deselected.**
+All supplemental tests passed green.
 
 ### Round 6 second-pass proofs (addressing second-pass coordinator gaps)
 
@@ -344,18 +341,30 @@ not contain the predicate.
 **The rule this establishes, which costs nothing to follow.** Restore a mutant
 by re-executing the migration's generator, never by pasting a body. Before
 recording any `substrate` result as evidence, diff `pg_proc.prosrc` against the
-rendered migration and the index definitions against `pg_indexes`, and say in
-the record that they matched. A green suite is a claim about whatever schema is
-loaded; without that diff it is not a claim about the tree.
+**rendered** migration (f-string sites substituted), diff index definitions
+against `pg_indexes`, and diff the `EXECUTE` grantee sets of every function
+revision 0005 creates or replaces against the applied schema. Say in the record
+that they matched. A green suite is a claim about whatever schema is loaded;
+without that diff it is not a claim about the tree.
 
 **Evidence retaken.** `docker-compose down -v`, fresh volume, `alembic upgrade
-head`, workers, full suite: 907 passed, 3 skipped in 224.95s. Every earlier
-proof in this file was re-run against that database, restoring by generator.
-The live bodies were then diffed against the rendered migration: across
-`append_approval_decision`, `append_run_terminal` and `append_step_event` the
-only lines that differ are the f-string interpolation sites — the `_sql_list`
-expansions and the canonicaliser character class — which is what a match looks
-like.
+head`, workers. Every earlier proof was re-run against that database, restoring
+by generator.
+
+*Rendered-vs-`prosrc` diff (2026-09-27).* Migration SQL was rendered by
+capturing `op.execute` calls (substituting `{_DEFINER_SEARCH_PATH}` and
+`{_DECISION_SQL_LIST}`); the body between `AS $$` and `$$` was extracted for
+each function and compared line-by-line against `pg_proc.prosrc`. Result:
+**zero-diff** for `append_approval_decision`, `append_run_terminal`, and
+`append_step_event`. The rendered body and `prosrc` are identical.
+
+*EXECUTE grantee sets (from `information_schema.routine_privileges`, scoped by
+`specific_name`):*
+- `append_approval_decision`: `{'ced_owner', 'app_api'}`
+- `append_run_terminal`: `{'ced_owner', 'app_worker'}`
+- `append_step_event`: `{'ced_owner', 'app_worker'}`
+
+All three match the disjoint grant structure ADR-0009 D1/D2/D3 requires.
 
 **AC-0324 — M (the empty-`call_id` guard), proved rather than assumed.** This
 check had never been shown able to fail. The migration's SQL was rendered by
@@ -364,7 +373,7 @@ and installed, and the mutant was confirmed present in `prosrc` before the run.
 Result: `test_approval_decision_refuses_an_empty_call_id` FAILED with
 `Failed: DID NOT RAISE DecisionRefused`, and the two sibling refusal checks
 stayed green — so the break is located, not diffuse. Restored by re-executing
-the rendered original, confirmed absent from `prosrc`, module returns 34 passed.
+the rendered original, confirmed absent from `prosrc`, module green again.
 
 ### Round 7 addition: AC-0334 cross-call replay
 
@@ -380,11 +389,16 @@ by the refusal, not by a particular layer performing it.
 in `tests/schema/test_run_state_paths.py`. Commits a decision through the
 `app_api` grant; resubmits the identical set (same seq, same `call_ids`, same
 decisions) as a second separate call; asserts `DecisionRefused` carrying "is not
-awaiting a decision" — not `UniqueViolation`. Asserts event count unchanged and
-`approval_cycles == 1` after the refused call. No out-of-band state writes; both
+awaiting a decision" — not `UniqueViolation`. No out-of-band state writes; both
 calls go through `app_api`. The docstring names AC-0324's second-line-of-defence
-sentence and explains why the index is not the refusing layer here, so a reader
-does not mistake this for a duplicate of the intra-call test.
+sentence and explains why the index is not the refusing layer here.
+
+The two assertions after the refusal (`count_after == count_before` and
+`approval_cycles == 1`) record the transaction boundary, not AC-0334. The
+wrapper calls the function inside `with conn.transaction()`, so any raise rolls
+back the second call before control returns; once `pytest.raises(DecisionRefused)`
+is satisfied, both assertions hold for every implementation that raises there.
+They are kept because they state what is true; they do not decide the criterion.
 
 **Mutation proof.** Migration SQL rendered by capturing `op.execute`; guard block
 `IF NOT v_awaiting THEN RAISE … END IF;` replaced by a comment and installed via
@@ -400,6 +414,56 @@ anything. Results:
 
 Restored by re-executing the rendered original SQL; `pg_proc.prosrc` confirmed
 guard present and mutant comment absent. Full suite: 908 passed, 3 skipped.
+
+### Round 8 repairs
+
+Round 8 sustained two blockers, one concern, and four nits. This section records
+the blocker and concern fixes and their proofs.
+
+**AC-0334 — mixed-decision pairing mutation proof (Blocker 1).** The
+`test_different_call_ids_produce_different_keys_in_one_suspension` test was
+previously asserting only that both types and both keys were present as
+independent sets, discarding the `(call_id, type)` association. An
+implementation that stamped the reversed decisions on the call ids would have
+passed every assertion. Fixed by asserting the exact pair set:
+`{(f"{seq}:call-a", "approval.granted"), (f"{seq}:call-b", "approval.rejected")}`.
+
+*Mutation proof.* Migration SQL rendered by capturing `op.execute`; the INSERT
+line `lower(p_decisions[v_i])` replaced with `lower(p_decisions[v_n - v_i + 1])`
+(one occurrence in the INSERT statement; the type-check occurrence left intact).
+`pg_proc.prosrc` confirmed `v_n - v_i + 1` present before running.
+Result: `test_different_call_ids_produce_different_keys_in_one_suspension` FAILED
+with `expected exact (idempotency_key, type) pairs, got [('1:call-a',
+'approval.rejected'), ('1:call-b', 'approval.granted')]` — the reversed
+implementation stamped call-a with `approval.rejected` and call-b with
+`approval.granted`, exactly the mispairing the new assertion catches.
+Restored by re-executing the rendered original SQL; `pg_proc.prosrc` confirmed
+`v_n - v_i + 1` absent.
+
+**AC-0324 — grantee equality (Blocker 2).** `test_the_approval_decision_path_is_granted_to_app_api_only`
+was asserting named exclusions, leaving a fourth grantee silent. `plan.md:120`
+pins "exactly the named role"; ADR-0009 D2 grants to "app_api alone". Fixed by
+replacing with `assert grantees == {"ced_owner", "app_api"}`, matching the
+AC-0320 twin.
+
+**AC-0332 — grantee equality (Concern).** No test read the grantee set for
+`append_step_event`. Added `test_append_step_event_execute_is_granted_to_app_worker_only`
+asserting `grantees == {"ced_owner", "app_worker"}`, `specific_name`-scoped.
+`CREATE OR REPLACE` does not reset ACLs, so the behavioural privilege tests
+cannot see an added fourth role; the equality assertion closes that gap.
+
+**Coalesce asserting call.** `test_approval_decision_refuses_null_decisions_against_nonempty_call_ids`
+added: passes `call_ids=["call-1"], decisions=[]` and asserts `DecisionRefused`
+carrying "same length". The coalesce on `array_length(p_decisions, 1)` is what
+catches a null/empty array; the per-element null check fires for a null element,
+not for a missing array, and would produce a different message.
+
+**Rendered-vs-`prosrc` diff retaken.** Previous wording described a diff against
+the migration's source text (with f-string sites unsubstituted) while claiming it
+was a diff against the rendered SQL. Re-run with f-string sites substituted:
+zero-diff for all three functions (recorded in the round-7 section above under
+"Rendered-vs-`prosrc` diff"). The pre-evidence rule was also extended to cover
+EXECUTE grantee sets.
 
 ### A defect T1 surfaced in the gate suite
 

@@ -208,8 +208,7 @@ def test_the_run_terminal_path_is_granted_to_app_worker_only(
     # Named exclusions leave later additions silent; equality pins the full set.
     assert grantees == {"ced_owner", "app_worker"}, (
         f"append_run_terminal EXECUTE grantee set is {grantees!r}, "
-        "expected exactly {{'ced_owner', 'app_worker'}}; "
-        "an added grantee would satisfy the named-exclusion checks above"
+        "expected exactly {{'ced_owner', 'app_worker'}}"
     )
 
 
@@ -597,10 +596,13 @@ def test_the_approval_decision_path_is_granted_to_app_api_only(
     ).fetchall()
     grantees = {row[0] for row in rows}
 
-    assert "app_api" in grantees, f"app_api missing EXECUTE on {sig}"
-    assert "app_worker" not in grantees, f"app_worker holds EXECUTE on {sig}"
-    assert "app_policy" not in grantees, f"app_policy holds EXECUTE on {sig}"
-    assert "PUBLIC" not in grantees, f"PUBLIC holds EXECUTE on {sig}"
+    # plan.md:120 pins "exactly the named role"; ADR-0009 D2 grants to
+    # "app_api alone". Named exclusions leave later additions silent; equality
+    # pins the full set — matching the AC-0320 twin at line 209.
+    assert grantees == {"ced_owner", "app_api"}, (
+        f"append_approval_decision EXECUTE grantee set is {grantees!r}, "
+        "expected exactly {{'ced_owner', 'app_api'}}"
+    )
 
 
 @pytest.mark.substrate
@@ -692,6 +694,36 @@ def test_approval_decision_refuses_mismatched_array_lengths(
             principal="approver",
             suspension_seq=suspended_step.suspension_seq,
         )
+
+
+@pytest.mark.substrate
+def test_approval_decision_refuses_null_decisions_against_nonempty_call_ids(
+    api_conn: psycopg.Connection,
+    suspended_step: SuspendedStep,
+) -> None:
+    """AC-0324: an empty or null p_decisions against a non-empty p_call_ids is refused.
+
+    v_n is set from p_call_ids (non-empty), so coalesce(array_length(p_decisions, 1), 0)
+    returns 0 for a null or empty p_decisions — making the length-mismatch check
+    fire. The function raises 'p_call_ids and p_decisions must have the same length',
+    which maps to DecisionRefused, not StepRunMismatch (run/step membership) or
+    the per-element null check (which would say 'null decision at position').
+    The coalesce is what catches the null-array case; without it NULL <> v_n
+    evaluates to NULL and the check skips silently.
+    """
+    with pytest.raises(event_log.DecisionRefused) as exc_info:
+        event_log.append_approval_decision(
+            api_conn,
+            run_id=suspended_step.run_id,
+            step_id=suspended_step.step_id,
+            call_ids=["call-1"],
+            decisions=[],  # non-empty call_ids, empty decisions
+            principal="approver",
+            suspension_seq=suspended_step.suspension_seq,
+        )
+    assert "same length" in str(exc_info.value), (
+        f"expected the length-mismatch message, got: {exc_info.value!r}"
+    )
 
 
 @pytest.mark.substrate
@@ -1112,6 +1144,47 @@ def test_the_replaced_step_function_retains_security_definer_and_search_path(
     )
 
 
+@pytest.mark.substrate
+def test_append_step_event_execute_is_granted_to_app_worker_only(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0332: CREATE OR REPLACE preserves the 0002 grant set and adds no new grantee.
+
+    spec.md:158 requires "an EXECUTE grant set unchanged from 0002 and excluding
+    PUBLIC". CREATE OR REPLACE does not reset ACLs, so a stray GRANT added before
+    or after the replacement is invisible to behavioural tests — those can only
+    detect a lost grant (app_worker gone) or a gained PUBLIC, not an added fourth
+    role. The equality assertion here closes that gap.
+
+    The specific_name-scoped query matches the AC-0320 and AC-0324 twins; a stray
+    overload's grantees cannot fold into the checked set.
+    """
+    sig = "public.append_step_event(uuid, uuid, bigint, text, text, text, text)"
+    spec_row = owner_conn.execute(
+        "SELECT specific_name FROM information_schema.routines"
+        " WHERE routine_schema = 'public' AND routine_name = 'append_step_event'",
+    ).fetchone()
+    assert spec_row is not None, f"{sig} not found in information_schema.routines"
+    specific_name = spec_row[0]
+
+    rows = owner_conn.execute(
+        "SELECT grantee FROM information_schema.routine_privileges"
+        " WHERE specific_schema = 'public'"
+        "   AND specific_name = %s"
+        "   AND privilege_type = 'EXECUTE'",
+        (specific_name,),
+    ).fetchall()
+    grantees = {row[0] for row in rows}
+
+    # plan.md:120 pins "exactly the named role"; spec.md:158 requires the
+    # grant set unchanged from 0002. Named exclusions leave later additions
+    # silent; equality pins the full set.
+    assert grantees == {"ced_owner", "app_worker"}, (
+        f"append_step_event EXECUTE grantee set is {grantees!r}, "
+        "expected exactly {{'ced_owner', 'app_worker'}}"
+    )
+
+
 # ── AC-0334: the decision idempotency key and the partial unique index ────────
 
 
@@ -1170,6 +1243,14 @@ def test_a_cross_call_replay_is_refused_by_the_awaiting_hold(
     No out-of-band state writes between the two calls: both go through the app_api
     grant. The awaiting_decision hold that refuses the second call was cleared by
     the first call, not by a privileged fixture write.
+
+    The two assertions after the refusal — `count_after == count_before` and
+    `approval_cycles == 1` — record the transaction boundary, not AC-0334. The
+    wrapper calls `append_approval_decision` inside `with conn.transaction()`, so
+    any raise rolls the second call back before control returns; once
+    `pytest.raises(DecisionRefused)` is satisfied, both follow for every
+    implementation that raises there. They are kept because they state what is
+    true, not because they decide the criterion.
     """
     # First call: succeeds, clears awaiting_decision, advances approval_cycles once.
     event_log.append_approval_decision(
@@ -1255,20 +1336,21 @@ def test_different_call_ids_produce_different_keys_in_one_suspension(
     assert last_seq == 3, f"expected last_seq 3, got {last_seq}"
 
     rows = owner_conn.execute(
-        "SELECT type, idempotency_key FROM events"
+        "SELECT idempotency_key, type FROM events"
         " WHERE run_id = %s AND type IN ('approval.granted', 'approval.rejected')"
         " ORDER BY seq",
         (suspended_step.run_id,),
     ).fetchall()
     assert len(rows) == 2
-    types = {row[0] for row in rows}
-    assert types == {"approval.granted", "approval.rejected"}
-
-    keys = {row[1] for row in rows}
-    expected_key_1 = f"{suspended_step.suspension_seq}:call-a"
-    expected_key_2 = f"{suspended_step.suspension_seq}:call-b"
-    assert expected_key_1 in keys
-    assert expected_key_2 in keys
+    seq = suspended_step.suspension_seq
+    # AC-0334's first asserting case: "a suspension carrying several pending calls
+    # where a mixed decision yields different per-call outcomes". The pairing must
+    # be exact — call-a → approval.granted, call-b → approval.rejected — so a
+    # reversed implementation fails rather than passing on set membership alone.
+    assert set(rows) == {
+        (f"{seq}:call-a", "approval.granted"),
+        (f"{seq}:call-b", "approval.rejected"),
+    }, f"expected exact (idempotency_key, type) pairs, got {rows!r}"
 
     # awaiting_decision cleared and approval_cycles advanced exactly once.
     step_row = owner_conn.execute(
