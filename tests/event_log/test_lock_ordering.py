@@ -16,6 +16,7 @@ here. Production defaults to 1 s.
 
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from collections.abc import Iterator
@@ -166,8 +167,29 @@ def test_both_append_paths_take_the_steps_lock_first(
     Reads the function bodies out of the catalogue. The behavioural tests above
     show the rule mattering; this one names where it is written down, which is
     what a reader needs when one of them starts failing.
+
+    Extended to all four append functions. The anchor is generalised to handle
+    both fenced paths (fence_step() call) and the unfenced decision path
+    (FROM public.steps ... FOR UPDATE). A plain body.index("fence_step(") on
+    the unfenced path raises ValueError instead of asserting the rule; the
+    generalised anchor avoids that trap.
+
+    SQL comments are stripped before any index() call. A prosrc can carry a
+    comment containing "FOR UPDATE" (as the shipped body of
+    append_approval_decision does at its lock-description comment) that appears
+    earlier in the string than the SQL statement it describes. body.index() on
+    the raw prosrc would find that comment text rather than the actual lock
+    site, making the check pass for the wrong reason — it would not catch an
+    inversion of the real SQL while the comment stayed in place. Stripping
+    `-- ...` lines before searching ensures both anchors find actual SQL, not
+    documentation of it.
     """
-    for name in ("append_step_event", "append_policy_decision"):
+    for name in (
+        "append_step_event",
+        "append_policy_decision",
+        "append_run_terminal",
+        "append_approval_decision",
+    ):
         row = owner_conn.execute(
             "SELECT prosrc FROM pg_proc p JOIN pg_namespace n "
             "ON n.oid = p.pronamespace WHERE n.nspname = 'public' "
@@ -175,14 +197,25 @@ def test_both_append_paths_take_the_steps_lock_first(
             (name,),
         ).fetchone()
         assert row is not None, f"{name} is absent"
-        body = row[0]
+        # Strip single-line SQL comments before searching. A comment containing
+        # "FOR UPDATE" earlier in the body than the real SQL lock would make
+        # body.index("FOR UPDATE") find the comment rather than the lock site.
+        body = re.sub(r"--[^\n]*", "", row[0])
 
-        fence_at = body.index("fence_step(")
+        # Find the steps lock site: the fence call (fenced paths) or the
+        # explicit FOR UPDATE read (unfenced decision path). Both take the
+        # steps row lock before any runs operation.
+        try:
+            steps_lock_at = body.index("fence_step(")
+        except ValueError:
+            # Unfenced path: the steps lock is the SELECT ... FOR UPDATE.
+            steps_lock_at = body.index("FOR UPDATE")
+
         # Matches the schema-qualified form the definer functions now use.
         # Review round 1 qualified every relation reference, which broke an
         # earlier version of this check that looked for the bare name.
         allocate_at = body.index("UPDATE public.runs")
-        assert fence_at < allocate_at, (
-            f"{name} allocates from `runs` before fencing on `steps`, "
+        assert steps_lock_at < allocate_at, (
+            f"{name} acquires a runs lock before the steps lock, "
             "inverting the ratified lock order"
         )

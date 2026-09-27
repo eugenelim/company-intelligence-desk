@@ -183,14 +183,24 @@ def test_the_run_terminal_path_is_granted_to_app_worker_only(
 
     `app_worker` holds EXECUTE; `app_api` and `app_policy` do not. Direct
     INSERT on `events` is already revoked by revision 0002 and is not
-    re-asserted here.
+    re-asserted here. The grant query is scoped by specific_name so a stray
+    overload's grantees cannot fold into the disjointness set.
     """
     sig = "public.append_run_terminal(uuid, uuid, bigint, text, text, text, text)"
+    # Resolve to the specific_name first so a stray overload is excluded.
+    spec_row = owner_conn.execute(
+        "SELECT specific_name FROM information_schema.routines"
+        " WHERE routine_schema = 'public' AND routine_name = 'append_run_terminal'",
+    ).fetchone()
+    assert spec_row is not None, f"{sig} not found in information_schema.routines"
+    specific_name = spec_row[0]
+
     rows = owner_conn.execute(
         "SELECT grantee, privilege_type FROM information_schema.routine_privileges"
         " WHERE specific_schema = 'public'"
-        "   AND routine_name = 'append_run_terminal'"
+        "   AND specific_name = %s"
         "   AND privilege_type = 'EXECUTE'",
+        (specific_name,),
     ).fetchall()
     grantees = {row[0] for row in rows}
 
@@ -249,6 +259,87 @@ def test_run_terminal_refuses_a_fenced_call(
             type="run.completed",
             principal="worker-1",
         )
+
+
+@pytest.mark.substrate
+def test_run_terminal_refuses_a_never_leased_step(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0320: fence_step's possession half — owner IS NULL refuses at epoch 0.
+
+    `lease_epoch` is NOT NULL DEFAULT 0, so epoch alone passed a fresh
+    (never-leased) step on an earlier implementation. fence_step's second
+    predicate (`owner IS NOT NULL AND lease_expires_at > clock_timestamp()`)
+    closes this: a step that was never leased has owner=NULL and is refused.
+    ADR-0005 records this as the observed forgery the possession check closes.
+    """
+    run_id, step_id = uuid.uuid4(), uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute(
+            "INSERT INTO runs (run_id, state) VALUES (%s, 'running')",
+            (run_id,),
+        )
+        # Insert a step that was never leased: owner=NULL, lease_epoch=0 (default).
+        owner_conn.execute(
+            "INSERT INTO steps (step_id, run_id, state) VALUES (%s, %s, 'runnable')",
+            (step_id, run_id),
+        )
+    try:
+        with pytest.raises(event_log.Fenced):
+            event_log.append_run_terminal(
+                worker_conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=0,  # matches DEFAULT but owner IS NULL
+                type="run.completed",
+                principal="worker-1",
+            )
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+
+@pytest.mark.substrate
+def test_run_terminal_refuses_an_expired_lease(
+    worker_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0320: fence_step's possession half — an expired lease is refused.
+
+    `lease_expires_at > clock_timestamp()` must use clock_timestamp(), not
+    now(), which is the caller's transaction start time. fence_step uses
+    clock_timestamp() so an expired lease is refused even when the caller's
+    transaction started while the lease was still live. ADR-0005.
+    """
+    run_id, step_id = uuid.uuid4(), uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute(
+            "INSERT INTO runs (run_id, state) VALUES (%s, 'running')",
+            (run_id,),
+        )
+        # Insert a step with an already-expired lease (past in the past).
+        owner_conn.execute(
+            "INSERT INTO steps (step_id, run_id, state, owner, lease_epoch, "
+            "lease_expires_at) VALUES (%s, %s, 'leased', 'fixture', 1, "
+            "now() - interval '10 seconds')",
+            (step_id, run_id),
+        )
+    try:
+        with pytest.raises(event_log.Fenced):
+            event_log.append_run_terminal(
+                worker_conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=1,  # correct epoch, but lease is expired
+                type="run.completed",
+                principal="worker-1",
+            )
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
 
 
 @pytest.mark.substrate
@@ -357,12 +448,29 @@ def test_run_terminal_atomicity_state_does_not_move_on_failure(
     owner_conn: psycopg.Connection,
     running_step: RunningStep,
 ) -> None:
-    """AC-0320: with the append forced to fail, runs.state does not move.
+    """AC-0320: with the event INSERT forced to fail, runs.state does not move.
 
-    The wrong epoch forces a fence failure, which rolls back before any state
-    change commits. Asserted by reading runs.state before and after and
-    confirming they agree.
+    Forces the INSERT into events to fail by pre-inserting a row at the seq
+    the call will allocate (next_seq + 1 = 1 on a fresh run, so seq=1). The
+    UPDATE public.runs commits its state change in the same statement as the
+    seq advance; the INSERT then violates the primary key and the whole
+    transaction rolls back, proving that runs.state and the event commit
+    together or not at all.
+
+    A fence failure (wrong epoch) would roll back before the UPDATE, so it
+    would not distinguish a correct atomic implementation from one with a
+    separate UPDATE and INSERT. This scenario forces the INSERT — not the
+    fence — to be the failing layer.
     """
+    # Pre-insert an events row at the seq the call will allocate (seq=1 on
+    # this run, since next_seq starts at 0 and the function advances it to 1).
+    with owner_conn.transaction():
+        owner_conn.execute(
+            "INSERT INTO events (run_id, seq, type, step_id, principal) "
+            "VALUES (%s, 1, 'run.requested', NULL, 'blocker')",
+            (running_step.run_id,),
+        )
+
     row_before = owner_conn.execute(
         "SELECT state FROM runs WHERE run_id = %s",
         (running_step.run_id,),
@@ -370,12 +478,16 @@ def test_run_terminal_atomicity_state_does_not_move_on_failure(
     assert row_before is not None
     state_before = row_before[0]
 
-    with pytest.raises(event_log.Fenced):
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        # The INSERT into events fails with UniqueViolation on (run_id, seq).
+        # The wrapper re-raises it: the generic DatabaseError catch only
+        # intercepts CED01 and re-raises anything else, so UniqueViolation
+        # (SQLSTATE 23505) propagates unchanged.
         event_log.append_run_terminal(
             worker_conn,
             run_id=running_step.run_id,
             step_id=running_step.step_id,
-            lease_epoch=running_step.lease_epoch + 99,
+            lease_epoch=running_step.lease_epoch,
             type="run.completed",
             principal="worker-1",
         )
@@ -387,7 +499,8 @@ def test_run_terminal_atomicity_state_does_not_move_on_failure(
     assert row_after is not None
     assert row_after[0] == state_before, (
         f"runs.state moved from {state_before!r} to {row_after[0]!r} "
-        "even though the append failed"
+        "even though the event INSERT failed — the state change and the "
+        "event insert do not commit atomically"
     )
 
 
@@ -456,16 +569,31 @@ def test_app_api_cannot_reach_append_run_terminal(
 def test_the_approval_decision_path_is_granted_to_app_api_only(
     owner_conn: psycopg.Connection,
 ) -> None:
-    """AC-0324: the grant set stays disjoint."""
+    """AC-0324: the grant set stays disjoint.
+
+    The grant query is scoped by specific_name so a stray overload's grantees
+    cannot fold into the disjointness set.
+    """
+    sig = (
+        "public.append_approval_decision(uuid, uuid, text[], text[], text, bigint, text, text)"
+    )
+    # Resolve to the specific_name first so a stray overload is excluded.
+    spec_row = owner_conn.execute(
+        "SELECT specific_name FROM information_schema.routines"
+        " WHERE routine_schema = 'public' AND routine_name = 'append_approval_decision'",
+    ).fetchone()
+    assert spec_row is not None, f"{sig} not found in information_schema.routines"
+    specific_name = spec_row[0]
+
     rows = owner_conn.execute(
         "SELECT grantee, privilege_type FROM information_schema.routine_privileges"
         " WHERE specific_schema = 'public'"
-        "   AND routine_name = 'append_approval_decision'"
+        "   AND specific_name = %s"
         "   AND privilege_type = 'EXECUTE'",
+        (specific_name,),
     ).fetchall()
     grantees = {row[0] for row in rows}
 
-    sig = "public.append_approval_decision(uuid, uuid, text, text, bigint, text, text, text)"
     assert "app_api" in grantees, f"app_api missing EXECUTE on {sig}"
     assert "app_worker" not in grantees, f"app_worker holds EXECUTE on {sig}"
     assert "app_policy" not in grantees, f"app_policy holds EXECUTE on {sig}"
@@ -483,10 +611,83 @@ def test_approval_decision_refuses_a_wrong_type(
             api_conn,
             run_id=suspended_step.run_id,
             step_id=suspended_step.step_id,
-            type="step.suspended",
+            call_ids=["call-1"],
+            decisions=["step.suspended"],
             principal="approver",
             suspension_seq=suspended_step.suspension_seq,
-            call_id="call-1",
+        )
+
+
+@pytest.mark.substrate
+def test_approval_decision_refuses_an_empty_decision_set(
+    api_conn: psycopg.Connection,
+    suspended_step: SuspendedStep,
+) -> None:
+    """AC-0324: an empty call_ids list is refused before the steps lock is taken.
+
+    Passing an empty array leaves no work to do and would clear awaiting_decision
+    without recording any event. The function refuses this before any lock via
+    serialization_failure, mapped to DecisionRefused — not StepRunMismatch
+    (which signals run/step membership disagreement, not a malformed submission).
+    """
+    with pytest.raises(event_log.DecisionRefused):
+        event_log.append_approval_decision(
+            api_conn,
+            run_id=suspended_step.run_id,
+            step_id=suspended_step.step_id,
+            call_ids=[],
+            decisions=[],
+            principal="approver",
+            suspension_seq=suspended_step.suspension_seq,
+        )
+
+
+@pytest.mark.substrate
+def test_approval_decision_refuses_an_empty_call_id(
+    api_conn: psycopg.Connection,
+    suspended_step: SuspendedStep,
+) -> None:
+    """AC-0324: a null or empty call_id element is refused before any INSERT.
+
+    An empty string propagates through the idempotency_key expression as
+    '<suspension_seq>:' — a non-null key the partial index can see. The function
+    refuses it via serialization_failure, mapped to DecisionRefused — not
+    MalformedEventType (which is CED01, documented as "the event type is not a
+    dotted run of lowercase ASCII alphanumerics"; a call_id is not an event type).
+    """
+    with pytest.raises(event_log.DecisionRefused):
+        event_log.append_approval_decision(
+            api_conn,
+            run_id=suspended_step.run_id,
+            step_id=suspended_step.step_id,
+            call_ids=[""],  # empty string, not a valid call_id
+            decisions=["approval.granted"],
+            principal="approver",
+            suspension_seq=suspended_step.suspension_seq,
+        )
+
+
+@pytest.mark.substrate
+def test_approval_decision_refuses_mismatched_array_lengths(
+    api_conn: psycopg.Connection,
+    suspended_step: SuspendedStep,
+) -> None:
+    """AC-0324: call_ids and decisions must have the same cardinality.
+
+    A mismatch means the parallel-array contract is violated. The function
+    refuses before taking any lock via serialization_failure, mapped to
+    DecisionRefused — not StepRunMismatch (which signals run/step membership
+    disagreement, not a malformed submission).
+    """
+    with pytest.raises(event_log.DecisionRefused):
+        event_log.append_approval_decision(
+            api_conn,
+            run_id=suspended_step.run_id,
+            step_id=suspended_step.step_id,
+            call_ids=["call-1", "call-2"],  # two call ids
+            decisions=["approval.granted"],  # but only one decision
+            principal="approver",
+            suspension_seq=suspended_step.suspension_seq,
         )
 
 
@@ -509,10 +710,10 @@ def test_approval_decision_refuses_a_step_not_in_the_run(
                 api_conn,
                 run_id=other_run,
                 step_id=suspended_step.step_id,
-                type="approval.granted",
+                call_ids=["call-1"],
+                decisions=["approval.granted"],
                 principal="approver",
                 suspension_seq=suspended_step.suspension_seq,
-                call_id="call-1",
             )
     finally:
         with owner_conn.transaction():
@@ -542,10 +743,10 @@ def test_approval_decision_refuses_a_step_with_no_suspended_event(
                 api_conn,
                 run_id=run_id,
                 step_id=step_id,
-                type="approval.granted",
+                call_ids=["call-1"],
+                decisions=["approval.granted"],
                 principal="approver",
                 suspension_seq=1,  # no event at seq=1 exists
-                call_id="call-1",
             )
     finally:
         with owner_conn.transaction():
@@ -583,10 +784,10 @@ def test_approval_decision_refuses_a_stale_suspension_seq(
             api_conn,
             run_id=suspended_step.run_id,
             step_id=suspended_step.step_id,
-            type="approval.granted",
+            call_ids=["call-1"],
+            decisions=["approval.granted"],
             principal="approver",
             suspension_seq=suspended_step.suspension_seq,  # seq=1, stale
-            call_id="call-1",
         )
 
 
@@ -623,10 +824,10 @@ def test_approval_decision_refuses_when_not_awaiting(
                 api_conn,
                 run_id=run_id,
                 step_id=step_id,
-                type="approval.granted",
+                call_ids=["call-1"],
+                decisions=["approval.granted"],
                 principal="approver",
                 suspension_seq=1,
-                call_id="call-1",
             )
     finally:
         with owner_conn.transaction():
@@ -641,17 +842,21 @@ def test_approval_decision_happy_path_clears_hold_and_advances_cycle(
     owner_conn: psycopg.Connection,
     suspended_step: SuspendedStep,
 ) -> None:
-    """AC-0324: a valid call succeeds and clears awaiting_decision."""
+    """AC-0324: a valid call succeeds and clears awaiting_decision.
+
+    The fixture inserts step.suspended at seq=1 (next_seq advances to 1).
+    The decision append advances next_seq to 2 and commits at seq=2.
+    """
     seq = event_log.append_approval_decision(
         api_conn,
         run_id=suspended_step.run_id,
         step_id=suspended_step.step_id,
-        type="approval.granted",
+        call_ids=["call-1"],
+        decisions=["approval.granted"],
         principal="approver",
         suspension_seq=suspended_step.suspension_seq,
-        call_id="call-1",
     )
-    assert seq >= 1
+    assert seq == 2, f"expected seq 2 (step.suspended at 1, decision at 2), got {seq}"
 
     # awaiting_decision must be cleared and approval_cycles must have advanced.
     step_row = owner_conn.execute(
@@ -710,17 +915,116 @@ def test_app_worker_cannot_reach_append_approval_decision(
     """AC-0324: the grants are disjoint — worker cannot reach the decision path."""
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         worker_conn.execute(
-            "SELECT append_approval_decision(%s, %s, %s, %s, %s, %s)",
+            "SELECT append_approval_decision(%s, %s, %s::text[], %s::text[], %s, %s)",
             (
                 suspended_step.run_id,
                 suspended_step.step_id,
-                "approval.granted",
+                ["call-1"],
+                ["approval.granted"],
                 "worker",
                 suspended_step.suspension_seq,
-                "call-1",
             ),
         )
     worker_conn.rollback()
+
+
+@pytest.mark.substrate
+def test_concurrent_decisions_against_one_suspension_exactly_one_commits(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0324: of two concurrent decisions against one suspension, exactly one commits.
+
+    The FOR UPDATE on the steps row serialises concurrent callers. The second
+    concurrent caller sees awaiting_decision = false after the first commits
+    and is refused, so no two decision sets can commit against the same
+    suspension. Asserted by driving overlapping transactions and confirming
+    exactly one committed event and one refusal.
+    """
+    import threading
+
+    run_id, step_id = uuid.uuid4(), uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute(
+            "INSERT INTO runs (run_id, state, next_seq) VALUES (%s, 'running', 0)",
+            (run_id,),
+        )
+        owner_conn.execute(
+            "INSERT INTO steps (step_id, run_id, state, awaiting_decision) "
+            "VALUES (%s, %s, 'runnable', true)",
+            (step_id, run_id),
+        )
+        owner_conn.execute(
+            "UPDATE runs SET next_seq = next_seq + 1 WHERE run_id = %s",
+            (run_id,),
+        )
+        owner_conn.execute(
+            "INSERT INTO events (run_id, seq, type, step_id, principal) "
+            "VALUES (%s, 1, 'step.suspended', %s, 'fixture')",
+            (run_id, step_id),
+        )
+
+    committed: list[int] = []
+    refused: list[str] = []
+    barrier = threading.Barrier(2)
+
+    def attempt(call_id: str) -> None:
+        from ced.adapters.postgres.dsn import database_url
+
+        with psycopg.connect(database_url("api")) as conn:
+            try:
+                # Both threads reach the function at the same time. The FOR UPDATE
+                # serialises them; one succeeds, the other sees awaiting_decision=false.
+                barrier.wait(timeout=10.0)
+                with conn.transaction():
+                    row = conn.execute(
+                        "SELECT append_approval_decision("
+                        "%s, %s, %s::text[], %s::text[], %s, %s)",
+                        (
+                            run_id,
+                            step_id,
+                            [call_id],
+                            ["approval.granted"],
+                            "approver",
+                            1,  # suspension_seq
+                        ),
+                    ).fetchone()
+                assert row is not None
+                committed.append(int(row[0]))
+            except psycopg.errors.SerializationFailure as exc:
+                refused.append(str(exc).splitlines()[0])
+
+    threads = [
+        threading.Thread(target=attempt, args=("call-concurrent-a",)),
+        threading.Thread(target=attempt, args=("call-concurrent-b",)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    try:
+        assert len(committed) == 1, (
+            f"expected exactly 1 commit, got {len(committed)}: "
+            f"committed={committed}, refused={refused}"
+        )
+        assert len(refused) == 1, (
+            f"expected exactly 1 refusal, got {len(refused)}: "
+            f"committed={committed}, refused={refused}"
+        )
+        # Exactly one decision event must be in the log.
+        event_rows = owner_conn.execute(
+            "SELECT type FROM events WHERE run_id = %s"
+            " AND type IN ('approval.granted', 'approval.rejected')",
+            (run_id,),
+        ).fetchall()
+        assert len(event_rows) == 1, (
+            f"expected 1 committed decision event, got {len(event_rows)}"
+        )
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
 
 
 # ── AC-0332: the append_step_event replacement ───────────────────────────────
@@ -775,21 +1079,28 @@ def test_the_replaced_step_function_still_refuses_the_pre_existing_list(
 def test_the_replaced_step_function_retains_security_definer_and_search_path(
     owner_conn: psycopg.Connection,
 ) -> None:
-    """AC-0332: structural preservation — SECURITY DEFINER and pg_temp survive.
+    """AC-0332: structural preservation — SECURITY DEFINER, pg_temp, and owner survive.
 
     A replacement that silently drops the search_path clause reintroduces the
-    temp-capture defect revision 0002 hardened against.
+    temp-capture defect revision 0002 hardened against. The owner assertion
+    guards the case where CREATE OR REPLACE silently reassigns the definer
+    function to a different owner — which would change the privilege context
+    inside the SECURITY DEFINER body.
     """
     row = owner_conn.execute(
-        "SELECT p.prosecdef, p.proconfig FROM pg_proc p"
+        "SELECT p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) FROM pg_proc p"
         " JOIN pg_namespace n ON n.oid = p.pronamespace"
         " WHERE n.nspname = 'public' AND p.proname = 'append_step_event'"
     ).fetchone()
     assert row is not None
-    secdef, proconfig = row
+    secdef, proconfig, owner = row
     assert secdef is True
     assert proconfig is not None
     assert "pg_temp" in " ".join(proconfig)
+    assert owner == "ced_owner", (
+        f"append_step_event owner is {owner!r}, expected 'ced_owner'; "
+        "a CREATE OR REPLACE that changed the owner would alter the definer context"
+    )
 
 
 # ── AC-0334: the decision idempotency key and the partial unique index ────────
@@ -802,46 +1113,24 @@ def test_a_replayed_decision_is_refused_by_the_unique_index(
 ) -> None:
     """AC-0334: a replayed decision is refused at the database level.
 
-    After the first call commits, awaiting_decision becomes false, which is
-    what refuses a second call with the same arguments from the function's own
-    guard. To test the *index* refusal, we reset awaiting_decision to true and
-    re-insert a step.suspended event, then attempt the same (run_id,
-    idempotency_key) again. The unique index catches it before the function
-    can even evaluate its own predicates.
+    The set-valued function accepts parallel arrays. Passing the same call_id
+    twice in one call reaches the partial unique index on the second INSERT:
+    the first INSERT commits "1:call-replay" and the second INSERT of the
+    same (run_id, idempotency_key) raises UniqueViolation, rolling back the
+    whole transaction. The index — not the function's own guard — is the
+    refusing layer. No out-of-band state manipulation is needed.
     """
-    seq = event_log.append_approval_decision(
-        api_conn,
-        run_id=suspended_step.run_id,
-        step_id=suspended_step.step_id,
-        type="approval.granted",
-        principal="approver",
-        suspension_seq=suspended_step.suspension_seq,
-        call_id="call-unique-1",
-    )
-    assert seq is not None
-
-    # The decision committed. Now construct a state where the unique index
-    # would be hit: same suspension_seq and call_id, but awaiting_decision
-    # reset to true (via owner connection) so the function checks pass.
-    # The index on (run_id, idempotency_key) for decision types will reject.
-    with psycopg.connect(database_url("migration")) as admin_conn:
-        with admin_conn.transaction():
-            admin_conn.execute(
-                "UPDATE steps SET awaiting_decision = true WHERE step_id = %s",
-                (suspended_step.step_id,),
-            )
-
     with pytest.raises(psycopg.errors.UniqueViolation):
         with api_conn.transaction():
             api_conn.execute(
-                "SELECT append_approval_decision(%s, %s, %s, %s, %s, %s)",
+                "SELECT append_approval_decision(%s, %s, %s::text[], %s::text[], %s, %s)",
                 (
                     suspended_step.run_id,
                     suspended_step.step_id,
-                    "approval.granted",
+                    ["call-replay", "call-replay"],  # duplicate call_id
+                    ["approval.granted", "approval.rejected"],
                     "approver",
                     suspended_step.suspension_seq,
-                    "call-unique-1",
                 ),
             )
     api_conn.rollback()
@@ -855,38 +1144,23 @@ def test_different_call_ids_produce_different_keys_in_one_suspension(
 ) -> None:
     """AC-0334: a mixed decision over one suspension yields different outcomes per call.
 
-    Two decisions (one grant, one rejection) against two different call ids in
-    the same suspension both commit — the idempotency key is per call id, not
-    per suspension.
+    Both call ids are submitted in one set-valued call through the app_api
+    grant alone — no out-of-band state edit between them. The function appends
+    one event per pair, clears the hold once, and advances the cycle counter
+    once. Both events commit in the same transaction against the one suspension.
     """
-    seq_1 = event_log.append_approval_decision(
+    last_seq = event_log.append_approval_decision(
         api_conn,
         run_id=suspended_step.run_id,
         step_id=suspended_step.step_id,
-        type="approval.granted",
+        call_ids=["call-a", "call-b"],
+        decisions=["approval.granted", "approval.rejected"],
         principal="approver",
         suspension_seq=suspended_step.suspension_seq,
-        call_id="call-a",
     )
-
-    # Reset awaiting_decision to commit a second decision on the same suspension.
-    with owner_conn.transaction():
-        owner_conn.execute(
-            "UPDATE steps SET awaiting_decision = true WHERE step_id = %s",
-            (suspended_step.step_id,),
-        )
-
-    seq_2 = event_log.append_approval_decision(
-        api_conn,
-        run_id=suspended_step.run_id,
-        step_id=suspended_step.step_id,
-        type="approval.rejected",
-        principal="approver",
-        suspension_seq=suspended_step.suspension_seq,
-        call_id="call-b",
-    )
-
-    assert seq_1 != seq_2, "two decisions on two calls must get different seq values"
+    # The fixture puts step.suspended at seq=1; two decision events land at
+    # seq=2 and seq=3. The function returns the last seq allocated.
+    assert last_seq == 3, f"expected last_seq 3, got {last_seq}"
 
     rows = owner_conn.execute(
         "SELECT type, idempotency_key FROM events"
@@ -904,15 +1178,25 @@ def test_different_call_ids_produce_different_keys_in_one_suspension(
     assert expected_key_1 in keys
     assert expected_key_2 in keys
 
+    # awaiting_decision cleared and approval_cycles advanced exactly once.
+    step_row = owner_conn.execute(
+        "SELECT awaiting_decision, approval_cycles FROM steps WHERE step_id = %s",
+        (suspended_step.step_id,),
+    ).fetchone()
+    assert step_row is not None
+    assert step_row[0] is False
+    assert step_row[1] == 1
+
 
 @pytest.mark.substrate
 def test_the_decision_index_covers_the_declared_types(
     owner_conn: psycopg.Connection,
 ) -> None:
-    """AC-0334: the index predicate names approval.granted and approval.rejected.
+    """AC-0334: the index predicate names exactly approval.granted and approval.rejected.
 
-    Checked against the catalogue definition for equality of the type list,
-    so a widened or narrowed predicate reds rather than passing silently.
+    Asserted by equality on the extracted type list so a widened or narrowed
+    predicate reds rather than passing silently. Substring checks would pass
+    for a predicate widened to a third decision type.
     """
     row = owner_conn.execute(
         "SELECT indexdef FROM pg_indexes"
@@ -922,6 +1206,18 @@ def test_the_decision_index_covers_the_declared_types(
     assert row is not None, "events_decision_idempotency_idx is absent"
     indexdef = row[0]
 
-    assert "approval.granted" in indexdef
-    assert "approval.rejected" in indexdef
-    assert "idempotency_key" in indexdef
+    # Extract the type list from the WHERE clause. PostgreSQL renders it as:
+    # ... WHERE ((type = ANY (ARRAY['approval.granted'::text, ...])))
+    # or: ... WHERE (type IN ('approval.granted', 'approval.rejected')) ...
+    # Pull out quoted strings from the predicate and assert the exact set.
+    import re
+
+    quoted = re.findall(r"'([^']+)'", indexdef)
+    type_values = {v for v in quoted if "." in v}  # filter to event-type-shaped values
+    assert type_values == {
+        "approval.granted",
+        "approval.rejected",
+    }, (
+        f"index predicate type list {type_values!r} does not match the expected "
+        "set; a widened or narrowed predicate is present"
+    )

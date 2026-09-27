@@ -101,8 +101,8 @@ check`, `mypy`, `pytest -m 'not substrate'` (640 passed), `pytest` (901 passed).
 
 Each mutant was installed via `CREATE OR REPLACE FUNCTION`, the targeted test
 was observed to fail (red), and the original was then restored by re-executing
-the migration's SQL generator. All five proofs ran on 2026-09-27 against the
-live substrate at revision 0005.
+the migration's SQL generator. Proofs ran on 2026-09-27 against the live
+substrate at revision 0005.
 
 **AC-0320 — M1: `WHERE state = 'running'` dropped from `UPDATE runs` in
 `append_run_terminal`.**
@@ -159,11 +159,169 @@ raised, the index was never removed, and the replay test passed. That pass was
 evidence of nothing. A mutation proof whose break silently fails to apply looks
 exactly like a proof that succeeded.
 
+### Round 6 repairs
+
+Round 6 redesigned `append_approval_decision` to set-valued parallel arrays,
+added two new fence-path tests, tightened the happy-path seq assertion, and
+redesigned the index-coverage test to use set equality. Each new or redesigned
+check is mutation-proved below. Mutants were installed via `CREATE OR REPLACE
+FUNCTION` (or `DROP/CREATE INDEX`), the targeted test was observed to fail, and
+the original was restored and confirmed green. Proofs ran on 2026-09-27 against
+the live substrate at revision 0005.
+
+**AC-0320 — M (fence tests, never-leased and expired-lease): `fence_step` call
+removed from `append_run_terminal`.**
+Targets: `test_run_terminal_refuses_a_never_leased_step` and
+`test_run_terminal_refuses_an_expired_lease`.
+Result: BOTH FAILED — the function accepted a step with `owner = NULL` and a
+step with `lease_expires_at` in the past, committing the terminal event in each
+case. Confirms both new fence-path tests are genuinely decided by the fence
+call.
+
+**AC-0324 — M (concurrent decisions): `FOR UPDATE` removed from the steps lock
+in `append_approval_decision`.**
+Target: `test_concurrent_decisions_against_one_suspension_exactly_one_commits`.
+Result: FAILED — both concurrent callers committed (`committed=[2, 3]`,
+`refused=[]`; assertion expected `len(committed) == 1`). Confirms the `FOR
+UPDATE` is what serialises concurrent decisions and enforces the exactly-one
+property.
+
+**AC-0324 — M (seq tightening): `append_approval_decision` modified to
+`RETURN p_suspension_seq` instead of `RETURN v_seq`.**
+Target: `test_approval_decision_happy_path_clears_hold_and_advances_cycle`.
+Result: FAILED — returned `1` (the suspension seq) instead of `2` (the decision
+event's seq); the `assert seq == 2` assertion caught it. Confirms the tightening
+from `seq >= 1` to `seq == 2` is not decorative and pins the actual returned
+value.
+
+**AC-0334 — M (index coverage redesign): `approval.rejected` dropped from
+`events_decision_idempotency_idx` WHERE clause.**
+Target: `test_the_decision_index_covers_the_declared_types`.
+Result: FAILED — index WHERE clause covered only `{'approval.granted'}`;
+set equality against `{'approval.granted', 'approval.rejected'}` failed with
+`Extra items in the right set: 'approval.rejected'`. Confirms the redesigned
+set-equality assertion catches a partial index.
+
+### Round 6 supplemental proofs (addressing coordinator gaps)
+
+Three missing refusal tests added and five additional proofs run on 2026-09-27.
+
+**New tests (AC-0324 refusal predicates, violating call per predicate):**
+`test_approval_decision_refuses_an_empty_decision_set` (empty arrays →
+`StepRunMismatch`), `test_approval_decision_refuses_an_empty_call_id` (empty
+string in `call_ids` → `MalformedEventType`), and
+`test_approval_decision_refuses_mismatched_array_lengths` (two call_ids, one
+decision → `StepRunMismatch`). All three pass green against the live database.
+
+**AC-0320 — M (atomicity rewrite): `append_run_terminal` modified to use a
+PL/pgSQL sub-transaction (`BEGIN … EXCEPTION WHEN unique_violation THEN NULL;
+END`) that swallows `UniqueViolation` so the `UPDATE public.runs` commits even
+when the `INSERT INTO events` fails.**
+Target: `test_run_terminal_atomicity_state_does_not_move_on_failure`.
+Result: FAILED — `pytest.raises(psycopg.errors.UniqueViolation)` reported
+`Failed: DID NOT RAISE UniqueViolation`, proving the mutant committed the state
+change without raising. The test was the deciding layer: the sub-transaction
+exception handler is exactly the class of non-atomicity this check exists to
+catch. Restored, PASSED.
+
+**AC-0334 — M (index drop, new test forms): `events_decision_idempotency_idx`
+dropped as the `migration` role; absence confirmed in `pg_indexes` before
+trusting the red.**
+Targets: `test_a_replayed_decision_is_refused_by_the_unique_index` (primary
+target) and `test_different_call_ids_produce_different_keys_in_one_suspension`
+(observed).
+Result: `test_a_replayed_decision_is_refused_by_the_unique_index` FAILED —
+the function no longer raised `UniqueViolation` for the duplicate call_id pair,
+confirming the redesigned test is genuinely decided by the index.
+`test_different_call_ids_produce_different_keys_in_one_suspension` PASSED —
+this is the correct outcome: two distinct call_ids do not hit the unique
+constraint, so that test's correctness is independent of the index. Both
+outcomes recorded rather than the green one omitted. Restored, both PASSED.
+
+**Lock-order generalisation — M: `append_approval_decision` body reordered so
+`UPDATE public.runs SET next_seq = next_seq + 0` (acquiring the runs lock)
+precedes `SELECT … FROM public.steps … FOR UPDATE`.**
+Target: `test_both_append_paths_take_the_steps_lock_first`.
+Caveat and resolution: the first mutant included a comment containing the
+substring "FOR UPDATE", which caused `body.index("FOR UPDATE")` to find the
+comment text before the actual SQL, making the check pass despite the inverted
+order. A second mutant was installed with the comment rewritten to remove that
+substring. With the comment corrected, `body.index("UPDATE public.runs")` = 1770
+and `body.index("FOR UPDATE")` = 2061; `steps_lock_at < allocate_at` was False.
+Result: FAILED — `append_approval_decision acquires a runs lock before the steps
+lock, inverting the ratified lock order` (assert 2061 < 1770). The check names
+the function correctly. The comment-substring trap is recorded because a body.index
+fallback on a function with "FOR UPDATE" in a comment would silently pass; this
+proof shows the check is correct when comments are neutral. Restored, PASSED.
+
+*Incidental finding: the `try/except ValueError` fallback in the structural
+check can be fooled by a comment containing "FOR UPDATE" appearing before
+"UPDATE public.runs" in the function body. The check passes for the right reason
+on the actual shipped functions because they carry no such comment. This is noted
+as a known fragility of string-position checks on SQL bodies, not fixed here.*
+
+**AC-0332 — `proowner` assertion: test temporarily mutated to `assert owner ==
+"not_ced_owner"`.**
+Target: `test_the_replaced_step_function_retains_security_definer_and_search_path`.
+Result: FAILED — `assert 'ced_owner' == 'not_ced_owner'` at the exact assertion
+line, proving the `pg_get_userbyid(p.proowner)` fetch and the equality check are
+the deciding layer. Restored to `"ced_owner"`, PASSED.
+
+**Gate count after supplemental proofs: 907 passed, 3 skipped (full substrate
+suite, 2026-09-27). Offline suite: 640 passed, 270 deselected.**
+
+### Round 6 second-pass proofs (addressing second-pass coordinator gaps)
+
+Two defects found on re-read, fixed, and proved on 2026-09-27.
+
+**Defect 1: three new refusal tests pinned wrong exceptions.**
+The empty-set and mismatched-lengths predicates raised `invalid_parameter_value`
+in SQL, which the wrapper at `:479` maps to `StepRunMismatch` — documented as
+"the fenced step does not belong to the run being appended to". The empty
+call_id predicate raised `CED01`, mapped to `MalformedEventType` — documented as
+"the event type is not a dotted run of lowercase ASCII alphanumerics". Neither
+class says what actually went wrong; both contradict the docstring at `:150–158`
+that requires the mapping to be one no other failure on the same call can
+produce.
+
+*Fix.* All four pre-lock validation predicates (empty set, mismatched lengths,
+null/empty call_id, null decision) now raise `serialization_failure`. The wrapper
+maps `serialization_failure` to `DecisionRefused`, whose docstring is extended to
+cover the "malformed submission" category alongside the structural predicates.
+`serialization_failure` is the only SQLSTATE these sites can produce before any
+database lock is taken, satisfying the exact-mapping requirement. The three test
+assertions updated from `StepRunMismatch`/`MalformedEventType` to `DecisionRefused`,
+and all three pass green against the fixed live function. Migration file updated
+to match.
+
+**Defect 2: lock-order anchor measured a comment, not the lock.**
+The shipped `append_approval_decision` body carries the comment
+`-- The FOR UPDATE serialises concurrent decisions on the same step:` at an
+early position in `prosrc`. `body.index("FOR UPDATE")` found this comment text
+(position 2268 raw) before `"UPDATE public.runs"` (position 4332 raw), making
+the structural check pass for the wrong reason. An inversion of the real SQL
+while the comment stayed in place would not have been caught.
+
+*Fix.* `test_both_append_paths_take_the_steps_lock_first` now strips `--[^\n]*`
+from `prosrc` via `re.sub` before any `index()` call. Comments are thereby
+excluded from both anchor searches.
+
+*Proof.* A mutant was installed with the SQL order inverted (runs UPDATE before
+steps FOR UPDATE) and the original comment `-- The FOR UPDATE serialises...`
+left exactly as shipped at its early position. Raw positions: `FOR UPDATE` at
+1745 (comment), `UPDATE public.runs` at 2062 — naive check passes (for wrong
+reason, comment wins). Stripped positions: `FOR UPDATE` at 1910 (actual SQL),
+`UPDATE public.runs` at 1701 — stripped check FAILED with:
+`append_approval_decision acquires a runs lock before the steps lock,
+inverting the ratified lock order (assert 1910 < 1701)`. The check now names
+the function correctly regardless of comment placement. Restored, PASSED.
+
 ### A defect T1 surfaced in the gate suite
 
 **`test_migration_applies.py` hardcoded `"0004"` as the expected HEAD
 revision.** Two assertions — one in `test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing`
 and one in `test_the_lock_timeout_override_reaches_the_migration_session` —
 used the literal string `"0004"` rather than the current HEAD. Both updated to
-`"0005"` as a bundled fix: no behavior change, no design call, verifiable by
-the gate passing, not an agent-guidance file.
+`"0005"` as in-scope T1 work: `tests/schema/**` is in T1's `Touches` (plan.md
+line 117) and the change is forced by T1's own revision 0005, so it is not an
+unrelated discovery carried along.

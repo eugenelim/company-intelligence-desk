@@ -135,8 +135,12 @@ def upgrade() -> None:
             principal    text NOT NULL,
             payload_ref  text,
             -- The derived key hash(run_id, step_id, tool_call_id), never
-            -- minted per attempt. Null on every event type but tool.invoked;
-            -- revision 0002 adds the partial unique index over it.
+            -- minted per attempt. Null on every event type but tool.invoked
+            -- and the two approval-decision types (approval.granted and
+            -- approval.rejected, added by revision 0005, keyed on
+            -- <suspension_seq>:<call_id>); revision 0002 adds the partial
+            -- unique index over tool.invoked and revision 0005 adds the
+            -- partial unique index over the two decision types.
             idempotency_key  text,
             schema_version   integer NOT NULL DEFAULT 1,
             PRIMARY KEY (run_id, seq)

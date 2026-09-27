@@ -179,13 +179,24 @@ class RunNotRunning(Exception):
 
 
 class DecisionRefused(Exception):
-    """The approval-decision append was refused for a structural reason.
+    """The approval-decision append was refused.
 
-    Covers the predicates `append_approval_decision` enforces in place of a
-    fence: no committed `step.suspended` event at the named seq; the named seq
+    Covers two categories, both arriving via `serialization_failure` (40001):
+
+    *Structural predicates* (substitutes for the fence the approval path cannot
+    hold): no committed `step.suspended` event at the named seq; the named seq
     is not the step's latest suspension; or `awaiting_decision` is false.
-    All three raise `serialization_failure` in the database function, and all
-    three arrive here. AC-0324, AC-0334.
+
+    *Malformed submission predicates* (checked before any lock): an empty
+    decision set (`p_call_ids` length zero); `p_call_ids` and `p_decisions`
+    with different lengths; a null or empty `call_id` element; or a null
+    `decision` element. These are not event-type shape errors (CED01) and not
+    run/step membership errors (invalid_parameter_value): each is a malformed
+    call to the approval path, and `serialization_failure` is the only SQLSTATE
+    no other failure at those sites can produce, satisfying the same "exact
+    mapping" requirement `MalformedEventType` documents at :150–158.
+
+    All raise `serialization_failure` in the database function. AC-0324, AC-0334.
     """
 
 
@@ -430,20 +441,29 @@ def append_approval_decision(
     *,
     run_id: UUID,
     step_id: UUID,
-    type: str,
+    call_ids: list[str],
+    decisions: list[str],
     principal: str,
     suspension_seq: int,
-    call_id: str,
     agent_role: str | None = None,
     payload_ref: str | None = None,
 ) -> int:
     """The approval-decision path. `conn` must be the `api` role.
 
+    Takes the whole decision set for one suspension in one call. `call_ids`
+    and `decisions` are parallel lists: `decisions[i]` is either
+    ``"approval.granted"`` or ``"approval.rejected"`` for `call_ids[i]`.
+
+    Appends one `events` row per pair, keyed ``<suspension_seq>:<call_id>``.
+    Clears `awaiting_decision` and advances `approval_cycles` exactly once
+    per call. Returns the seq of the last appended event.
+
     Unfenced — the lease is released before the approver acts. Substitutes
     three structural predicates for the fence: a committed `step.suspended`
     event, a step-run membership check, and the `awaiting_decision` hold.
-    The idempotency key is `<suspension_seq>:<call_id>`, under a partial unique
-    index that makes the replay refusal a database fact. ADR-0009 D2, AC-0334.
+    Duplicate call_ids are caught by the partial unique index
+    ``events_decision_idempotency_idx``; the whole transaction rolls back so
+    no events commit. ADR-0009 D2, AC-0334.
     """
 
     def call() -> int:
@@ -454,10 +474,10 @@ def append_approval_decision(
                     (
                         run_id,
                         step_id,
-                        type,
+                        call_ids,
+                        decisions,
                         principal,
                         suspension_seq,
-                        call_id,
                         agent_role,
                         payload_ref,
                     ),

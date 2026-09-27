@@ -63,12 +63,10 @@ one.
 every audit trail. Spike P1 found this; the shipped functions all use
 `session_user` and so do these.
 
-**Updating the `idempotency_key` column comment.** `0001_base_schema.py`
-documents `events.idempotency_key` as "Null on every event type but
-`tool.invoked`". This revision falsifies that: `approval.granted` and
-`approval.rejected` also carry a key (`<suspension_seq>:<call_id>`). That file's
-executable text is unchanged; the falsified claim is recorded here because this
-is the revision that widens the set.
+**Revision 0005 updates `0001_base_schema.py`'s `idempotency_key` comment**
+in the same change that widens which types carry a key. AC-0334 states this as
+a contract requirement. The comment in that file is updated directly rather than
+recorded here.
 """
 
 from __future__ import annotations
@@ -90,12 +88,16 @@ depends_on = None
 _DEFINER_SEARCH_PATH = "SET search_path = pg_catalog, pg_temp"
 
 #: The forgiven padding characters, trimmed from p_type before comparison.
+#: Restored to the escaped spelling of 0002's _TYPE_SPACE_CLASS so the
+#: rendered canonicaliser is byte-identical to 0002's. Raw invisible codepoints
+#: (U+2028, U+2029, U+FEFF) are fragile: any tool that normalises line
+#: separators or strips a BOM silently narrows the guard.
 _TYPE_SPACE_CLASS = (
     r"\s"
-    r"  "
-    r" -‏"
-    r"    ⁠"
-    r"　﻿"
+    r"\u00a0\u1680"
+    r"\u2000-\u200f"
+    r"\u2028\u2029\u202f\u205f\u2060"
+    r"\u3000\ufeff"
 )
 
 #: The canonical shape: a dotted run of lowercase ASCII alphanumerics.
@@ -280,11 +282,23 @@ def upgrade() -> None:
     # step.suspended event (only the fenced step path can write one), a
     # step-run membership check, and the awaiting_decision hold. ADR-0009 D2.
     # Lock order: steps FOR UPDATE before runs UPDATE, matching every other path.
+    #
+    # Takes the whole decision set in one call: p_call_ids text[] parallel to
+    # p_decisions text[], one pair per pending call id. Appends one events row
+    # per pair. Clears awaiting_decision and advances approval_cycles exactly
+    # once per call — not per pair — satisfying AC-0333 and AC-0324. A null or
+    # empty call_id element is refused before any INSERT (a null propagates
+    # through || and mints a null key the partial index cannot see). An empty
+    # decision set is refused before the steps lock. Duplicate call_ids are
+    # caught by the partial unique index events_decision_idempotency_idx when the
+    # second INSERT of the same (run_id, idempotency_key) pair fires; the whole
+    # transaction rolls back, so no events commit. AC-0334.
     op.execute(f"""
         CREATE FUNCTION public.append_approval_decision(
             p_run_id uuid, p_step_id uuid,
-            p_type text, p_principal text,
-            p_suspension_seq bigint, p_call_id text,
+            p_call_ids text[], p_decisions text[],
+            p_principal text,
+            p_suspension_seq bigint,
             p_agent_role text DEFAULT NULL,
             p_payload_ref text DEFAULT NULL)
         RETURNS bigint
@@ -296,24 +310,56 @@ def upgrade() -> None:
             v_step_run_id uuid;
             v_awaiting boolean;
             v_latest_susp_seq bigint;
+            v_n integer;
+            v_i integer;
         BEGIN
-            -- Null check before the IN comparison (same discipline as
-            -- append_step_event: null IN (...) evaluates to null, never true
-            -- or false, so a null type escapes the refusal and reaches the
-            -- NOT NULL constraint with an unmapped error shape).
-            IF p_type IS NULL THEN
+            -- Refuse an empty decision set before taking any lock.
+            v_n := coalesce(array_length(p_call_ids, 1), 0);
+            IF v_n = 0 THEN
                 RAISE EXCEPTION
-                    'append_approval_decision refuses a null type (caller %)',
+                    'append_approval_decision refuses an empty decision set (caller %)',
                     session_user
-                    USING ERRCODE = 'CED01';
+                    USING ERRCODE = 'serialization_failure';
+            END IF;
+            IF array_length(p_decisions, 1) <> v_n THEN
+                RAISE EXCEPTION
+                    'append_approval_decision: p_call_ids and p_decisions must '
+                    'have the same length (caller %)',
+                    session_user
+                    USING ERRCODE = 'serialization_failure';
             END IF;
 
-            IF lower(p_type) NOT IN ({_DECISION_SQL_LIST}) THEN
-                RAISE EXCEPTION
-                    'append_approval_decision refuses % (caller %)',
-                    p_type, session_user
-                    USING ERRCODE = 'insufficient_privilege';
-            END IF;
+            -- Validate each pair before taking any lock. Null or empty call_id
+            -- mints a null idempotency key that the partial index cannot see
+            -- while still consuming the hold. A null decision is not a malformed
+            -- event type (CED01) and not a structural run/step mismatch
+            -- (invalid_parameter_value): both are malformed decision submissions
+            -- and use serialization_failure so the wrapper maps them to
+            -- DecisionRefused — the only SQLSTATE this function raises that no
+            -- other failure on the same call can produce for these sites.
+            FOR v_i IN 1..v_n LOOP
+                IF p_call_ids[v_i] IS NULL OR p_call_ids[v_i] = '''' THEN
+                    RAISE EXCEPTION
+                        'append_approval_decision refuses a null or empty '
+                        'call_id at position % (caller %)',
+                        v_i, session_user
+                        USING ERRCODE = 'serialization_failure';
+                END IF;
+                IF p_decisions[v_i] IS NULL THEN
+                    RAISE EXCEPTION
+                        'append_approval_decision refuses a null decision at '
+                        'position % (caller %)',
+                        v_i, session_user
+                        USING ERRCODE = 'serialization_failure';
+                END IF;
+                IF lower(p_decisions[v_i]) NOT IN ({_DECISION_SQL_LIST}) THEN
+                    RAISE EXCEPTION
+                        'append_approval_decision refuses % at position % '
+                        '(caller %)',
+                        p_decisions[v_i], v_i, session_user
+                        USING ERRCODE = 'insufficient_privilege';
+                END IF;
+            END LOOP;
 
             -- Lock the steps row first (steps before runs on every path).
             -- The FOR UPDATE serialises concurrent decisions on the same step:
@@ -385,37 +431,41 @@ def upgrade() -> None:
                     USING ERRCODE = 'serialization_failure';
             END IF;
 
-            -- Clear the hold and advance the cycle counter. Both are read by
-            -- AC-0324''s and AC-0330''s predicates. The pre-advance value is
-            -- what AC-0330''s resume matches on (the cycle that opened the
-            -- suspension); stamping the post-advance value would make every
-            -- resume refuse. The counter is advanced here rather than by the
-            -- worker, so the resume reads a stable value even across a worker
-            -- handoff. AC-0333.
+            -- Clear the hold and advance the cycle counter exactly once for
+            -- this call. Both are read by AC-0324''s and AC-0330''s predicates.
+            -- The pre-advance value is what AC-0330''s resume matches on (the
+            -- cycle that opened the suspension); stamping the post-advance value
+            -- would make every resume refuse. The counter is advanced here
+            -- rather than by the worker, so the resume reads a stable value
+            -- even across a worker handoff. AC-0333.
             UPDATE public.steps
                SET awaiting_decision = false,
                    approval_cycles = approval_cycles + 1
              WHERE step_id = p_step_id;
 
-            -- Advance the run''s sequence counter. Runs lock taken after
-            -- steps lock, preserving the steps-before-runs order.
-            UPDATE public.runs SET next_seq = next_seq + 1
-             WHERE run_id = p_run_id RETURNING next_seq INTO v_seq;
-            IF NOT FOUND THEN
-                RAISE EXCEPTION 'no such run %', p_run_id
-                    USING ERRCODE = 'foreign_key_violation';
-            END IF;
+            -- Append one event per (call_id, decision) pair. Each event gets
+            -- its own seq from the run''s counter. The runs lock is taken inside
+            -- the loop but is already held from the first iteration onward
+            -- within the same transaction. idempotency_key = suspension_seq:call_id.
+            -- Duplicate call_ids are caught by events_decision_idempotency_idx:
+            -- the second INSERT of the same (run_id, idempotency_key) fires a
+            -- UniqueViolation and rolls back the whole transaction. AC-0334.
+            FOR v_i IN 1..v_n LOOP
+                UPDATE public.runs SET next_seq = next_seq + 1
+                 WHERE run_id = p_run_id RETURNING next_seq INTO v_seq;
+                IF NOT FOUND THEN
+                    RAISE EXCEPTION 'no such run %', p_run_id
+                        USING ERRCODE = 'foreign_key_violation';
+                END IF;
 
-            -- idempotency_key = <suspension_seq>:<call_id>. The suspension
-            -- seq is unique within the run by construction (it is the seq of
-            -- the step.suspended event, allocated by the run''s own next_seq
-            -- counter), so this key identifies exactly one pending call in one
-            -- suspension occurrence. No step component is needed. AC-0334.
-            INSERT INTO public.events (run_id, seq, type, step_id, agent_role,
-                                       principal, payload_ref, idempotency_key)
-            VALUES (p_run_id, v_seq, lower(p_type), p_step_id,
-                    p_agent_role, p_principal, p_payload_ref,
-                    p_suspension_seq::text || ':' || p_call_id);
+                INSERT INTO public.events (run_id, seq, type, step_id,
+                                           agent_role, principal, payload_ref,
+                                           idempotency_key)
+                VALUES (p_run_id, v_seq, lower(p_decisions[v_i]), p_step_id,
+                        p_agent_role, p_principal, p_payload_ref,
+                        p_suspension_seq::text || ':' || p_call_ids[v_i]);
+            END LOOP;
+
             RETURN v_seq;
         END $$
     """)
@@ -431,7 +481,7 @@ def upgrade() -> None:
     )
     op.execute(
         "REVOKE ALL ON FUNCTION "
-        "public.append_approval_decision(uuid, uuid, text, text, bigint, text, text, text) "
+        "public.append_approval_decision(uuid, uuid, text[], text[], text, bigint, text, text) "
         "FROM PUBLIC"
     )
     op.execute(
@@ -441,7 +491,7 @@ def upgrade() -> None:
     )
     op.execute(
         "GRANT EXECUTE ON FUNCTION "
-        "public.append_approval_decision(uuid, uuid, text, text, bigint, text, text, text) "
+        "public.append_approval_decision(uuid, uuid, text[], text[], text, bigint, text, text) "
         "TO app_api"
     )
 
@@ -456,11 +506,14 @@ def upgrade() -> None:
     # carrying the default EXECUTE TO PUBLIC that 0002 had to revoke; it does
     # not replace. AC-0332 guards what this replacement preserves.
     #
-    # The body is replicated from 0002 with one change: _NON_STEP_SQL_LIST_V2
-    # in place of _NON_STEP_SQL_LIST. All other text — SECURITY DEFINER,
-    # search_path, DECLARE, variable names, error codes, comments stripped
-    # from the SQL string below — is identical in structure and intent. The
-    # comments in 0002 explain the why; this body carries only the executable.
+    # The body is replicated from 0002 with two changes: _NON_STEP_SQL_LIST_V2
+    # in place of _NON_STEP_SQL_LIST (the widened refusal list), and the
+    # _TYPE_SPACE_CLASS constant now uses escaped \uXXXX notation matching
+    # 0002's spelling exactly rather than the raw codepoints an earlier pass
+    # embedded. All other text — SECURITY DEFINER, search_path, DECLARE,
+    # variable names, error codes, comments stripped from the SQL string
+    # below — is identical in structure and intent. The comments in 0002
+    # explain the why; this body carries only the executable.
     op.execute(f"""
         CREATE OR REPLACE FUNCTION public.append_step_event(
             p_run_id uuid, p_step_id uuid, p_lease_epoch bigint,
