@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — the run state machine
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Drafting <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8 § 3 Runtime Model (the state table, the approval gate) and § 4 Contracts and Invariants (the append paths and the fence); [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 3 Runtime Model. **The analogous production implementations are the three shipped append functions** in `migrations/versions/0002_append_paths_and_privilege_split.py` — `append_step_event`, `append_run_event` and `append_policy_decision` — with `tests/event_log/` and `tests/schema/` as their construction and registration path. The two functions this spec adds are written against those three, and the predicate sets they already carry are what AC-0320 and AC-0324 enumerate. **Named deviation:** none of the three is unfenced, and AC-0324's path must be, because the lease is released before the approver acts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed
@@ -331,5 +331,8 @@ def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
 - **AC-0327's snapshot reads are timing-sensitive** between steps. Mitigated by asserting the sequence of observed states rather than a state at a wall-clock moment.
 
 ## Changelog
+
+- 2026-09-27: **plan approved by eugenelim**, on the same basis and with the same qualification as the spec approval below. The build order is T0 through T4; T0's records must exist before the code they govern.
+- 2026-09-27: **spec approved by eugenelim, without a confirming clean review round.** Five pre-EXECUTE rounds ran; every one returned findings and every sustained finding was applied, the last eighteen in `fdb1e8e`. **No reviewer has read the text as it now stands.** Rounds 2 and 3 were additionally applied without passing through finding adjudication, so parts of this contract rest on reviewer prose that was never independently tested — the claims load-bearing enough to matter were verified against the tree by hand, and that is a weaker guarantee than the gateway gives. The owner has the approval authority and exercised it; this entry exists so the record states what the approval did and did not rest on, rather than letting the engine's `reviewers-clean` transition imply a clean round that did not occur.
 
 - 2026-09-27: split out of `walking-skeleton-evidence` by owner decision, after four pre-EXECUTE review rounds found this layer failing while that spec's measurement and record tasks converged. **Every criterion's origin, so no tally can drift from it:** seven moved across unchanged in substance — AC-0301, AC-0302, AC-0303, AC-0320, AC-0321, AC-0324, AC-0325. Three were added at the split for gaps round 4 of that spec surfaced — AC-0327 the transitions a reader can see, AC-0328 the approver's interface, AC-0329 this spec's residual record. Five more were added across this spec's own review rounds: AC-0330 binding the resume to the committed decision and AC-0331 contracting the DR4 probe, both round 1; AC-0332 bounding what the `CREATE OR REPLACE` preserves, round 2; AC-0333 the suspension hold, round 3; AC-0334 the decision's recorded form, round 4 and rebound to the suspension `seq` in round 5. Fifteen in total.
