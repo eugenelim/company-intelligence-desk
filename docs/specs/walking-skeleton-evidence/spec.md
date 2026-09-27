@@ -179,9 +179,9 @@ those sources is tabled below, and the approval gate rules on each.
   2. **No vulnerability scanner covers either dependency tree.** `ui/`'s packages join a Python tree that already had none, and `playwright` fetches browser binaries at install time from a source neither lockfile resolves.
   3. **The browser criteria ran against a loopback API with no authentication**, so nothing here establishes the stream's behaviour under an authenticated ingress.
 
-  It also carries forward, rather than restating, the residuals `walking-skeleton-run-state` records under its AC-0329 — the retained `UPDATE ON runs` grants, the unfenced approval path, the unauthenticated approver principal, the arbitrary cycle cap, and the five uncommitted r8 § 3 transitions. Phase 1's record is one document, so it names them in one place and cites that spec rather than duplicating text that will drift.
+  It also carries forward, rather than restating, **every residual `walking-skeleton-run-state` enumerates under its AC-0329** — cited by reference, not by count and not by listing members here, because an earlier revision of this sentence pinned a number and three items that have since changed. Phase 1's record is one document; it names that spec's list in one place and does not duplicate text that will drift.
 
-  A record that lists results and names no substitution fails this criterion; so does one that names the platform substitutions and drops the three above or the sibling spec's five.
+  A record that lists results and names no substitution fails this criterion; so does one that names the platform substitutions and drops any of the three above, or any item in the sibling spec's AC-0329 enumeration.
 
 ## Follow-ons
 
