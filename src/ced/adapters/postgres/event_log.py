@@ -35,8 +35,12 @@ __all__ = [
     "PrincipalNotRecorded",
     "StepRunMismatch",
     "RunAlreadyTerminal",
+    "RunNotRunning",
+    "DecisionRefused",
+    "append_approval_decision",
     "append_policy_decision",
     "append_run_event",
+    "append_run_terminal",
     "append_step_event",
     "derived_idempotency_key",
     "read_events",
@@ -160,6 +164,28 @@ class RunAlreadyTerminal(Exception):
     A late cancel is a no-op by design. The guard exists because the stream
     closes on a terminal event, so an event committing after one would be
     invisible to every live client while present in the log.
+    """
+
+
+class RunNotRunning(Exception):
+    """The run is not in `running` state, so the terminal append is refused.
+
+    Covers two cases that the source-state predicate (`WHERE state = 'running'`)
+    collapses into one: the run is already terminal (completed, failed, or
+    cancelled), or the run has not yet left `requested` because its first step
+    has never started. Both are states that are not `running` and both are
+    refused by the same UPDATE clause. AC-0320, AC-0327.
+    """
+
+
+class DecisionRefused(Exception):
+    """The approval-decision append was refused for a structural reason.
+
+    Covers the predicates `append_approval_decision` enforces in place of a
+    fence: no committed `step.suspended` event at the named seq; the named seq
+    is not the step's latest suspension; or `awaiting_decision` is false.
+    All three raise `serialization_failure` in the database function, and all
+    three arrive here. AC-0324, AC-0334.
     """
 
 
@@ -345,6 +371,107 @@ def append_policy_decision(
             raise Fenced(str(exc).splitlines()[0]) from exc
         except psycopg.errors.InvalidParameterValue as exc:
             raise StepRunMismatch(str(exc).splitlines()[0]) from exc
+
+    return retry_on_deadlock(call)
+
+
+def append_run_terminal(
+    conn: psycopg.Connection,
+    *,
+    run_id: UUID,
+    step_id: UUID,
+    lease_epoch: int,
+    type: str,
+    principal: str,
+    agent_role: str | None = None,
+    payload_ref: str | None = None,
+) -> int:
+    """The run-terminal path: fenced on `lease_epoch`, writes `step_id` null.
+
+    Commits `run.completed` or `run.failed` together with the `runs.state`
+    change in one transaction, so neither can land without the other. The
+    `conn` must be the `worker` role — only `app_worker` holds `EXECUTE` on
+    `append_run_terminal`. ADR-0009 D1.
+    """
+
+    def call() -> int:
+        try:
+            with conn.transaction():
+                row = conn.execute(
+                    "SELECT append_run_terminal(%s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        run_id,
+                        step_id,
+                        lease_epoch,
+                        type,
+                        principal,
+                        agent_role,
+                        payload_ref,
+                    ),
+                ).fetchone()
+                assert row is not None
+                return int(row[0])
+        except psycopg.errors.SerializationFailure as exc:
+            raise Fenced(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.ObjectNotInPrerequisiteState as exc:
+            raise RunNotRunning(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.InvalidParameterValue as exc:
+            raise StepRunMismatch(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.DatabaseError as exc:
+            if exc.sqlstate != MALFORMED_EVENT_TYPE_SQLSTATE:
+                raise
+            raise MalformedEventType(str(exc).splitlines()[0]) from exc
+
+    return retry_on_deadlock(call)
+
+
+def append_approval_decision(
+    conn: psycopg.Connection,
+    *,
+    run_id: UUID,
+    step_id: UUID,
+    type: str,
+    principal: str,
+    suspension_seq: int,
+    call_id: str,
+    agent_role: str | None = None,
+    payload_ref: str | None = None,
+) -> int:
+    """The approval-decision path. `conn` must be the `api` role.
+
+    Unfenced — the lease is released before the approver acts. Substitutes
+    three structural predicates for the fence: a committed `step.suspended`
+    event, a step-run membership check, and the `awaiting_decision` hold.
+    The idempotency key is `<suspension_seq>:<call_id>`, under a partial unique
+    index that makes the replay refusal a database fact. ADR-0009 D2, AC-0334.
+    """
+
+    def call() -> int:
+        try:
+            with conn.transaction():
+                row = conn.execute(
+                    "SELECT append_approval_decision(%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        run_id,
+                        step_id,
+                        type,
+                        principal,
+                        suspension_seq,
+                        call_id,
+                        agent_role,
+                        payload_ref,
+                    ),
+                ).fetchone()
+                assert row is not None
+                return int(row[0])
+        except psycopg.errors.SerializationFailure as exc:
+            raise DecisionRefused(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.InvalidParameterValue as exc:
+            raise StepRunMismatch(str(exc).splitlines()[0]) from exc
+        except psycopg.errors.DatabaseError as exc:
+            if exc.sqlstate != MALFORMED_EVENT_TYPE_SQLSTATE:
+                raise
+            raise MalformedEventType(str(exc).splitlines()[0]) from exc
 
     return retry_on_deadlock(call)
 

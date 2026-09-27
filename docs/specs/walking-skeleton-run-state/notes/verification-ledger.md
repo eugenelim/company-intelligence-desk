@@ -68,3 +68,85 @@ tasks out of the spec file or seal after wave 1.
 
 Baselines: approved at spec `41c7f5c4fb93` / plan `69634eb7f06b`; re-pinned
 after T0 at spec `841d0959a731` / plan `1e8cd06feefd`.
+
+## T1 — the paths the transitions need
+
+**Date:** 2026-09-27. **Mode:** TDD (construction-test first, then make green).
+
+**What was produced.**
+
+- `migrations/versions/0005_run_state_paths.py` — seven-part revision: two new
+  `steps` columns (`awaiting_decision NOT NULL DEFAULT false`,
+  `approval_cycles NOT NULL DEFAULT 0`), `append_run_terminal` (fenced,
+  `app_worker` only, writes step_id null), `append_approval_decision`
+  (unfenced, `app_api` only, suspension-keyed), the partial unique index
+  `events_decision_idempotency_idx`, disjoint EXECUTE grants, and `CREATE OR
+  REPLACE` of `append_step_event` adding decision types to its refusal list.
+- `src/ced/domain/events.py` — `STEP_SUSPENDED`, `APPROVAL_GRANTED`,
+  `APPROVAL_REJECTED`, `DECISION_TYPES` constants added.
+- `src/ced/adapters/postgres/event_log.py` — `RunNotRunning`, `DecisionRefused`
+  exceptions; `append_run_terminal` and `append_approval_decision` Python
+  wrappers added.
+- `tests/schema/test_run_state_paths.py` — 28 `@pytest.mark.substrate` tests
+  covering AC-0320, AC-0324, AC-0332, and AC-0334 with the four plan stubs
+  materialized byte-identically.
+- `tests/event_log/test_definer_hardening.py` — definer count updated 4 → 6;
+  `DECISION_TYPES` added to the refused-set comparison; `approval.granted` and
+  `approval.rejected` added to the step-path parametrize.
+
+**Gates (901 passed, 3 skipped, 0 failures):** `ruff format --check`, `ruff
+check`, `mypy`, `pytest -m 'not substrate'` (640 passed), `pytest` (901 passed).
+
+### Mutation proofs
+
+Each mutant was installed via `CREATE OR REPLACE FUNCTION`, the targeted test
+was observed to fail (red), and the original was then restored by re-executing
+the migration's SQL generator. All five proofs ran on 2026-09-27 against the
+live substrate at revision 0005.
+
+**AC-0320 — M1: `WHERE state = 'running'` dropped from `UPDATE runs` in
+`append_run_terminal`.**
+Target: `test_run_terminal_refuses_a_run_at_requested_state`.
+Result: FAILED — `RunNotRunning` was not raised (run at `requested` state was
+accepted and committed). Confirms the guard is pinned.
+
+**AC-0320 — M2: `fence_step` call removed from `append_run_terminal`.**
+Target: `test_run_terminal_refuses_a_fenced_call`.
+Result: FAILED — `Fenced` was not raised (wrong epoch was accepted). Confirms
+the fence is pinned.
+
+**AC-0324 — M1: `awaiting_decision` check removed from
+`append_approval_decision`.**
+Target: `test_approval_decision_refuses_when_not_awaiting`.
+Result: FAILED — `DecisionRefused` was not raised (decision committed against a
+step with `awaiting_decision = false`). Confirms the hold is pinned.
+
+**AC-0324 — M2: latest-suspension seq check removed from
+`append_approval_decision`.**
+Target: `test_approval_decision_refuses_a_stale_suspension_seq`.
+Result: FAILED — `DecisionRefused` was not raised (stale suspension seq
+accepted). Confirms the staleness guard is pinned.
+
+**AC-0332 — M: `approval.granted` and `approval.rejected` removed from
+`append_step_event`'s refusal list (pre-0005 body restored).**
+Target: `test_approval_decision_from_append_step_event_is_refused`.
+Result: FAILED — `InsufficientPrivilege` was not raised (decision type was
+accepted by the step path). Confirms the D3 widening is pinned.
+
+**AC-0334 — index coverage.** The partial unique index
+`events_decision_idempotency_idx` is asserted structurally by
+`test_the_decision_index_covers_the_declared_types` and behaviorally by
+`test_a_replayed_decision_is_refused_by_the_unique_index`. A mutation proof for
+the index itself requires `DROP INDEX` which is not idempotent to restore
+(requires re-running the migration). The structural test pins the index
+definition from the catalogue; mutation-proving the index drop is deferred to
+the supervisor's discretion.
+
+### A defect T1 surfaced in the gate suite
+
+**`test_migration_applies.py` hardcoded `"0004"` as the expected HEAD
+revision.** Two assertions — one in `test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing`
+and one in `test_the_lock_timeout_override_reaches_the_migration_session` —
+used the literal string `"0004"` rather than the current HEAD. Both updated to
+`"0005"` as a bundled fix: no behavior change, no design call, verifiable by
+the gate passing, not an agent-guidance file.

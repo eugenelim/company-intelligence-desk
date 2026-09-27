@@ -46,6 +46,25 @@ RUN_LIFECYCLE_TYPES: Final = frozenset({RUN_REQUESTED, RUN_CANCELLED})
 #: `tests/schema` asserts the two agree so they cannot drift apart.
 TERMINAL_EVENT_TYPES: Final = frozenset({"run.completed", "run.failed", RUN_CANCELLED})
 
+#: The step-scoped type a worker appends when a run suspends for approval.
+#: Only the worker's fenced path (append_step_event) can write this type;
+#: that fact is what `append_approval_decision` relies on in place of a fence.
+#: Named here because AC-0324's predicate reads it from the log.
+STEP_SUSPENDED: Final = "step.suspended"
+
+#: The two approval-decision types. Revision 0005 adds them to
+#: append_step_event's refusal list (ADR-0009 D3), so the exclusivity is at
+#: the type level: only `append_approval_decision` may write either one.
+#:
+#: They also carry `events.idempotency_key` set to `<suspension_seq>:<call_id>`,
+#: under the partial unique index `events_decision_idempotency_idx`. Revision
+#: 0001 documented `idempotency_key` as "Null on every event type but
+#: `tool.invoked`"; this revision falsifies that. The falsified claim is
+#: recorded in 0005's module docstring rather than rewritten in 0001.
+APPROVAL_GRANTED: Final = "approval.granted"
+APPROVAL_REJECTED: Final = "approval.rejected"
+DECISION_TYPES: Final = frozenset({APPROVAL_GRANTED, APPROVAL_REJECTED})
+
 #: The step-scoped type carrying a derived idempotency key. Named because the
 #: partial unique index in revision 0002 is scoped to it.
 TOOL_INVOKED: Final = "tool.invoked"

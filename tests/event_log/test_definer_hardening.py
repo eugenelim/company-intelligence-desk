@@ -59,7 +59,7 @@ def test_the_definer_functions_are_configured_to_resist_temp_capture(
         """
     ).fetchall()
 
-    assert len(rows) == 4, f"expected four definer functions, found {rows}"
+    assert len(rows) == 6, f"expected six definer functions, found {rows}"
     for name, config in rows:
         assert config is not None, f"{name} sets no search_path at all"
         assert "pg_temp" in config, f"{name} omits pg_temp: {config!r}"
@@ -295,7 +295,14 @@ def test_the_coherent_pair_is_still_accepted(
 
 @pytest.mark.parametrize(
     "event_type",
-    ["run.requested", "run.cancelled", "run.completed", "run.failed"],
+    [
+        "run.requested",
+        "run.cancelled",
+        "run.completed",
+        "run.failed",
+        "approval.granted",
+        "approval.rejected",
+    ],
 )
 def test_the_step_path_refuses_the_run_lifecycle_namespace(
     worker_conn: psycopg.Connection, leased_step: LeasedStep, event_type: str
@@ -324,6 +331,7 @@ def test_the_refused_set_matches_the_migration_constant(
 ) -> None:
     """The refusal list and the domain vocabulary must not drift apart."""
     from ced.domain.events import (
+        DECISION_TYPES,
         RESERVED_EVENT_TYPE,
         RUN_LIFECYCLE_TYPES,
         TERMINAL_EVENT_TYPES,
@@ -348,7 +356,12 @@ def test_the_refused_set_matches_the_migration_constant(
     refused = match.group(1)
     names = {piece.strip().strip("'") for piece in refused.split(",")}
 
-    expected = {RESERVED_EVENT_TYPE, *RUN_LIFECYCLE_TYPES, *TERMINAL_EVENT_TYPES}
+    expected = {
+        RESERVED_EVENT_TYPE,
+        *RUN_LIFECYCLE_TYPES,
+        *TERMINAL_EVENT_TYPES,
+        *DECISION_TYPES,
+    }
     assert names == expected, (
         f"the step path refuses {sorted(names)} while the domain vocabulary "
         f"names {sorted(expected)}"
