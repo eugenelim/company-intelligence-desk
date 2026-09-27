@@ -366,6 +366,41 @@ Result: `test_approval_decision_refuses_an_empty_call_id` FAILED with
 stayed green — so the break is located, not diffuse. Restored by re-executing
 the rendered original, confirmed absent from `prosrc`, module returns 34 passed.
 
+### Round 7 addition: AC-0334 cross-call replay
+
+**The ruling.** AC-0334 left "replayed decision" undefined as to layer. Settled
+as **both** cases — intra-call (duplicate `call_id` within one array call) and
+cross-call (same suspension seq, same `call_ids`, same decisions resubmitted as
+a separate request). No spec amendment: AC-0324 already states the ranking:
+"AC-0334's unique index is the second line of defence and not the first, because
+it keys on the call id rather than on the suspension." The criterion is satisfied
+by the refusal, not by a particular layer performing it.
+
+**New test added.** `test_a_cross_call_replay_is_refused_by_the_awaiting_hold`
+in `tests/schema/test_run_state_paths.py`. Commits a decision through the
+`app_api` grant; resubmits the identical set (same seq, same `call_ids`, same
+decisions) as a second separate call; asserts `DecisionRefused` carrying "is not
+awaiting a decision" — not `UniqueViolation`. Asserts event count unchanged and
+`approval_cycles == 1` after the refused call. No out-of-band state writes; both
+calls go through `app_api`. The docstring names AC-0324's second-line-of-defence
+sentence and explains why the index is not the refusing layer here, so a reader
+does not mistake this for a duplicate of the intra-call test.
+
+**Mutation proof.** Migration SQL rendered by capturing `op.execute`; guard block
+`IF NOT v_awaiting THEN RAISE … END IF;` replaced by a comment and installed via
+the migration role. `pg_proc.prosrc` confirmed guard absent before running
+anything. Results:
+- `test_a_cross_call_replay_is_refused_by_the_awaiting_hold` FAILED — second
+  call raised `UniqueViolation` (index caught the replay instead of the hold),
+  not `DecisionRefused` as the test required. Confirms the guard is the deciding
+  layer.
+- `test_a_replayed_decision_is_refused_by_the_unique_index` PASSED — the
+  intra-call test is decided by the index, not the `awaiting_decision` guard.
+  The two tests pin different layers and do not duplicate each other.
+
+Restored by re-executing the rendered original SQL; `pg_proc.prosrc` confirmed
+guard present and mutant comment absent. Full suite: 908 passed, 3 skipped.
+
 ### A defect T1 surfaced in the gate suite
 
 **`test_migration_applies.py` hardcoded `"0004"` as the expected HEAD

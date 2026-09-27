@@ -1146,6 +1146,89 @@ def test_a_replayed_decision_is_refused_by_the_unique_index(
 
 
 @pytest.mark.substrate
+def test_a_cross_call_replay_is_refused_by_the_awaiting_hold(
+    api_conn: psycopg.Connection,
+    owner_conn: psycopg.Connection,
+    suspended_step: SuspendedStep,
+) -> None:
+    """AC-0334: a resubmitted decision set is refused by the awaiting_decision hold.
+
+    AC-0324 ranks the guard layers: "AC-0334's unique index is the second line
+    of defence and not the first, because it keys on the call id rather than on
+    the suspension." A genuine cross-call replay — the same suspension seq, same
+    call_ids, and same decisions resubmitted as a separate request — is refused
+    by the awaiting_decision hold before reaching the index, because the first
+    call already cleared it. The exception is DecisionRefused carrying the
+    "is not awaiting a decision" message, not UniqueViolation.
+
+    The existing test_a_replayed_decision_is_refused_by_the_unique_index covers
+    the only case the index does decide: a duplicate call_id within a single call,
+    where awaiting_decision is still true when the second INSERT fires. That test
+    and this one pin different layers; keeping both confirms the layer boundary is
+    real and that the index sits behind the hold, not in front of it.
+
+    No out-of-band state writes between the two calls: both go through the app_api
+    grant. The awaiting_decision hold that refuses the second call was cleared by
+    the first call, not by a privileged fixture write.
+    """
+    # First call: succeeds, clears awaiting_decision, advances approval_cycles once.
+    event_log.append_approval_decision(
+        api_conn,
+        run_id=suspended_step.run_id,
+        step_id=suspended_step.step_id,
+        call_ids=["call-replay"],
+        decisions=["approval.granted"],
+        principal="approver",
+        suspension_seq=suspended_step.suspension_seq,
+    )
+
+    # Count events before the replay attempt (step.suspended at seq=1,
+    # approval.granted at seq=2 — two rows).
+    count_before = owner_conn.execute(
+        "SELECT count(*) FROM events WHERE run_id = %s",
+        (suspended_step.run_id,),
+    ).fetchone()[0]  # type: ignore[index]
+
+    # Second call: identical submission. awaiting_decision is already false;
+    # the function refuses at the hold before reaching the index.
+    with pytest.raises(event_log.DecisionRefused) as exc_info:
+        event_log.append_approval_decision(
+            api_conn,
+            run_id=suspended_step.run_id,
+            step_id=suspended_step.step_id,
+            call_ids=["call-replay"],
+            decisions=["approval.granted"],
+            principal="approver",
+            suspension_seq=suspended_step.suspension_seq,
+        )
+
+    assert "is not awaiting a decision" in str(exc_info.value), (
+        f"expected 'is not awaiting a decision' in the refusal message, got: {exc_info.value!r}"
+    )
+
+    # No event appended by the second call.
+    count_after = owner_conn.execute(
+        "SELECT count(*) FROM events WHERE run_id = %s",
+        (suspended_step.run_id,),
+    ).fetchone()[0]  # type: ignore[index]
+    assert count_after == count_before, (
+        f"event count changed from {count_before} to {count_after}: "
+        "the second call must not append any event"
+    )
+
+    # approval_cycles advanced exactly once.
+    step_row = owner_conn.execute(
+        "SELECT approval_cycles FROM steps WHERE step_id = %s",
+        (suspended_step.step_id,),
+    ).fetchone()
+    assert step_row is not None
+    assert step_row[0] == 1, (
+        f"approval_cycles is {step_row[0]!r}, expected 1: "
+        "a refused second call must not advance the cycle counter"
+    )
+
+
+@pytest.mark.substrate
 def test_different_call_ids_produce_different_keys_in_one_suspension(
     api_conn: psycopg.Connection,
     owner_conn: psycopg.Connection,
