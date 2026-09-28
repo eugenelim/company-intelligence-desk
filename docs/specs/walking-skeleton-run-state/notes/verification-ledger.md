@@ -826,6 +826,199 @@ False`; the second asserts `True`. The two assertions together prove that the
 in-force flag value is written into the payload and differs between the two
 configurations — a module constant set to either value would fail one of them.
 
-**Gates after adjudication repairs (2026-09-28):**
+**Gates after adjudication repairs (2026-09-28) — superseded; see § Round 12
+for the current figure.** `ruff format --check`, `ruff check`, `mypy` all
+clean. 974 passed, 3 skipped (full suite, substrate reachable, 244.35 s).
+Kept unbolded and marked superseded because the proofs recorded above were
+taken against this suite state, so deleting it would orphan them — but two
+same-dated figures with nothing distinguishing them is how this file drifted
+before.
+
+### Round 12: third-pass adjudication proofs (2026-09-28)
+
+This round lands the 16-entry adjudication file at
+`.context/reviews/b1e4bc6d-63c6-4b20-81ad-9f2f86ce1cac/11-t2-adversarial-reviewer-adjudication.md`.
+Each entry is numbered as in that file.
+
+**Entry 1 (AC-0302 executor-level toolsets).**
+New tests in `tests/suspension/test_the_gate_is_conditional.py`:
+`test_executor_passes_empty_toolsets_to_unflagged_role` and
+`test_executor_passes_nonempty_toolsets_to_flagged_role`. Both patch
+`ced.worker.executor._run_compiled_agent` to capture the `toolsets` argument,
+then assert empty/non-empty respectively.
+*Mutation*: changed `offered_approval_gated_tools(prerelease_failed)` to
+`offered_approval_gated_tools(True)` at executor.py. Confirmed present (grep).
+`test_executor_passes_empty_toolsets_to_unflagged_role` reds (the unflagged
+role receives a non-empty toolset, assertion fails). Restored.
+
+**Entry 2 (AC-0301 clean run with readable payload_ref).**
+New test `test_a_clean_run_reaches_completed_with_a_readable_payload_ref` in
+`tests/suspension/test_step_suspends.py`. Asserts no `step.suspended`, exactly
+one `step.completed` with non-null `payload_ref`, `payload_ref` readable via
+`read_payload`, exactly one `run.completed`.
+*Mutation*: set `payload_ref=None` at the `step.completed` append
+(executor.py). Confirmed present. Test reds (non-null assertion fails).
+Restored.
+*Note*: TestModel was changed to `custom_output_args={"references": []}` to
+produce `ReferenceSelection(references=[])`, passing the quarantine check
+(empty list has nothing to validate). Without this, TestModel generates
+`['a']`, which fails the quarantine parser.
+
+**Entry 3 (AC-0327 edge-1 substrate projection).**
+Two new tests in `tests/e2e/test_ac_0327_committed_run.py`:
+`test_edge1_projection_agrees_with_snapshot` and
+`test_dropping_step_started_disagrees_with_snapshot`. The first drives the
+real executor through `make_step_body`, projects the committed log, and asserts
+the final state matches `GET /runs/{run_id}/snapshot`. The second removes the
+`step.started` event from the committed list and asserts the projection
+disagrees with the snapshot.
+*Mutation*: deleted the `append_step_event(type="step.started")` call at
+executor.py:497-506 (replaced with `pass`). Confirmed present.
+`test_edge1_projection_agrees_with_snapshot` reds (projected state is
+`"requested"`, snapshot is `"completed"`; they disagree). Restored.
+**This closes the outstanding obligation in § AC-0327: three committed edges,
+oracle and mutation proofs** — the edge-1 proof is now against the shipped
+executor path, not raw SQL inserts.
+
+**Entry 4 (AC-0303 principal read-back and full resume-to-publication cycle).**
+Round 12 third pass added `test_approval_granted_event_records_the_granting_principal`
+(principal read-back). **Round 12 fourth pass** added
+`test_granted_decision_lets_pool_reclaim_and_reach_run_completed` in
+`tests/e2e/test_approval_decision_route.py`. This test drives the full cycle:
+suspend via executor body → grant via HTTP route → re-claim with `claim_one` →
+resume via second executor body → assert `step.resumed` event and
+`runs.state = 'completed'`.
+*Mutation 1* (`approval_cycles > 0 → False`): second body takes the fresh path,
+`_body_resume` is never called, no `step.resumed` event is appended; first
+assertion reds.
+*Mutation 2* (return before `append_run_terminal` in `_body_resume`): `step.resumed`
+and `step.completed` are written but `run.completed` is not; `runs.state` stays
+`'running'`; second assertion reds. **Closed.**
+
+**Entry 5 (AC-0330 mixed per-call outcomes).**
+Two new tests in `tests/suspension/test_the_gate_is_conditional.py`:
+`test_mixed_outcomes_per_call_for_one_cycle` and
+`test_pending_call_with_no_decision_makes_resume_refuse`. The first asserts
+`results["call-granted"] is True` and `results["call-rejected"] is False` from
+a committed mixed decision. The second asserts `LookupError` when only one of
+two calls has a committed decision.
+*Mutation 1*: replaced `return {cid: committed[cid] for cid in pending_call_ids}`
+with `return {cid: True for cid in pending_call_ids}` at persistence.py.
+Confirmed present. `test_mixed_outcomes_per_call_for_one_cycle` reds (the
+`False` assertion fails). Restored.
+
+**Entry 6 (AC-0331 idle-path and busy-path refresh_mark).**
+Round 12 third pass added `test_idle_worker_calls_refresh_mark_between_claims`
+(mock-based). The mock-based test pins that the call site exists but never reads
+the mark or runs the probe. **Round 12 fourth pass** replaced it with two real
+process tests in `tests/worker/test_liveness.py`:
+`test_idle_worker_writes_mark_and_probe_reports_healthy` and
+`test_busy_worker_heartbeat_keeps_mark_fresh`. Both redirect the mark path via
+`CED_LIVENESS_MARK_PATH` and probe the real file.
+*Idle-path mutation*: remove `refresh_mark()` from pool.py's between-claims site.
+The mark is never written; the fresh-mark assertion reds.
+*Busy-path mutation*: remove the `refresh_mark()` call from pool.py's
+heartbeat-renewal site. The mark ages past 2 × TTL; the healthy-while-executing
+assertion reds.
+
+**Entry 7 (lifespan seam).**
+New file `tests/e2e/test_lifespan_seam.py`. Offline tests cover
+`_parse_require_distinct_approver` for absent/truthy/falsy/malformed values.
+Two composed-path tests start uvicorn with `lifespan="on"`.
+*Mutation*: deleted `lifespan=_lifespan,` from `FastAPI(...)` at main.py.
+Confirmed present. Both composed-path tests red: the env-var test stays `False`
+(the lifespan never ran to set it to `True`); the malformed-value test finds
+the server started (no exception fired). Restored.
+
+**Entry 9 (AC-0333 claim_one predicate).**
+New substrate test `test_a_pre_0005_row_is_claimable_through_claim_one` in
+`tests/schema/test_run_state_paths.py`. Creates a step without setting
+`awaiting_decision` (DEFAULT false), calls `claim_one`, asserts the lease is
+returned.
+*Mutation*: changed `AND NOT awaiting_decision` to `AND awaiting_decision` in
+`claim_one` at pool.py. Confirmed present. Test reds (the step with
+`awaiting_decision = false` is now excluded from claims; `claim_one` returns
+`None` and the `lease is not None` assertion fails). Restored.
+
+**Entry 10 (AC-0333 suspension path sets awaiting_decision).**
+`test_repeated_poll_against_undecided_step_appends_nothing_and_consumes_no_lease`
+creates an undecided step directly via raw SQL and pins `claim_one`'s predicate
+(Entry 9 mutation). **Round 12 fourth pass** added
+`test_suspension_path_sets_awaiting_decision_and_blocks_repoll` in
+`tests/suspension/test_the_gate_is_conditional.py`. This test drives the step
+through `make_step_body` with `TestModel(call_tools=["request_approval"])`, so
+the executor's real suspension path fires (writes `awaiting_decision = true`).
+Three `claim_one` polls follow and must not return the suspended step.
+*Named mutation*: change `awaiting_decision = true` to `awaiting_decision = false`
+in the executor's suspension path (executor.py). The step becomes claimable
+immediately; `claim_one` returns it; the "must not return suspended step"
+assertion reds. **Closed.**
+
+**Entry 11 (step.failed → pool records failed outcome).**
+The executor's failure paths now raise `_StepBodyFailed` so the pool's body
+wrapper records `outcome = "failed"` rather than `"completed"`.
+**Round 12 fourth pass** added
+`test_executor_agent_failure_sets_step_state_to_failed` in
+`tests/suspension/test_the_gate_is_conditional.py`. The test patches
+`ced.worker.executor._run_compiled_agent` to raise `RuntimeError`, then calls
+`Worker._execute(conn, lease)` and asserts `steps.state = 'failed'`.
+*Mutation*: change `raise _StepBodyFailed("agent run failed") from exc` to
+`return` at executor.py:612. The executor returns normally; the pool records
+`outcome = "completed"` and `release()` writes `steps.state = 'completed'`;
+the `'failed'` assertion reds. **Closed.**
+
+**Entry 12 (pre-validate before write_payload) — finding retracted, code kept.**
+The original finding claimed: "a caller looping on a wrong `suspension_seq` leaves
+one object in the store per attempt" and that "the object-count bound does not
+hold", calling it an unbounded orphan write. This premise is false.
+`write_payload` in `src/ced/adapters/objectstore/client.py:62-87` is
+content-addressed: the key is `<OWNER_SCOPE>/<sha256_hex>` of the canonical
+JSON, and "the same data written twice produces the same key". The decision
+payload at `main.py:301-306` is `{"require_distinct_approver": <bool>,
+"schema_version": 1}` — two possible payloads in the entire system, two possible
+keys, ever. A million refused requests write at most two distinct objects;
+every attempt after the first rewrites a byte-identical key. There is no
+unbounded growth.
+
+The fourth pass added an object-count assertion to `test_wrong_suspension_seq_is_409`
+to detect this. That assertion was correctly identified (by the implementer) as
+reliable only on a fresh bucket, and the conditionality is not a limitation to
+document — it is the false premise showing through. The assertion has been removed.
+
+The pre-validation ordering (checking `awaiting_decision` and `suspension_seq`
+before `write_payload`) is kept. Content addressing already bounds the object
+count at two, so this is not a security control. The real gain is skipping a
+pointless PUT on every refusal. The comment in `main.py` is corrected accordingly;
+the old comment said "so a refused decision leaves no durable artifact", which
+was the false claim. The reviewer, the adjudicator (who verified the ordering),
+and the controller (who directed the code option) all missed the content-addressing
+property. The next reader should not have to re-derive it.
+
+**Entry 15 (AC-0328 over-length call_id).**
+New test `test_overlength_call_id_is_refused_before_append` in
+`tests/e2e/test_approval_decision_route.py`. Sends a call_id of
+`ATTRIBUTION_MAX_LENGTH + 1` characters, asserts 422 and unchanged event count.
+*Mutation*: removed `max_length=ATTRIBUTION_MAX_LENGTH` from `call_id` field in
+`ApprovalDecisionPair` at models.py. Confirmed present. Test reds (the
+over-length value passes Pydantic validation, the route proceeds, event count
+changes, and the `unchanged event count` assertion fails — or the status changes
+from 422 to 200/409). Restored.
+
+**Lifespan thread warning (fourth pass).**
+`test_lifespan_refuses_malformed_env_var` in `tests/e2e/test_lifespan_seam.py`
+emitted `PytestUnhandledThreadExceptionWarning` because the `ValueError` from a
+malformed env var escaped uvicorn's thread as an unhandled exception. Fixed by
+catching the exception inside the thread target (`_run_capturing`), then
+asserting on both `not server.started` and `thread_exc` non-empty. This
+strengthens the test: it now distinguishes "refused for the intended reason"
+from "crashed for any reason at all".
+
+**Gates after Round 12 fifth pass (2026-09-28):**
 `ruff format --check`, `ruff check`, `mypy` all clean.
-**974 passed, 3 skipped** (full suite, substrate reachable, 244.35 s).
+**996 passed, 3 skipped** (full suite, substrate reachable, 250.55 s).
+Net change from fifth pass: object-count assertion removed from
+`test_wrong_suspension_seq_is_409` (assertion was testing a false premise; no
+count change since it was within an existing test); `main.py` pre-validation
+comment corrected.
+Cumulative net new from all Round 12 passes: 4 tests (fifth pass) + 4 tests
+(fourth pass net) over the 992 baseline = 22 tests total, same as before.

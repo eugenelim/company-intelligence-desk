@@ -93,8 +93,9 @@ services:
       dockerfile: deploy/Dockerfile
     # AC-0331: the liveness probe exits 0 when the mark is fresh (idle or busy),
     # 1 when the poll loop has stalled without killing the process. The mark path
-    # must match the default_mark_path() formula: /tmp/ced-liveness-mark-<id>.
-    # start_period covers the first poll cycle before the mark exists.
+    # is /tmp/ced-liveness-mark-<CED_WORKER_ID> when CED_WORKER_ID is set (the
+    # case here), /tmp/ced-liveness-mark when it is not, and CED_LIVENESS_MARK_PATH
+    # overrides both. start_period covers the first poll cycle before the mark exists.
     healthcheck:
       test: ["CMD", "ced-liveness"]
       interval: 30s

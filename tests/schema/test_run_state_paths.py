@@ -1500,3 +1500,76 @@ def test_a_pre_0005_row_with_default_awaiting_is_claimable(
         with owner_conn.transaction():
             owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
             owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+
+# ── AC-0333 pre-0005 claimability via claim_one (Entry 9) ────────────────────
+
+
+@pytest.mark.substrate
+def test_a_pre_0005_row_is_claimable_through_claim_one(require_substrate: None) -> None:
+    """AC-0333: a step with DEFAULT awaiting_decision is claimable through claim_one.
+
+    The existing test (test_a_pre_0005_row_with_default_awaiting_is_claimable)
+    verifies the DB-level predicate directly. This test goes through claim_one —
+    the shipped code path — to prove the predicate is exercised, not transcribed.
+
+    Mutation that must red: negate claim_one's 'AND NOT awaiting_decision'
+    conjunct to 'AND awaiting_decision' — the step (awaiting_decision=false)
+    would not be returned, and this assertion reds.
+
+    The nullable mutation (awaiting_decision nullable with no default) causes
+    pre-existing rows to have NULL; 'NOT NULL' evaluates to NULL (neither true
+    nor false) in the WHERE clause and claim_one skips the row — same red.
+    """
+    from ced.worker.pool import PoolConfig, claim_one
+
+    run_id = uuid.uuid4()
+    step_id = uuid.uuid4()
+    pool_class = "t2-pre-0005-claim"
+
+    with psycopg.connect(database_url("migration")) as setup:
+        with setup.transaction():
+            setup.execute(
+                "INSERT INTO runs (run_id, state, next_seq) VALUES (%s, 'requested', 0)",
+                (run_id,),
+            )
+            # No awaiting_decision specified — the NOT NULL DEFAULT false kicks in.
+            setup.execute(
+                "INSERT INTO steps (step_id, run_id, state, pool_class)"
+                " VALUES (%s, %s, 'runnable', %s)",
+                (step_id, run_id, pool_class),
+            )
+
+    config = PoolConfig(
+        worker_id="t2-pre-0005-worker",
+        default_limits={
+            "per_request_input_tokens_limit": 4_000,
+            "input_tokens_limit": 40_000,
+            "request_limit": 8,
+            "tool_calls_limit": 4,
+            "count_tokens_before_request": False,
+        },
+        allowed_model_ids=("stub:counting",),
+        non_provider_model_ids=("stub:counting",),
+        model_factory=lambda _: None,
+        pool_class=pool_class,
+    )
+
+    try:
+        with psycopg.connect(database_url("worker")) as conn:
+            lease = claim_one(conn, config)
+
+        assert lease is not None, (
+            "claim_one must return the step with DEFAULT awaiting_decision; "
+            "if the predicate is negated, the step is not returned and this reds; "
+            "if awaiting_decision were nullable with no default, NULL would also be skipped"
+        )
+        assert lease.step_id == step_id, (
+            f"expected step_id {step_id}, claim_one returned {lease.step_id}"
+        )
+    finally:
+        with psycopg.connect(database_url("migration")) as cleanup:
+            cleanup.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            cleanup.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            cleanup.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+            cleanup.commit()

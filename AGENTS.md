@@ -297,6 +297,25 @@ holds it to the same terms as the other two: an empty string or a malformed
 value is refused before any database connection, naming the variable.
 `deploy/compose.yaml` sets it on both worker services.
 
+**`CED_REQUIRE_DISTINCT_APPROVER`** (API only, optional): when set to `"1"`,
+`"true"`, or `"yes"` (case-insensitive), the approval route refuses a decision
+whose `principal` matches the run's initiating principal. Absent or set to a
+recognised falsy string (`"0"`, `"false"`, `"no"`) disables the check. A
+present but unrecognised value causes `ced-api` to refuse startup. The
+lifespan reads the variable before yielding; a malformed value therefore
+prevents the server from starting rather than misreading the operator's intent.
+
+**`ced-liveness`** (worker side): the container healthcheck command, installed
+as an entry point by `pyproject.toml`. It reads the liveness mark file and
+exits 0 (healthy) or 1 (unhealthy). Usage: `ced-liveness [mark-path]`. The
+mark path defaults to `/tmp/ced-liveness-mark-<CED_WORKER_ID>` when
+`CED_WORKER_ID` is set, `/tmp/ced-liveness-mark` when it is not, and
+`CED_LIVENESS_MARK_PATH` overrides both. A missing mark exits 1; a mark whose
+mtime is older than `2 × LEASE_TTL_SECONDS` (120 s) exits 1. The worker
+refreshes the mark on the idle path (between claims) and on every successful
+heartbeat renewal. `deploy/compose.yaml` sets `CED_WORKER_ID` on both worker
+services so each worker writes a distinct mark path.
+
 ### Repository checks
 
 These predate the application and still run against every change:

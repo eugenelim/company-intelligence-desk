@@ -255,3 +255,141 @@ def test_a_step_suspends_releases_its_lease_and_is_claimable(
     assert second_lease.step_id == lease.step_id, (
         f"second worker claimed {second_lease.step_id}, expected {lease.step_id}"
     )
+
+
+# ── AC-0301: a clean run reaches completed with a readable payload_ref ────────
+
+_CLEAN_POOL_CLASS = "t2-clean-run"
+_CLEAN_ROLE_NAME = "t2-clean-run-role"
+_CLEAN_PRINCIPAL = "t2-clean-principal"
+_CLEAN_LIMITS: dict[str, int | bool] = {
+    "per_request_input_tokens_limit": 4_000,
+    "input_tokens_limit": 40_000,
+    "request_limit": 8,
+    "tool_calls_limit": 4,
+    "count_tokens_before_request": False,
+}
+
+
+def test_a_clean_run_reaches_completed_with_a_readable_payload_ref(
+    require_substrate: None,
+) -> None:
+    """AC-0301: a clean run publishes its artifact; payload_ref resolves; no step.suspended.
+
+    The role has no needs_approval flag, so the executor drives a clean path
+    to step.completed + run.completed. The step.completed event's payload_ref
+    resolves to a readable object in the object store.
+
+    Mutation-proof:
+    - Pass payload_ref=None at executor.py:711 — the payload_ref assertion reds.
+    - Make the clean path append a step.suspended before completing — the
+      no-step-suspended assertion reds.
+    """
+    from pydantic_ai.models.test import TestModel
+
+    from ced.adapters.objectstore.client import read_payload
+
+    config = PoolConfig(
+        worker_id="t2-clean-worker",
+        default_limits=_CLEAN_LIMITS,
+        allowed_model_ids=("stub:counting",),
+        non_provider_model_ids=("stub:counting",),
+        # custom_output_args={"references": []} produces ReferenceSelection(references=[])
+        # which passes the quarantine check (empty list has nothing to validate).
+        model_factory=lambda _: TestModel(custom_output_args={"references": []}),
+        pool_class=_CLEAN_POOL_CLASS,
+    )
+
+    # Insert role without needs_approval (unflagged → clean run).
+    with psycopg.connect(database_url("migration")) as conn:
+        conn.execute(
+            """
+            INSERT INTO agent_role
+                (role_name, version, ceiling, instructions, model_settings, output_schema_ref)
+            VALUES (%s, 1, '[]'::jsonb, '', %s::jsonb, 'reference-selection')
+            ON CONFLICT (role_name, version) DO UPDATE
+                SET model_settings = EXCLUDED.model_settings
+            """,
+            (
+                _CLEAN_ROLE_NAME,
+                json.dumps({"model_id": "stub:counting", "settings": {}, "limits": {}}),
+            ),
+        )
+        conn.commit()
+
+    run_id = uuid.uuid4()
+    step_id = uuid.uuid4()
+
+    with psycopg.connect(database_url("api")) as conn:
+        start_run(
+            conn,
+            run_id=run_id,
+            step_id=step_id,
+            principal=_CLEAN_PRINCIPAL,
+            agent_role=_CLEAN_ROLE_NAME,
+        )
+
+    with psycopg.connect(database_url("worker")) as conn:
+        row = conn.execute(
+            """
+            UPDATE steps
+               SET state = 'leased',
+                   owner = %s,
+                   lease_epoch = lease_epoch + 1,
+                   lease_expires_at = now() + interval '300 seconds',
+                   pool_class = %s
+             WHERE step_id = %s
+             RETURNING lease_epoch
+            """,
+            (config.worker_id, _CLEAN_POOL_CLASS, step_id),
+        ).fetchone()
+        conn.commit()
+
+    assert row is not None
+    lease = Lease(
+        step_id=step_id,
+        run_id=run_id,
+        epoch=int(row[0]),
+        agent_role=_CLEAN_ROLE_NAME,
+    )
+
+    try:
+        body = make_step_body(config)
+        body(lease, threading.Event())
+
+        with psycopg.connect(database_url("worker")) as conn:
+            events = read_events(conn, run_id=run_id)
+
+        # Assert no step.suspended event.
+        suspended_events = [e for e in events if e.type == "step.suspended"]
+        assert not suspended_events, (
+            f"clean run must not append step.suspended; got {[e.type for e in events]}"
+        )
+
+        # Assert step.completed has a non-null payload_ref.
+        completed_events = [e for e in events if e.type == "step.completed"]
+        assert len(completed_events) == 1, (
+            f"expected exactly 1 step.completed, got {[e.type for e in events]}"
+        )
+        payload_ref = completed_events[0].payload_ref
+        assert payload_ref is not None, (
+            "step.completed must carry a non-null payload_ref (AC-0301)"
+        )
+
+        # Assert payload_ref resolves to a readable object.
+        payload = read_payload(payload_ref)
+        assert isinstance(payload, dict), (
+            f"payload_ref must resolve to a dict, got {type(payload)!r}"
+        )
+
+        # Assert run.completed was committed.
+        run_terminal = [e for e in events if e.type == "run.completed"]
+        assert len(run_terminal) == 1, (
+            f"expected exactly 1 run.completed, got {[e.type for e in events]}"
+        )
+    finally:
+        with psycopg.connect(database_url("migration")) as conn:
+            conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+            conn.commit()

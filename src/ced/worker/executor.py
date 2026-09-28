@@ -103,6 +103,16 @@ log = logging.getLogger("ced.worker.executor")
 __all__ = ["make_step_body", "offered_approval_gated_tools"]
 
 
+class _StepBodyFailed(Exception):
+    """Raised by the step body when it records step.failed.
+
+    The pool's body wrapper catches any ``Exception`` and records
+    ``outcome = "failed"``.  Raising here — rather than returning — means the
+    pool writes ``steps.state = 'failed'`` rather than ``'completed'`` for a
+    step whose last event is ``step.failed`` (entry 11 adjudication).
+    """
+
+
 def _tool_manifest_hash(integrations: Sequence[Mapping[str, Any]]) -> str:
     """SHA-256 of the sorted list of tool names across all integration rows.
 
@@ -304,7 +314,7 @@ def _body_resume(
                 principal=principal,
                 agent_role=role_name,
             )
-        return
+        raise _StepBodyFailed("no suspension payload_ref")
 
     payload_ref = str(ref_row[0])
 
@@ -318,9 +328,9 @@ def _body_resume(
             payload_ref=payload_ref,
             pool_map=pool_map,
         )
-    except LookupError:
+    except LookupError as exc:
         # AC-0330 refusal: resume_step already appended step.failed + run.failed.
-        return
+        raise _StepBodyFailed("AC-0330 refusal") from exc
     except Exception as exc:
         log.error("executor: resume failed for step %s: %s", lease.step_id, exc)
         with psycopg.connect(database_url("worker")) as conn:
@@ -333,7 +343,7 @@ def _body_resume(
                 principal=principal,
                 agent_role=role_name,
             )
-        return
+        raise _StepBodyFailed("resume failed") from exc
 
     # Re-suspension: the agent suspended again waiting for another approval.
     if isinstance(result.output, DeferredToolRequests):
@@ -572,7 +582,7 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     principal=principal,
                     agent_role=role_name,
                 )
-            return
+            raise _StepBodyFailed("role configuration error") from exc
         approval_toolsets = offered_approval_gated_tools(prerelease_failed)
 
         # Run the agent. Any exception is caught and recorded as step.failed.
@@ -586,6 +596,9 @@ def make_step_body(config: PoolConfig) -> StepBody:
             # Entry 12 (adjudication): only step.failed here; run stays in
             # 'running'. run.failed is reserved for the AC-0330 refusal path
             # (resume_step) and is not appended for generic agent failures.
+            # Entry 11 (adjudication): raise _StepBodyFailed so the pool
+            # records outcome = "failed" rather than "completed" for a step
+            # whose last event is step.failed.
             with psycopg.connect(database_url("worker")) as conn:
                 append_step_event(
                     conn,
@@ -596,7 +609,7 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     principal=principal,
                     agent_role=role_name,
                 )
-            return
+            raise _StepBodyFailed("agent run failed") from exc
         finally:
             if deadline_timer is not None:
                 deadline_timer.cancel()
@@ -676,6 +689,8 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 # Entry 12 (adjudication): only step.failed for quarantine
                 # refusal; run stays in 'running'. run.failed is reserved for
                 # the AC-0330 refusal path and is not appended here.
+                # Entry 11 (adjudication): raise _StepBodyFailed so the pool
+                # records outcome = "failed" rather than "completed".
                 with psycopg.connect(database_url("worker")) as conn:
                     append_step_event(
                         conn,
@@ -686,7 +701,7 @@ def make_step_body(config: PoolConfig) -> StepBody:
                         principal=principal,
                         agent_role=role_name,
                     )
-                return
+                raise _StepBodyFailed("quarantine output refused") from exc
             # Crash ordering: write the payload object before the fenced
             # append that references it.  A crash between the two leaves an
             # unreferenced object rather than a dangling payload_ref.

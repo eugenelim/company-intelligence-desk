@@ -247,6 +247,36 @@ def record_approval_decision(
     if step_row is None:
         raise HTTPException(status_code=404, detail="no such step in this run")
 
+    # Pre-validate the suspension seq and the awaiting_decision flag before
+    # write_payload. This is not a guard against unbounded object-store growth:
+    # write_payload is content-addressed and the decision payload has only two
+    # possible values (require_distinct_approver true or false), so at most two
+    # distinct keys exist in the store ever. The ordering is correct anyway —
+    # skipping a pointless PUT on a refusal is a small real gain, and the
+    # admitted path still follows crash ordering:
+    # write_payload runs before append_approval_decision below.
+    awaiting_row = conn.execute(
+        "SELECT awaiting_decision FROM steps WHERE step_id = %s AND run_id = %s",
+        (step_id, run_id),
+    ).fetchone()
+    if awaiting_row is None or not awaiting_row[0]:
+        raise HTTPException(
+            status_code=409,
+            detail="step is not currently awaiting a decision",
+        )
+    suspension_seq_row = conn.execute(
+        "SELECT max(seq) FROM events WHERE step_id = %s AND type = 'step.suspended'",
+        (step_id,),
+    ).fetchone()
+    if suspension_seq_row is None or suspension_seq_row[0] != request_body.suspension_seq:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"suspension_seq {request_body.suspension_seq!r} does not match "
+                f"the step's latest suspension"
+            ),
+        )
+
     # Entry 4 (adjudication): require_distinct_approver — read the in-force
     # value from deployment configuration (app.state), not from the request.
     # The deployment configures the policy; the caller cannot select it.

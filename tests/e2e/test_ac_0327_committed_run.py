@@ -313,3 +313,172 @@ def test_dropping_run_failed_event_disagrees_with_snapshot(
         "projection without run.failed must disagree with the 'failed' snapshot"
     )
     assert projected_mutant[-1] == "running"
+
+
+# ── Edge 1: requested→running via the shipped executor (Entry 3) ─────────────
+
+
+_EDGE1_POOL_CLASS = "t2-edge1-projection"
+_EDGE1_ROLE = "t2-edge1-role"
+_EDGE1_PRINCIPAL = "t2-edge1-principal"
+_EDGE1_LIMITS: dict[str, int | bool] = {
+    "per_request_input_tokens_limit": 4_000,
+    "input_tokens_limit": 40_000,
+    "request_limit": 8,
+    "tool_calls_limit": 4,
+    "count_tokens_before_request": False,
+}
+
+
+@pytest.fixture
+def edge1_run(require_substrate: None) -> Iterator[tuple[uuid.UUID, uuid.UUID]]:
+    """A run driven to completion through make_step_body (not raw SQL).
+
+    Uses a clean unflagged role so the executor takes the
+    requested→running→completed path. Cleanup deletes all rows.
+    """
+    import json
+    import threading
+
+    from pydantic_ai.models.test import TestModel
+
+    from ced.adapters.postgres.event_log import start_run
+    from ced.worker.executor import make_step_body
+    from ced.worker.pool import Lease, PoolConfig
+
+    run_id = uuid.uuid4()
+    step_id = uuid.uuid4()
+
+    with psycopg.connect(database_url("migration")) as conn:
+        conn.execute(
+            """
+            INSERT INTO agent_role
+                (role_name, version, ceiling, instructions, model_settings, output_schema_ref)
+            VALUES (%s, 1, '[]'::jsonb, '', %s::jsonb, 'reference-selection')
+            ON CONFLICT (role_name, version) DO UPDATE
+                SET model_settings = EXCLUDED.model_settings
+            """,
+            (
+                _EDGE1_ROLE,
+                json.dumps({"model_id": "stub:counting", "settings": {}, "limits": {}}),
+            ),
+        )
+        conn.commit()
+
+    with psycopg.connect(database_url("api")) as conn:
+        start_run(
+            conn,
+            run_id=run_id,
+            step_id=step_id,
+            principal=_EDGE1_PRINCIPAL,
+            agent_role=_EDGE1_ROLE,
+        )
+
+    config = PoolConfig(
+        worker_id="t2-edge1-worker",
+        default_limits=_EDGE1_LIMITS,
+        allowed_model_ids=("stub:counting",),
+        non_provider_model_ids=("stub:counting",),
+        # custom_output_args={"references": []} produces ReferenceSelection(references=[])
+        # which passes the quarantine check (empty list has nothing to validate).
+        model_factory=lambda _: TestModel(custom_output_args={"references": []}),
+        pool_class=_EDGE1_POOL_CLASS,
+    )
+
+    with psycopg.connect(database_url("worker")) as conn:
+        row = conn.execute(
+            """
+            UPDATE steps
+               SET state = 'leased',
+                   owner = %s,
+                   lease_epoch = lease_epoch + 1,
+                   lease_expires_at = now() + interval '300 seconds',
+                   pool_class = %s
+             WHERE step_id = %s
+             RETURNING lease_epoch
+            """,
+            (config.worker_id, _EDGE1_POOL_CLASS, step_id),
+        ).fetchone()
+        conn.commit()
+
+    assert row is not None
+    lease = Lease(step_id=step_id, run_id=run_id, epoch=int(row[0]), agent_role=_EDGE1_ROLE)
+
+    body = make_step_body(config)
+    body(lease, threading.Event())
+
+    try:
+        yield run_id, step_id
+    finally:
+        with psycopg.connect(database_url("migration")) as conn:
+            conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+            conn.commit()
+
+
+def test_edge1_projection_agrees_with_snapshot(
+    e2e_server: E2EClient,
+    edge1_run: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """AC-0327 edge 1: projection from the executor-committed log agrees with snapshot.
+
+    The executor drives requested→running (UPDATE + step.started in one
+    transaction) and then running→completed (run.completed). The projection
+    and snapshot must agree at the final state.
+
+    This test drives a real executor run through make_step_body — not raw SQL
+    under the migration role — so the shipped append path is what commits.
+    """
+    run_id, _ = edge1_run
+    events = _read_log(run_id)
+
+    step_started = [e for e in events if e.type == "step.started"]
+    assert len(step_started) == 1, (
+        f"expected exactly 1 step.started, got {[e.type for e in events]}"
+    )
+
+    projected = project_run_state(events)
+    snapshot_state = _snapshot_state(e2e_server, run_id)
+
+    assert projected[-1] == snapshot_state, (
+        f"projection {projected[-1]!r} disagrees with snapshot {snapshot_state!r}; "
+        f"full event sequence: {[e.type for e in events]!r}"
+    )
+
+
+def test_dropping_step_started_disagrees_with_snapshot(
+    e2e_server: E2EClient,
+    edge1_run: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """AC-0327 edge-1 mutation proof: drop step.started from the read list.
+
+    Mutation: delete the append_step_event(type='step.started') call at
+    executor.py:497-506 while leaving the UPDATE runs SET state = 'running'
+    in place. The executor still commits runs.state = 'running' but no
+    step.started event, so the projection (which sees no step.started)
+    would show 'requested' at the point where the snapshot shows 'running'.
+
+    After the full body completes, the snapshot shows 'completed' (from
+    run.completed). Without step.started, the projection cannot transition
+    out of 'requested' (run.completed requires the running source state), so
+    it stays 'requested'. The two disagree.
+    """
+    run_id, _ = edge1_run
+    all_events = _read_log(run_id)
+
+    without_started = [e for e in all_events if e.type != "step.started"]
+    projected_mutant = project_run_state(without_started)
+    snapshot_state = _snapshot_state(e2e_server, run_id)
+
+    assert snapshot_state == "completed", (
+        f"expected the full run to be in 'completed', got {snapshot_state!r}"
+    )
+    assert projected_mutant[-1] != snapshot_state, (
+        f"projection without step.started must disagree with snapshot {snapshot_state!r}; "
+        f"got projection {projected_mutant!r}"
+    )
+    assert projected_mutant[-1] == "requested", (
+        f"without step.started the projection must stay at 'requested', "
+        f"got {projected_mutant[-1]!r}"
+    )

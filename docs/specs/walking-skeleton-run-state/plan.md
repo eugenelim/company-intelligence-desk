@@ -200,7 +200,7 @@ def test_a_decision_key_is_unique_per_suspension_and_call(require_substrate: Non
 
 **Depends on:** T1
 
-**Touches:** src/**/domain/run_state.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/liveness.py, src/**/worker/pool.py, src/**/api/**, contracts/openapi/runs.yaml, deploy/compose.yaml, tests/api/**, tests/e2e/**, tests/suspension/**, tests/persistence/**, tests/schema/**, tests/worker/**, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
+**Touches:** src/**/domain/run_state.py, src/**/worker/prerelease.py, src/**/worker/executor.py, src/**/worker/persistence.py, src/**/worker/liveness.py, src/**/worker/pool.py, src/**/api/**, contracts/openapi/runs.yaml, deploy/compose.yaml, pyproject.toml, tests/api/**, tests/e2e/**, tests/suspension/**, tests/persistence/**, tests/quarantine_step/**, tests/schema/**, tests/worker/**, tests/thinking_reaches_the_model/test_no_path_re_enables_reasoning.py, tests/usage_limits/test_usage_limits_in_force.py, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md
 
 **Tests:**
 - AC-0301 end to end; AC-0302 on the offered tool set; AC-0303 on the flagged branch with the flag driven both ways; AC-0327 reading the snapshot between steps; AC-0328 driving the new operation and a foreign origin.
