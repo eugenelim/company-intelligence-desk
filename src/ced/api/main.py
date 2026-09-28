@@ -10,15 +10,17 @@ what assert that; this module is only the thing they constrain.
 
 from __future__ import annotations
 
+import os
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated
 from uuid import UUID
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
+from ced.adapters.objectstore.client import write_payload
 from ced.adapters.postgres import event_log
 from ced.adapters.postgres.dsn import database_url
 from ced.api.models import (
@@ -32,6 +34,50 @@ from ced.api.models import (
 )
 from ced.domain.events import APPROVAL_GRANTED, APPROVAL_REJECTED
 
+#: Environment variable for the require_distinct_approver flag.
+#: When set to "1", "true", or "yes" (case-insensitive), the approval route
+#: refuses a decision whose principal matches the run's initiating principal.
+#: The in-force value is written into every committed decision payload so the
+#: deployed policy is recoverable from the log (AC-0303, entry 4 adjudication).
+_REQUIRE_DISTINCT_APPROVER_VAR = "CED_REQUIRE_DISTINCT_APPROVER"
+
+
+def _parse_require_distinct_approver() -> bool:
+    """Read ``CED_REQUIRE_DISTINCT_APPROVER`` from the environment.
+
+    An absent variable defaults to ``False`` (off).  Any recognised truthy
+    string (``"1"``, ``"true"``, ``"yes"``, case-insensitive) enables the
+    check; any recognised falsy string (``"0"``, ``"false"``, ``"no"``)
+    disables it explicitly.  A present but unrecognised value raises
+    ``ValueError`` naming the variable, so the process refuses at startup
+    rather than silently misreading the operator's intent.
+    """
+    raw = os.environ.get(_REQUIRE_DISTINCT_APPROVER_VAR)
+    if raw is None:
+        return False
+    normalized = raw.strip().lower()
+    if normalized in ("1", "true", "yes"):
+        return True
+    if normalized in ("0", "false", "no"):
+        return False
+    raise ValueError(
+        f"{_REQUIRE_DISTINCT_APPROVER_VAR}={raw!r} is not a recognised boolean; "
+        "use '1', 'true', or 'yes' to enable, or '0', 'false', or 'no' to disable"
+    )
+
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Parse deployment configuration at startup and store on app state.
+
+    A malformed ``CED_REQUIRE_DISTINCT_APPROVER`` value causes this context
+    manager to raise before yielding, which prevents the application from
+    starting with a silently misread policy flag.
+    """
+    application.state.require_distinct_approver = _parse_require_distinct_approver()
+    yield
+
+
 #: The document's `info` block must match the committed contract, because
 #: AC-0009 compares the served document against it.
 app = FastAPI(
@@ -42,6 +88,7 @@ app = FastAPI(
         "log. The event log is the system of record; the snapshot is a "
         "projection over it."
     ),
+    lifespan=_lifespan,
 )
 
 
@@ -200,6 +247,38 @@ def record_approval_decision(
     if step_row is None:
         raise HTTPException(status_code=404, detail="no such step in this run")
 
+    # Entry 4 (adjudication): require_distinct_approver — read the in-force
+    # value from deployment configuration (app.state), not from the request.
+    # The deployment configures the policy; the caller cannot select it.
+    # Written into the decision payload so the committed event is self-describing
+    # (AC-0303): a module constant cannot satisfy this because the test
+    # configures the flag both ways and reads back two different payload values.
+    require_distinct = getattr(raw_request.app.state, "require_distinct_approver", False)
+    if require_distinct:
+        try:
+            initiating_principal = event_log.read_run_principal(conn, run_id=run_id)
+        except event_log.PrincipalNotRecorded as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if request_body.principal == initiating_principal:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "require_distinct_approver is set: the approver principal "
+                    "must differ from the run's initiating principal"
+                ),
+            )
+
+    # Write the decision metadata payload before the fenced append (crash
+    # ordering: an unreferenced object is less harmful than a dangling
+    # payload_ref). The payload carries the in-force require_distinct_approver
+    # value so the committed event is self-describing (AC-0303, entry 4).
+    decision_payload_ref = write_payload(
+        {
+            "schema_version": 1,
+            "require_distinct_approver": require_distinct,
+        }
+    )
+
     # Build parallel call_ids and decisions lists from the request body.
     call_ids = [pair.call_id for pair in request_body.decisions]
     decisions = [
@@ -216,6 +295,7 @@ def record_approval_decision(
             decisions=decisions,
             principal=request_body.principal,
             suspension_seq=request_body.suspension_seq,
+            payload_ref=decision_payload_ref,
         )
     except event_log.DecisionRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

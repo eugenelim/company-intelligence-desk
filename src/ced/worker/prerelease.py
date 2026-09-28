@@ -27,8 +27,21 @@ def check_prerelease_failed(role: Mapping[str, Any]) -> bool:
     never sees the gated tool (AC-0302).
 
     The flag is ``needs_approval`` inside the role's ``model_settings`` object.
-    Absent, falsy, or ``model_settings`` itself absent or not a mapping →
-    check passes (clean run). Truthy → check fails (gated run, tool offered).
+
+    **Fail-open is split precisely** (entry 18 adjudication):
+
+    * ``model_settings`` absent (``None``) → **pass**: a role with no
+      ``model_settings`` needs no gate, and that is the correct semantics.
+    * ``model_settings`` present but not a ``Mapping`` → **refuse**: a value
+      that cannot be read as structured configuration is malformed, and silently
+      disabling the approval control is the wrong direction.
+    * ``needs_approval`` key absent from a valid ``model_settings`` → **pass**:
+      the key absent means the role author did not declare a gate.
+    * ``needs_approval`` is ``True`` → **fail** (gate applied).
+    * ``needs_approval`` is ``False`` → **pass**.
+    * ``needs_approval`` present but not a ``bool`` → **refuse**: a non-boolean
+      value in a gate field is an authoring error and must not silently disable
+      the control.
 
     **Why inside ``model_settings`` rather than a top-level column.** The
     ``agent_role`` table has no ``needs_approval`` column, and revision 0005
@@ -38,6 +51,18 @@ def check_prerelease_failed(role: Mapping[str, Any]) -> bool:
     change outside this revision's enumerated parts.
     """
     model_settings = role.get("model_settings")
-    if not isinstance(model_settings, Mapping):
+    if model_settings is None:
         return False
-    return bool(model_settings.get("needs_approval", False))
+    if not isinstance(model_settings, Mapping):
+        raise ValueError(
+            "role model_settings is present but not a mapping; cannot read needs_approval flag"
+        )
+    flag = model_settings.get("needs_approval")
+    if flag is None:
+        return False
+    if not isinstance(flag, bool):
+        raise ValueError(
+            f"needs_approval must be a boolean, got {type(flag).__name__!r}; "
+            "a non-boolean value in a gate field silently disables the control"
+        )
+    return flag

@@ -1415,3 +1415,88 @@ def test_a_step_awaiting_a_decision_is_not_claimed(require_substrate: None) -> N
             " AND column_name = 'awaiting_decision'"
         ).fetchone()
     assert found is not None
+
+
+@pytest.mark.substrate
+def test_awaiting_decision_is_not_null_with_default_false(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0333: awaiting_decision is boolean NOT NULL DEFAULT false.
+
+    NOT NULL DEFAULT false is load-bearing: a nullable column would evaluate
+    `AND NOT awaiting_decision` to NULL for pre-0005 rows, silently excluding
+    them from every claim. AC-0333 records this as the gap the default closes.
+    """
+    row = owner_conn.execute(
+        "SELECT is_nullable, column_default"
+        " FROM information_schema.columns"
+        " WHERE table_name = 'steps' AND column_name = 'awaiting_decision'",
+    ).fetchone()
+    assert row is not None, "awaiting_decision column not found"
+    is_nullable, column_default = row
+    assert is_nullable == "NO", (
+        f"awaiting_decision is nullable ({is_nullable!r}); "
+        "a nullable column silently excludes pre-0005 rows from every claim"
+    )
+    assert column_default is not None and "false" in column_default.lower(), (
+        f"awaiting_decision default is {column_default!r}; expected DEFAULT false"
+    )
+
+
+@pytest.mark.substrate
+def test_approval_cycles_is_not_null_with_default_zero(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0333: approval_cycles is integer NOT NULL DEFAULT 0."""
+    row = owner_conn.execute(
+        "SELECT is_nullable, column_default"
+        " FROM information_schema.columns"
+        " WHERE table_name = 'steps' AND column_name = 'approval_cycles'",
+    ).fetchone()
+    assert row is not None, "approval_cycles column not found"
+    is_nullable, column_default = row
+    assert is_nullable == "NO", (
+        f"approval_cycles is nullable ({is_nullable!r}); expected NOT NULL"
+    )
+    assert column_default is not None and "0" in column_default, (
+        f"approval_cycles default is {column_default!r}; expected DEFAULT 0"
+    )
+
+
+@pytest.mark.substrate
+def test_a_pre_0005_row_with_default_awaiting_is_claimable(
+    owner_conn: psycopg.Connection,
+) -> None:
+    """AC-0333: a step created without setting awaiting_decision is claimable.
+
+    Pre-0005 rows must not be silently stalled. The NOT NULL DEFAULT false
+    means their awaiting_decision evaluates to false in the claim predicate.
+    This is verified by inserting a step with the default and asserting the
+    pool's claim query returns it (reads awaiting_decision = false).
+    """
+    run_id, step_id = uuid.uuid4(), uuid.uuid4()
+    with owner_conn.transaction():
+        owner_conn.execute(
+            "INSERT INTO runs (run_id, state) VALUES (%s, 'requested')",
+            (run_id,),
+        )
+        # Insert without setting awaiting_decision — the default kicks in.
+        owner_conn.execute(
+            "INSERT INTO steps (step_id, run_id, state) VALUES (%s, %s, 'runnable')",
+            (step_id, run_id),
+        )
+    try:
+        # Direct query matching the claim predicate's awaiting_decision check.
+        # A step where awaiting_decision IS NOT false would not appear here.
+        row = owner_conn.execute(
+            "SELECT step_id FROM steps WHERE step_id = %s AND NOT awaiting_decision",
+            (step_id,),
+        ).fetchone()
+        assert row is not None, (
+            "step with DEFAULT awaiting_decision was not returned by the claim "
+            "predicate; the DEFAULT must evaluate to false, not NULL"
+        )
+    finally:
+        with owner_conn.transaction():
+            owner_conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            owner_conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))

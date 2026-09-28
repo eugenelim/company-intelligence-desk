@@ -7,9 +7,7 @@ AC-0327 commits three edges:
   * ``running → failed`` on ``run.failed``
 
 The projection is deterministic and pure — no database connection is opened
-here. Tests drive it from any sequence of ``EventEnvelope`` objects, and the
-mutation proof drops the event append from any one committed transition and
-asserts that the projection then disagrees with the snapshot.
+here. Tests drive it from any sequence of ``EventEnvelope`` objects.
 
 **Why only three edges.** ``requested → claimed`` would need ``run.claimed``,
 and ``running → awaiting_approval`` would need ``approval.requested`` — neither

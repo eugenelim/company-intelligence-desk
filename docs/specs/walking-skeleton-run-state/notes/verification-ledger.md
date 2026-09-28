@@ -616,9 +616,16 @@ unrelated discovery carried along.
 - Several existing test files updated for the `_run_compiled_agent` signature
   change (`toolsets: list[...]`) and for the new `awaiting_decision` flow.
 
-**Gates:** `ruff format --check`, `ruff check`, `mypy`, `pytest -m 'not substrate'`
-(642 passed, 275 deselected), `pytest` excluding `fault_injection`
-(268 passed, 3 skipped, 642 deselected). All repository checks clean.
+**Gates on the first pass, and why they were not a gate run.** `ruff format
+--check`, `ruff check` and `mypy` were clean, but `pytest` was run *excluding*
+`tests/fault_injection` on the reasoning that it was slow and not required.
+`AGENTS.md` § Gates makes the full run a gate, and `fault_injection` is the
+suite that kills and restarts workers to prove two-worker lease recovery —
+while this task changed `claim_one`'s predicate, which is the change in this
+repository most likely to break it. The suite most exposed to a change is the
+last one to skip. No count from that run is recorded here, because a run that
+omits a gate is not evidence; the canonical figure is at the end of this
+section.
 
 ### Mutation proofs
 
@@ -664,8 +671,11 @@ append-only log is not a style point.
 Fix: moved the `read_run_principal` call above the `approval_results_for_cycle`
 call so the real principal is available to both the refusal path and the main
 path. Both appends in the `LookupError` handler now receive `principal=principal`.
-Full suite re-run after the fix: **914 passed, 3 skipped** (2026-09-27,
-231.80 s including `tests/fault_injection`).
+The full suite was re-run after the fix, this time including
+`tests/fault_injection`, and was green. The count is not restated here — one
+canonical figure for this task lives at the end of this section, because a
+figure repeated per iteration is how § T1 disagreed with itself across three
+review rounds.
 
 ### Design decision: `needs_approval` lives inside `model_settings`
 
@@ -677,3 +687,128 @@ and `limits`) keeps the flag co-located with the model configuration it governs.
 Any substrate test whose role must trigger suspension sets
 `"needs_approval": True` inside `model_settings`. The
 `check_prerelease_failed` docstring records the rationale.
+
+### Adjudication repairs (2026-09-28)
+
+Twenty-one findings from an adversarial review were adjudicated and
+implemented. The entries below record each mutation proof and evidence
+observation for the non-trivial ones. Findings whose fix was purely
+mechanical (comment corrections, unused-import removal, etc.) are
+mentioned by number and not expanded.
+
+**Entry 4: `require_distinct_approver` moved to deployment configuration.**
+The field was caller-supplied in the initial submission, which inverts the
+control — a caller who disagrees with the policy simply toggles it. Moved to
+`CED_REQUIRE_DISTINCT_APPROVER` env var, parsed at startup by
+`_parse_require_distinct_approver`, stored in `app.state` by `_lifespan`. The
+route reads `getattr(request.app.state, "require_distinct_approver", False)`.
+The in-force value is written into every committed decision payload so the
+deployed policy is recoverable from the log.
+
+**Entry 4 + coordinator gap — malformed env var must refuse at startup.**
+The initial parse function returned `False` for any unrecognised value (e.g.
+`"ture"`, `"enabled"`), silently misreading the operator's intent. Fixed to
+raise `ValueError` naming the variable for any value that is not in the
+recognised truthy or falsy sets. `_lifespan` propagates the exception before
+yielding, so the process refuses to start rather than starting with a wrong
+policy setting.
+
+*Tests added* (`tests/e2e/test_require_distinct_approver_parse.py`, offline):
+- Absent variable → `False`.
+- `"1"`, `"true"`, `"yes"` and their case variants → `True`.
+- `"0"`, `"false"`, `"no"` and their case variants → `False`.
+- `"ture"`, `"2"`, `"enabled"`, `"on"`, `"off"`, `"maybe"`, `"yes!"` → `ValueError`
+  naming `CED_REQUIRE_DISTINCT_APPROVER`.
+- `_lifespan` raises (not yields) when the env var is malformed.
+- `_lifespan` sets `app.state.require_distinct_approver = False` when absent.
+- `_lifespan` sets `app.state.require_distinct_approver = True` for `"1"`.
+
+*Mutation-proof for malformed refusal.* If the `raise ValueError` branch is
+replaced by `return False`, `pytest.raises(ValueError, match=...)` is not
+satisfied and every malformed-value case reds. The mutation is the function
+returning without raising; the tests are the deciding layer.
+
+**Entry 8: `resume_step` wired into pool for suspended steps.**
+`approval_cycles > 0` on the claimed row now routes to `_body_resume`, which
+calls `resume_step`. `resume_step` calls `approval_results_for_cycle` to read
+the committed decisions for the current cycle before handing control back to
+the agent.
+
+**Entry 12: `append_run_terminal(run.failed)` removed from generic exception
+handler and quarantine refusal.** These appends were unconditional and would
+commit a run-terminal event on any internal error, even if the run was
+already complete. `step.failed` on an individual step is non-terminal; only
+the executor's explicit run-completion path writes `run.completed` or
+`run.failed`.
+
+**Entry 13: non-quarantined publication now writes a payload.**
+`step.completed` must always carry a non-null `payload_ref`. The
+non-quarantine branch now calls `write_payload({"schema_version": 1})` before
+appending the completion event.
+
+**Entry 18: `needs_approval` fail-open split.** Absent `model_settings` or
+absent `needs_approval` key → `check_prerelease_failed` passes (returns
+`False`). Malformed `model_settings` (non-mapping) or non-bool
+`needs_approval` → `check_prerelease_failed` raises `ValueError`, caught by
+the executor's `try/except ValueError` → `step.failed` appended, step exits.
+This is the fail-open split: unknown → pass, malformed → refuse, explicit
+`True` → fail.
+
+### AC-0327: three committed edges, oracle and mutation proofs
+
+AC-0327 requires three state transitions to be committed to the database,
+readable from the event log, and projectable to the canonical state sequence.
+Two test layers cover it.
+
+**Layer 1 — pure projection** (`tests/schema/test_ac_0327_run_state.py`):
+Seven tests drive `project_run_state` against constructed Python event lists.
+Three tests cover the happy-path edges; four are drop-one mutation cases.
+
+*Why drop-one from the projection's input list, not from the database.*
+`append_run_terminal` commits the state move (UPDATE on `runs.state`) and the
+event INSERT in one transaction. Dropping an append in the database would
+therefore move neither — `runs.state` would stay at `"running"` and the event
+log would have no terminal event, so `project_run_state` and `GET
+/runs/{run_id}/snapshot` would still agree on `"running"`. That agreement is
+not a contradiction; it is both sources correctly reporting the pre-terminal
+state. The drop-one proof must therefore perturb the projection's *input list*,
+not the database, to show that the projection's output depends on each event.
+A per-edge drop removes the event from the Python list, `project_run_state`
+is called on the shortened list, and the result is compared (via `!=`) against
+the full-list projection. The assertion is that removing the event changes the
+projected state — proving the projection is not vacuous.
+
+**Layer 2 — substrate oracle** (`tests/e2e/test_ac_0327_committed_run.py`):
+Tests commit real runs via direct database writes, read events using
+`read_events`, project with `project_run_state`, and compare against `GET
+/runs/{run_id}/snapshot`. A drop-one mutation on the projection's input list
+(same rationale as Layer 1) asserts that the substrate oracle's projection
+check is not vacuous.
+
+### AC-0328 and AC-0303: behavioural end-to-end proofs
+
+**AC-0328 — refusals are before any append.**
+`test_decision_set_bound_is_refused_before_append` reads the event count
+before and after sending an oversized request; asserts the count does not
+change. The "refused before any append" claim is verified by this delta, not
+by a code-path read.
+
+*Mutation-proof for Origin checks.* `test_origin_absent_is_refused` and
+`test_foreign_origin_is_refused` both note that dropping the Origin check
+causes the route to fall through to `_require_run`, which returns 404 for
+a non-existent run rather than 400. The status code changes, so the
+status-assertion reds. This means the tests are genuinely decided by the
+Origin check, not by a later layer that happens to error out.
+
+**AC-0303 — two configurations, two payload values.**
+`test_require_distinct_configured_false_records_false_in_payload` and
+`test_require_distinct_configured_true_records_true_in_payload` each read the
+committed event's `payload_ref` from the database and load the payload from
+the object store. The first asserts `payload["require_distinct_approver"] is
+False`; the second asserts `True`. The two assertions together prove that the
+in-force flag value is written into the payload and differs between the two
+configurations — a module constant set to either value would fail one of them.
+
+**Gates after adjudication repairs (2026-09-28):**
+`ruff format --check`, `ruff check`, `mypy` all clean.
+**974 passed, 3 skipped** (full suite, substrate reachable, 244.35 s).

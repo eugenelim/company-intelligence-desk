@@ -64,6 +64,9 @@ dev = [
 # Two deployables from one package, per ADR-0003 D3.
 ced-api = "ced.api.main:run"
 ced-worker = "ced.worker.main:run"
+# Liveness probe: exits 0 when healthy, 1 when stalled. Run by the container
+# healthcheck; no database connection, no framework import.
+ced-liveness = "ced.worker.liveness:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]

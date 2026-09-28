@@ -169,6 +169,15 @@ def test_a_step_suspends_releases_its_lease_and_is_claimable(
        ``awaiting_decision = true`` — ``claim_one`` must return ``None``.
     4. After a decision is committed (clearing ``awaiting_decision``), the
        same second worker claims the step successfully via ``claim_one``.
+
+    **Open conflict with AC-0237 (claimability half).** The shipped
+    step-lifecycle spec (``walking-skeleton-step-lifecycle``) was amended in
+    commit ffeb5e1 to clarify that AC-0237 covers only the lease-release half,
+    not claimability. That amendment is logged but the step-lifecycle spec's
+    AC-0237 text still refers to claimability in some forms. This test's name
+    (``..._releases_its_lease_and_is_claimable``) asserts assertion 4
+    (claimable after decision), which is AC-0333's scope, not AC-0237's. The
+    name is preserved to avoid churn; the behaviour is correct.
     """
     lease, config, run_id = suspension_step
 

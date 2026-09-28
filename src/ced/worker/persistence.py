@@ -83,6 +83,12 @@ def approval_results_for_cycle(
     the resume refuse — this is the validation the worker does, because the
     API cannot reach the object-store payload that contains the pending call ids.
     """
+    # AC-0330: a cycle below 1 means the step has never suspended; querying with
+    # OFFSET -1 raises a Postgres error rather than returning an empty result.
+    # Guard here so the contracted refusal path fires instead.
+    if cycle < 1:
+        raise LookupError(f"step {step_id} has no suspension event: cycle {cycle} is below 1")
+
     with psycopg.connect(database_url("worker")) as conn:
         # Find the seq of the cycle-th step.suspended event (1-indexed, so
         # cycle 1 → OFFSET 0, cycle 2 → OFFSET 1, etc.).

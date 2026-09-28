@@ -94,6 +94,7 @@ from ced.agents.tools.approval import request_approval
 from ced.agents.toolsets import PolicyDecisionPoint
 from ced.agents.toolsets.step_events import StepContext, StepEventToolset
 from ced.worker.context import ContextAssemblyError, assemble_planning_context
+from ced.worker.persistence import resume_step
 from ced.worker.pool import Lease, PoolConfig, StepBody
 from ced.worker.prerelease import check_prerelease_failed
 
@@ -252,6 +253,154 @@ def _run_compiled_agent(
     )
 
 
+def _body_resume(
+    lease: Lease,
+    config: PoolConfig,
+    pool_map: dict[str, Any],
+    principal: str,
+    role_name: str,
+    role_version: int,
+) -> None:
+    """Execute the resume path for a suspended step.
+
+    Entry 8 (adjudication): a step whose ``approval_cycles > 0`` has a
+    committed decision and must route through ``resume_step`` rather than
+    running the agent from scratch.
+
+    The payload_ref on the latest ``step.suspended`` event is the object-store
+    key for the persisted history. ``resume_step`` reads it, loads the approval
+    map for the current cycle, and runs the agent with the committed decisions
+    applied.
+
+    Completion follows the same convention as the fresh path: ``step.completed``
+    + ``run.completed`` on success; ``step.failed`` (no ``run.failed``) on an
+    unhandled agent error. On a ``LookupError`` from the AC-0330 refusal,
+    ``resume_step`` appends both ``step.failed`` and ``run.failed`` before
+    re-raising; the caller only needs to return.
+    """
+    # Find the payload_ref of the most recent step.suspended event so
+    # resume_step can load the persisted history from the object store.
+    with psycopg.connect(database_url("worker")) as conn:
+        ref_row = conn.execute(
+            "SELECT payload_ref FROM events"
+            " WHERE step_id = %s AND type = 'step.suspended'"
+            " ORDER BY seq DESC LIMIT 1",
+            (lease.step_id,),
+        ).fetchone()
+        conn.commit()
+
+    if ref_row is None or ref_row[0] is None:
+        log.error(
+            "executor: no suspension payload_ref for step %s — cannot resume",
+            lease.step_id,
+        )
+        with psycopg.connect(database_url("worker")) as conn:
+            append_step_event(
+                conn,
+                run_id=lease.run_id,
+                step_id=lease.step_id,
+                lease_epoch=lease.epoch,
+                type="step.failed",
+                principal=principal,
+                agent_role=role_name,
+            )
+        return
+
+    payload_ref = str(ref_row[0])
+
+    try:
+        result = resume_step(
+            run_id=lease.run_id,
+            step_id=lease.step_id,
+            lease_epoch=lease.epoch,
+            role_name=role_name,
+            role_version=role_version,
+            payload_ref=payload_ref,
+            pool_map=pool_map,
+        )
+    except LookupError:
+        # AC-0330 refusal: resume_step already appended step.failed + run.failed.
+        return
+    except Exception as exc:
+        log.error("executor: resume failed for step %s: %s", lease.step_id, exc)
+        with psycopg.connect(database_url("worker")) as conn:
+            append_step_event(
+                conn,
+                run_id=lease.run_id,
+                step_id=lease.step_id,
+                lease_epoch=lease.epoch,
+                type="step.failed",
+                principal=principal,
+                agent_role=role_name,
+            )
+        return
+
+    # Re-suspension: the agent suspended again waiting for another approval.
+    if isinstance(result.output, DeferredToolRequests):
+        messages = result.all_messages()
+        history_json_list = json.loads(serialise_history(messages))
+        pending_call_ids = [call.tool_call_id for call in result.output.approvals]
+        suspension_ref = write_payload(
+            {
+                "schema_version": 1,
+                "history": history_json_list,
+                "pending_approval_call_ids": pending_call_ids,
+            }
+        )
+        with psycopg.connect(database_url("worker")) as conn:
+            append_step_event(
+                conn,
+                run_id=lease.run_id,
+                step_id=lease.step_id,
+                lease_epoch=lease.epoch,
+                type="step.suspended",
+                principal=principal,
+                agent_role=role_name,
+                payload_ref=suspension_ref,
+            )
+            conn.execute(
+                """
+                UPDATE steps
+                   SET state = 'runnable',
+                       lease_expires_at = NULL,
+                       owner = NULL,
+                       awaiting_decision = true
+                 WHERE step_id = %s
+                   AND lease_epoch = %s
+                   AND owner = %s
+                """,
+                (lease.step_id, lease.epoch, config.worker_id),
+            )
+            conn.commit()
+        return
+
+    # Completion: write a minimal publication payload then step.completed +
+    # run.completed. Entry 13 (adjudication): every step.completed carries a
+    # non-null payload_ref. The resumed path is not quarantine-validated
+    # (quarantine is a fresh-run property); write the schema_version stub.
+    output_payload_ref = write_payload({"schema_version": 1})
+    with psycopg.connect(database_url("worker")) as conn:
+        append_step_event(
+            conn,
+            run_id=lease.run_id,
+            step_id=lease.step_id,
+            lease_epoch=lease.epoch,
+            type="step.completed",
+            principal=principal,
+            agent_role=role_name,
+            payload_ref=output_payload_ref,
+        )
+        append_run_terminal(
+            conn,
+            run_id=lease.run_id,
+            step_id=lease.step_id,
+            lease_epoch=lease.epoch,
+            type="run.completed",
+            principal=principal,
+            agent_role=role_name,
+        )
+
+
 def make_step_body(config: PoolConfig) -> StepBody:
     """Return a step body that compiles and runs the leased step's role.
 
@@ -279,6 +428,24 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 )
                 return
 
+            # Detect resume: if approval_cycles > 0 this step was previously
+            # suspended and has a committed decision; route to the resume path.
+            cycle_row = conn.execute(
+                "SELECT approval_cycles FROM steps WHERE step_id = %s",
+                (lease.step_id,),
+            ).fetchone()
+            conn.commit()
+
+        approval_cycles = int(cycle_row[0]) if cycle_row else 0
+
+        if approval_cycles > 0:
+            # Entry 8 (adjudication): wire resume_step into the pool.
+            # The resume path handles everything from loading the approval map
+            # through running the agent; this function then handles the result.
+            _body_resume(lease, config, pool_map, principal, role_name, role_version)
+            return
+
+        with psycopg.connect(database_url("worker")) as conn:
             # Load the role from the registry (opens its own connection).
             try:
                 loaded = load_role(role_name, role_version)
@@ -384,17 +551,17 @@ def make_step_body(config: PoolConfig) -> StepBody:
         # AC-0302: offer the gated tool only when the pre-release check fails.
         # A clean role (no needs_approval flag) gets an empty toolset list, so
         # the agent never sees the approval tool. A flagged role gets one entry.
-        prerelease_failed = check_prerelease_failed(loaded.role)
-        approval_toolsets = offered_approval_gated_tools(prerelease_failed)
-
-        # Run the agent. Any exception is caught and recorded as step.failed.
-        # The finally block disarms the deadline timer whether the run succeeds,
-        # suspends, or fails — so a late-firing timer cannot discard a completed
-        # step (AC-0232).
+        # Entry 18 (adjudication): ValueError from a malformed model_settings
+        # or non-bool needs_approval is a role-authoring error; record step.failed
+        # and return rather than silently disabling the gate (fail-closed).
         try:
-            result = _run_compiled_agent(compiled, approval_toolsets, token)
-        except Exception as exc:
-            log.error("executor: agent run failed for step %s: %s", lease.step_id, exc)
+            prerelease_failed = check_prerelease_failed(loaded.role)
+        except ValueError as exc:
+            log.error(
+                "executor: role configuration error for step %s: %s",
+                lease.step_id,
+                exc,
+            )
             with psycopg.connect(database_url("worker")) as conn:
                 append_step_event(
                     conn,
@@ -405,15 +572,27 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     principal=principal,
                     agent_role=role_name,
                 )
-                # AC-0327: running→failed on run.failed. Same connection, own
-                # transaction. step_id is null — written by the path, not a
-                # predicate callers can violate (AC-0320).
-                append_run_terminal(
+            return
+        approval_toolsets = offered_approval_gated_tools(prerelease_failed)
+
+        # Run the agent. Any exception is caught and recorded as step.failed.
+        # The finally block disarms the deadline timer whether the run succeeds,
+        # suspends, or fails — so a late-firing timer cannot discard a completed
+        # step (AC-0232).
+        try:
+            result = _run_compiled_agent(compiled, approval_toolsets, token)
+        except Exception as exc:
+            log.error("executor: agent run failed for step %s: %s", lease.step_id, exc)
+            # Entry 12 (adjudication): only step.failed here; run stays in
+            # 'running'. run.failed is reserved for the AC-0330 refusal path
+            # (resume_step) and is not appended for generic agent failures.
+            with psycopg.connect(database_url("worker")) as conn:
+                append_step_event(
                     conn,
                     run_id=lease.run_id,
                     step_id=lease.step_id,
                     lease_epoch=lease.epoch,
-                    type="run.failed",
+                    type="step.failed",
                     principal=principal,
                     agent_role=role_name,
                 )
@@ -494,6 +673,9 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     lease.step_id,
                     exc,
                 )
+                # Entry 12 (adjudication): only step.failed for quarantine
+                # refusal; run stays in 'running'. run.failed is reserved for
+                # the AC-0330 refusal path and is not appended here.
                 with psycopg.connect(database_url("worker")) as conn:
                     append_step_event(
                         conn,
@@ -504,20 +686,18 @@ def make_step_body(config: PoolConfig) -> StepBody:
                         principal=principal,
                         agent_role=role_name,
                     )
-                    append_run_terminal(
-                        conn,
-                        run_id=lease.run_id,
-                        step_id=lease.step_id,
-                        lease_epoch=lease.epoch,
-                        type="run.failed",
-                        principal=principal,
-                        agent_role=role_name,
-                    )
                 return
             # Crash ordering: write the payload object before the fenced
             # append that references it.  A crash between the two leaves an
             # unreferenced object rather than a dangling payload_ref.
             output_payload_ref = write_payload({"references": refs})
+        else:
+            # Entry 13 (adjudication): non-quarantined roles must also carry a
+            # payload_ref on step.completed so AC-0301 is satisfiable. Write
+            # a minimal schema_version stub before the fenced append (crash
+            # ordering: an unreferenced object is less harmful than a dangling
+            # payload_ref).
+            output_payload_ref = write_payload({"schema_version": 1})
 
         with psycopg.connect(database_url("worker")) as conn:
             append_step_event(
@@ -530,8 +710,9 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 agent_role=role_name,
                 payload_ref=output_payload_ref,
             )
-            # AC-0327: running→completed on run.completed, committed together
-            # with step.completed on the same connection (separate transactions).
+            # AC-0327: running→completed on run.completed. Both step.completed
+            # and run.completed are appended on the same connection, each in
+            # its own internal transaction via the SECURITY DEFINER function.
             append_run_terminal(
                 conn,
                 run_id=lease.run_id,
