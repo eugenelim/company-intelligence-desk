@@ -289,8 +289,11 @@ def test_busy_worker_heartbeat_keeps_mark_fresh(
         assert probe(mark, lease_ttl_seconds=TTL).healthy, (
             "mark must be fresh (healthy) while the Worker is executing a step; "
             "the in-step heartbeat must refresh it at each renewal; "
-            "mutation: remove refresh_mark() from pool.py heartbeat-renewal site → "
-            "mark ages past 2 × TTL (6 s) → this assertion reds"
+            "mutation: replace the heartbeat-site refresh_mark() with a single "
+            "touch at step start → the mark ages past 2 x TTL (6 s) → this "
+            "assertion reds. Deleting that call outright instead reds "
+            "mark.exists() above, because this test pre-inserts a claimable "
+            "step so the idle branch never writes a mark at all."
         )
     finally:
         worker.request_stop()

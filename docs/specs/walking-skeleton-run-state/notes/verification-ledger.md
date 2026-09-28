@@ -613,8 +613,12 @@ unrelated discovery carried along.
   and confirmed red before green.
 - `tests/schema/test_run_state_paths.py` — AC-0333 stub appended.
 - `tests/api/test_contract_agreement.py` — renamed to `four_routes`, count 4.
-- Several existing test files updated for the `_run_compiled_agent` signature
-  change (`toolsets: list[...]`) and for the new `awaiting_decision` flow.
+- `tests/thinking_reaches_the_model/test_no_path_re_enables_reasoning.py` and
+  `tests/usage_limits/test_usage_limits_in_force.py` updated because T2 changed
+  `_run_compiled_agent`'s signature from `approval_toolset` to
+  `toolsets: list[...]` and both call it directly — that signature change is
+  why they were widened into T2's `Touches`. Other existing tests updated for
+  the new `awaiting_decision` flow.
 
 **Gates on the first pass, and why they were not a gate run.** `ruff format
 --check`, `ruff check` and `mypy` were clean, but `pytest` was run *excluding*
@@ -922,9 +926,18 @@ process tests in `tests/worker/test_liveness.py`:
 `CED_LIVENESS_MARK_PATH` and probe the real file.
 *Idle-path mutation*: remove `refresh_mark()` from pool.py's between-claims site.
 The mark is never written; the fresh-mark assertion reds.
-*Busy-path mutation*: remove the `refresh_mark()` call from pool.py's
-heartbeat-renewal site. The mark ages past 2 × TTL; the healthy-while-executing
-assertion reds.
+*Busy-path mutation*: replace the heartbeat-site `refresh_mark()` in
+`pool.py` with a single touch taken at step start. The mark then ages past the
+probe's threshold while the step runs, and the staleness assertion reds with
+`mark.exists()` still green — which is what makes the assertion about freshness
+rather than existence.
+
+*Not this mutation, and the record said otherwise for two rounds.* Deleting the
+heartbeat-site `refresh_mark()` outright reds `assert mark.exists()` instead:
+the busy test pre-inserts a claimable step, so `pool.py`'s idle branch never
+fires and no mark is written at all. That is a different assertion failing for
+a different reason. A record naming the wrong break is what stops the next
+reader reproducing the result it claims.
 
 **Entry 7 (lifespan seam).**
 New file `tests/e2e/test_lifespan_seam.py`. Offline tests cover
@@ -1059,28 +1072,44 @@ step, reads `payload_ref`. Does **not** commit a decision; manually clears
 `LookupError("below 1")` immediately. Asserts that `"step.failed"` and
 `"run.failed"` appear in the event log for the run.
 
-Mutation verified: commented out the `append_step_event("step.failed")` call in
-`persistence.py`'s `except LookupError` block. `assert "step.failed" in
-event_types` reds. Restored.
+Three mutations verified, which is what the adjudication required — an
+earlier revision of this entry recorded only the first. (a) Commented out the
+`append_step_event("step.failed")` call in `persistence.py`'s
+`except LookupError` block: `assert "step.failed" in event_types` reds.
+(b) Deleted the `append_run_terminal(type="run.failed")` call in the same
+block: the `run.failed` assertion reds. (c) Replaced the re-`raise` at the end
+of that block with `return`: the `pytest.raises(LookupError)` reds. Each break
+was confirmed present in the working tree before the run, and each restored
+after.
 
 *Test C — repeated-poll-after-refusal pinned inside test B.* After the
 LookupError path fires, the test reads `event_count_before` and calls
-`claim_one` three more times against the refused step (now
-`awaiting_decision = false` but no live lease). Asserts that
-`event_count_after == event_count_before`. Pinned inside `test_refused_resume_commits_step_failed_and_run_failed`.
+`claim_one` three more times against the refused step, which still holds a
+live lease — that is why `claim_one` returns `None`, and the test says so at
+its own comment. Asserts that `event_count_after == event_count_before`. An
+earlier revision of this entry said the step had no live lease, which would
+have made it claimable and the assertion red. Pinned inside `test_refused_resume_commits_step_failed_and_run_failed`.
 
 `functools` added to imports; `_real_request_approval` imported as
 `from ced.agents.tools.approval import request_approval as
 _real_request_approval`.
 
 **Entry 2 — busy-path probe threshold corrected.**
-`tests/worker/test_liveness.py` busy-path test called `probe(mark)` with the
-default `lease_ttl_seconds=120`. The threshold is `0.5 * lease_ttl_seconds`,
-so a 120-second TTL means the threshold is 60 seconds — the mark file would
-never be stale enough to trip "stalled" during the test, but also the test
-waited for the wrong bound. Fixed to `probe(mark, lease_ttl_seconds=TTL)` where
-`TTL = 10` (defined at module level), giving a threshold of 5 seconds and
-matching the 6-second stale mark the test creates.
+The busy-path test called `probe(mark)` with no TTL argument, taking
+`liveness.py`'s default `lease_ttl_seconds=LEASE_TTL_SECONDS`, which is 60.
+`liveness_state` computes `healthy = seconds_since_poll < 2 * lease_ttl_seconds`,
+so the unhealthy threshold was 120 seconds of wall clock against a mark at most
+a few seconds old. No in-step behaviour could make the mark stale by that
+measure, so the healthy assertion could not fail and only `mark.exists()` was
+live. Fixed to `probe(mark, lease_ttl_seconds=TTL)`, where `TTL = 3` is defined
+inside the test function: a 6-second threshold against a mark roughly 7 seconds
+old when the heartbeat stops refreshing it.
+
+*An earlier revision of this entry got all three numbers wrong* — it gave the
+threshold as `0.5 × lease_ttl_seconds`, called the default a 120-second TTL
+rather than a 120-second threshold, and said `TTL = 10` at module level. A
+reader recomputing the bound from it would have been wrong in both directions,
+which matters because this is the record the `Done when` gate reads.
 
 **Entry 3 — ledger busy-path paragraph corrected.**
 The paragraph in Round 12 described the intended behavior (probe sees a
@@ -1122,9 +1151,13 @@ field was widened (see Entry 7).
 **Entry 7 — owner decision: `AGENTS.md` named in T2 Touches.**
 T2's `Touches` in `docs/specs/walking-skeleton-run-state/plan.md` was widened
 to include `AGENTS.md`. This records the decision that T2 owns the argv change
-in `liveness.py` and its documentation in `AGENTS.md`. No convention or
-published interface changed; the decision was made by the implementer as an
-in-scope scope clarification and recorded here per the bundled-fixes carve-out.
+in `liveness.py` and its documentation in `AGENTS.md`. `Touches` is a gate-read field (`plan.md:12-14`), so widening it is not an
+implementer's call and was not made as one. **Owner decision, 2026-09-28**,
+taken on the question of whether documentation of a command belongs with the
+change that created it: it does, so T2's field names `AGENTS.md` rather than
+the documentation moving to T4 or being reverted. An earlier revision of this
+entry attributed the decision to the implementer as a scope clarification,
+which would have been a self-authorized widening of a pinned field.
 
 **Entry 8 — repeated-poll-against-undecided-step: event-count and lease-epoch assertions.**
 `test_repeated_poll_against_undecided_step_appends_nothing_and_consumes_no_lease`
@@ -1159,12 +1192,34 @@ them up explicitly; no code change in T2.
 
 **Entry 11 — dead `else` arm deleted from `executor.py`.**
 The `else` arm at lines 709–715 of `src/ced/worker/executor.py` wrote
-`{"schema_version": 1}` to the object store for non-quarantined roles. But
-AC-0301's artifact path always goes through the quarantine branch (ceiling
-compiled to the empty set on quarantine, so the schema-version payload is
-written there). The non-quarantine branch writes a `DeferredToolRequests` or
-`CompiledRole.output_type` result, never a bare schema-version dict. The arm
-was dead code; deleted.
+`{"schema_version": 1}` to the object store for non-quarantined roles, on the
+stated ground that AC-0301 needed it. AC-0301's artifact seeds its role with
+`ceiling '[]'::jsonb`, and `src/ced/agents/compiler.py:570` derives
+`quarantined = not ceiling` — the empty ceiling *causes* quarantine — so that
+run takes the quarantine arm, which writes `{"references": refs}`. The `else`
+arm decided nothing for the criterion it was added for. Worse, its payload
+carried no output while still resolving readably, so a future non-quarantined
+role would have let AC-0301's `payload_ref` assertion pass vacuously — the
+failure that criterion exists to catch. Deleted; a non-quarantined role now
+leaves `output_payload_ref` as `None`, which no producible role reaches today.
+
+*An earlier revision of this entry described both branches wrongly*, saying
+quarantine follows from a ceiling "compiled to the empty set on quarantine"
+and that the non-quarantine branch writes a `DeferredToolRequests` or
+`CompiledRole.output_type` result. Neither is what the code does.
+
+**Entry 11b — the resume path's stub, recorded as a residual for T3/T4.**
+`src/ced/worker/executor.py:388-391` still writes
+`write_payload({"schema_version": 1})` on the resume completion path, citing
+the same Entry 13 premise whose fresh-run twin this round deleted. It predates
+this commit and was outside the adjudicated scope, so it stands. It is not
+currently vacuous: AC-0303's end-to-end artifact asserts only that
+`step.resumed` is in the log and that `runs.state` reaches `completed`, and
+never reads `step.completed`'s `payload_ref`. What is real is that AC-0303
+contracts "resumes to publication" while a resumed run publishes an object
+carrying no output, so the first artifact that *does* assert the resumed
+`payload_ref` would pass on an empty payload. Routed to T3/T4 alongside the
+Entry 10 residual.
 
 **Entry 12 — stalled-verdict race eliminated.**
 The stalled-path test in `tests/worker/test_liveness.py` previously called
@@ -1172,18 +1227,24 @@ The stalled-path test in `tests/worker/test_liveness.py` previously called
 `claim_one` by the time the assertion ran — a timing race. Fixed by patching
 `ced.worker.pool.claim_one` with `_hold_then_claim`: a replacement that signals
 `loop_held` (so the test thread knows the loop is blocked inside `claim_one`)
-and then waits on `loop_resume` before returning. The test sets the mark stale,
-signals `loop_resume`, then calls `probe`. The loop is guaranteed to be inside
-the `claim_one` call when `probe` runs, making the stalled verdict deterministic.
+and then waits on `loop_resume` before returning. The test back-dates the mark, calls
+`probe` while the loop is still held, and only then signals `loop_resume`. That
+order is what makes the verdict deterministic; an earlier revision of this
+entry recorded probe-after-resume, which is the race the fix removed.
 
-**Entry 13 — two files without substrate mark identified and noted.**
+**Entry 13 — the two out-of-field test files, named.**
 `tests/thinking_reaches_the_model/test_no_path_re_enables_reasoning.py` and
-`tests/usage_limits/test_usage_limits_in_force.py` lack the `substrate` marker.
-Both are forced into the offline suite by `[tool.pytest.ini_options]
-`filterwarnings` handling rather than by marker. No change made; the absence of
-the marker is the intended design (they run offline via `TestModel`). Noted for
-the record.
+`tests/usage_limits/test_usage_limits_in_force.py` were widened into T2's
+`Touches` because T2 changed `_run_compiled_agent`'s signature from
+`approval_toolset` to `toolsets: list[...]`, and both files call it directly.
+That is the forcing cause, and it is now recorded here and on the produced-work
+line above rather than as "several existing test files updated".
 
+*An earlier revision of this entry answered a different question* — it claimed
+the two files are "forced into the offline suite by `[tool.pytest.ini_options]`
+`filterwarnings` handling". `pyproject.toml` declares only `testpaths` and
+`markers` under that table; there is no `filterwarnings` key. The claim is
+withdrawn.
 **Entry 14 — no-op `INSERT INTO runs ... WHERE false` deleted.**
 A five-line `INSERT INTO runs (run_id, state, next_seq) VALUES (...) WHERE
 false` block inside the repeated-poll test's initial setup transaction was

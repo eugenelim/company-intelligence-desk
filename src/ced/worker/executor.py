@@ -384,10 +384,18 @@ def _body_resume(
             conn.commit()
         return
 
-    # Completion: write a minimal publication payload then step.completed +
-    # run.completed. Entry 13 (adjudication): every step.completed carries a
-    # non-null payload_ref. The resumed path is not quarantine-validated
-    # (quarantine is a fresh-run property); write the schema_version stub.
+    # Completion: write a publication payload, then step.completed and
+    # run.completed. The resumed path is not quarantine-validated, since
+    # quarantine is a fresh-run property, so there is no validated output to
+    # publish and this writes a schema-version stub.
+    #
+    # The stub carries no output while still resolving readably, which is the
+    # shape that let the fresh-run twin of this branch be deleted: an artifact
+    # asserting only that `payload_ref` resolves would pass on it. Nothing
+    # asserts the resumed `payload_ref` today, so it is not vacuous yet —
+    # AC-0303's end-to-end reads `step.resumed` and `runs.state` only. The
+    # ledger records it as a residual for T3/T4 rather than a claim that a
+    # resumed run publishes anything meaningful.
     output_payload_ref = write_payload({"schema_version": 1})
     with psycopg.connect(database_url("worker")) as conn:
         append_step_event(
