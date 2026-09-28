@@ -581,3 +581,99 @@ used the literal string `"0004"` rather than the current HEAD. Both updated to
 `"0005"` as in-scope T1 work: `tests/schema/**` is in T1's `Touches` (plan.md
 line 117) and the change is forced by T1's own revision 0005, so it is not an
 unrelated discovery carried along.
+
+## T2 — the transitions, and the interface that releases one
+
+**Date:** 2026-09-27. **Mode:** TDD (four pinned stubs confirmed red before green).
+
+**What was produced.**
+
+- `src/ced/domain/run_state.py` — `apply_event`, `project_run_state` (pure
+  projection over the three committed edges).
+- `src/ced/worker/prerelease.py` — `check_prerelease_failed` (reads
+  `model_settings.needs_approval`; absent or falsy → check passes).
+- `src/ced/worker/liveness.py` — `LivenessState`, `liveness_state`,
+  `refresh_mark`, `probe`, `run`.
+- `src/ced/worker/executor.py` — `offered_approval_gated_tools`, outer
+  transaction wrapping `runs.state='running'` UPDATE with `step.started`,
+  `awaiting_decision=true` on suspension, `append_run_terminal` calls on
+  completion and failure.
+- `src/ced/worker/persistence.py` — `approval_results_for_cycle`, and
+  `resume_step` uses it instead of approving blindly.
+- `src/ced/worker/pool.py` — `AND NOT awaiting_decision` in claim predicate,
+  `refresh_mark` on idle and heartbeat paths.
+- `src/ced/api/main.py` — `POST /runs/{run_id}/steps/{step_id}/decision` route
+  with Origin CSRF check.
+- `src/ced/api/models.py` — `DecisionPair`, `ApprovalDecisionRequest`,
+  `DecisionResult`.
+- `contracts/openapi/runs.yaml` — 4th route and three new schemas.
+- `tests/suspension/test_the_gate_is_conditional.py` — AC-0302 and AC-0330
+  stubs, materialized byte-identically and confirmed red before green.
+- `tests/worker/test_liveness.py` — AC-0331 stub, materialized byte-identically
+  and confirmed red before green.
+- `tests/schema/test_run_state_paths.py` — AC-0333 stub appended.
+- `tests/api/test_contract_agreement.py` — renamed to `four_routes`, count 4.
+- Several existing test files updated for the `_run_compiled_agent` signature
+  change (`toolsets: list[...]`) and for the new `awaiting_decision` flow.
+
+**Gates:** `ruff format --check`, `ruff check`, `mypy`, `pytest -m 'not substrate'`
+(642 passed, 275 deselected), `pytest` excluding `fault_injection`
+(268 passed, 3 skipped, 642 deselected). All repository checks clean.
+
+### Mutation proofs
+
+**AC-0302 — M: `offered_approval_gated_tools` mutated to always return `[]`.**
+Target: `test_the_gated_tool_is_offered_only_when_a_check_failed`.
+Result: FAILED — `assert [] != []` at the positive arm
+(`offered_approval_gated_tools(prerelease_failed=True) != []`). Confirms the
+positive arm is the deciding check; the exclusion arm alone cannot pass this test.
+Restored (reverted the mutant line); targeted test PASSED.
+
+**AC-0331 — M: `liveness_state` mutated to always return
+`LivenessState(healthy=False)`.**
+Target: `test_an_idle_worker_reports_healthy`.
+Result: FAILED — `assert False is True` at
+`liveness_state(seconds_since_poll=1.0, lease_ttl_seconds=60).healthy is True`.
+Confirms the `healthy` field is the deciding predicate.
+Restored; targeted test PASSED.
+
+**AC-0330 — M: `suspension_row is None` guard replaced by `if False`.**
+Target: `test_a_resume_with_no_committed_decision_refuses_to_run`.
+Result: FAILED — `TypeError: 'NoneType' object is not subscriptable` at
+`suspension_seq = int(suspension_row[0])`; `pytest.raises(LookupError)` was
+not satisfied. The no-suspension guard is the deciding layer for the test's
+nonexistent step id. Restored; targeted test PASSED.
+
+**AC-0333 — schema check only.** The stub
+`test_a_step_awaiting_a_decision_is_not_claimed` checks the column exists in
+the schema. The column was created in T1 (revision 0005) and proved present
+there; AC-0333's behavioral guard is exercised by the extended
+`test_a_step_suspends_releases_its_lease_and_is_claimable` assertion (Assertion
+3: `claim_one` returns `None` while `awaiting_decision=true`; Assertion 4: after
+`append_approval_decision` clears the hold, the step is claimable).
+
+### Post-submission fix: real principal on AC-0330 terminal events
+
+**2026-09-27.** The initial submission wrote `principal=""` on the `step.failed`
+and `run.failed` appends in the `LookupError` handler (`:209`, `:218`), with the
+comment "principal not yet read; failure is pre-principal". The coordinator ruled
+this a defect: `read_run_principal` runs against a run record that already exists
+when the refusal fires, and an empty principal on a terminal event in an
+append-only log is not a style point.
+
+Fix: moved the `read_run_principal` call above the `approval_results_for_cycle`
+call so the real principal is available to both the refusal path and the main
+path. Both appends in the `LookupError` handler now receive `principal=principal`.
+Full suite re-run after the fix: **914 passed, 3 skipped** (2026-09-27,
+231.80 s including `tests/fault_injection`).
+
+### Design decision: `needs_approval` lives inside `model_settings`
+
+The role record's JSONB `model_settings` column — not a dedicated top-level
+column — carries the `needs_approval` flag. Revision 0005 adds no
+`needs_approval` column, and `_ROLE_COLUMNS` in `roles.py` does not enumerate
+one. Placing the flag inside `model_settings` (alongside `model_id`, `settings`,
+and `limits`) keeps the flag co-located with the model configuration it governs.
+Any substrate test whose role must trigger suspension sets
+`"needs_approval": True` inside `model_settings`. The
+`check_prerelease_failed` docstring records the rationale.

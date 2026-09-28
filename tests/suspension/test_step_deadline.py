@@ -72,7 +72,7 @@ def test_a_hung_run_is_cancelled_within_the_deadline() -> None:
     start = time.monotonic()
     try:
         with pytest.raises(RunCancelled):
-            _run_compiled_agent(compiled, _make_approval_toolset(), token)
+            _run_compiled_agent(compiled, [_make_approval_toolset()], token)
     finally:
         timer.cancel()
 

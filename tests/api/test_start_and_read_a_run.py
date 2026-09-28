@@ -136,7 +136,10 @@ def test_the_api_identity_cannot_reach_a_model_or_forge_a_decision(
     The grant tests in `tests/event_log` assert what the database refuses this
     role. This asserts the complementary fact about the HTTP surface: there is
     no route through which a client could ask the API to append anything but
-    the two run-lifecycle types, because no such route exists.
+    the two run-lifecycle types and approval decisions, because no such route
+    exists. The approval-decision route (AC-0328) is the intentional addition
+    from the run-state spec; it reaches only `append_approval_decision`, which
+    the grant tests confirm is exclusive to `app_api`.
     """
     served = api_server.get("/openapi.json").body
 
@@ -144,6 +147,7 @@ def test_the_api_identity_cannot_reach_a_model_or_forge_a_decision(
         "/runs",
         "/runs/{run_id}/events",
         "/runs/{run_id}/snapshot",
+        "/runs/{run_id}/steps/{step_id}/decision",
     ]
 
 

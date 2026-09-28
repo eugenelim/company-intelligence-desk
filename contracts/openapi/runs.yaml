@@ -5,10 +5,11 @@
 # application actually serves match the routes described here — compared
 # against the generated document, not by inspection.
 #
-# The three routes below are the whole Phase 1 surface. The events route is
-# built only far enough to serve a cursor projection over committed events;
-# its reconnect semantics, `Last-Event-ID` preference and browser criteria
-# belong to `walking-skeleton-evidence`.
+# Four routes: the three from the foundation spec, plus the approval-decision
+# operation this spec adds (AC-0328). The events route is built only far enough
+# to serve a cursor projection over committed events; its reconnect semantics,
+# `Last-Event-ID` preference and browser criteria belong to
+# `walking-skeleton-evidence`.
 openapi: 3.1.0
 
 info:
@@ -112,6 +113,53 @@ paths:
           description: >
             `run_id` is not a UUID, or `after`/`limit` is outside its bounds.
 
+  /runs/{run_id}/steps/{step_id}/decision:
+    post:
+      operationId: record_approval_decision
+      summary: Record an approval decision for a suspended step
+      description: >
+        Grants or rejects pending tool calls for a suspended step. The request
+        must name the `seq` of the `step.suspended` event it answers; a
+        decision against an outdated suspension is refused. The `Origin` header
+        must match the API's own origin; a missing or foreign origin is refused
+        (CSRF defence, AC-0328).
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: step_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionRequest"
+      responses:
+        "200":
+          description: The decision was committed. Returns the seq of the last appended event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionResult"
+        "400":
+          description: Origin header absent or does not match the API's own origin.
+        "404":
+          description: No such run or step.
+        "409":
+          description: >
+            Decision refused — wrong suspension seq, step not awaiting a
+            decision, or malformed call-id/decision set.
+        "422":
+          description: Request body is not valid.
+
 components:
   schemas:
     StartRunRequest:
@@ -214,3 +262,57 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Event"
+
+    DecisionPair:
+      type: object
+      required: [call_id, granted]
+      properties:
+        call_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: >
+            The tool-call id of the deferred tool call being decided. Bounded
+            at ATTRIBUTION_MAX_LENGTH so a single request cannot persist an
+            arbitrarily long string (AC-0328).
+        granted:
+          type: boolean
+          description: >
+            True for approval.granted, false for approval.rejected.
+
+    ApprovalDecisionRequest:
+      type: object
+      required: [suspension_seq, decisions, principal]
+      properties:
+        suspension_seq:
+          type: integer
+          minimum: 1
+          description: >
+            The seq of the `step.suspended` event this decision answers.
+            The decision path refuses a seq that is not the step's latest
+            suspension (AC-0334).
+        decisions:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/DecisionPair"
+          description: >
+            One pair per pending call id. At most ATTRIBUTION_MAX_LENGTH
+            pairs so the number of rows one request appends is finite
+            (AC-0328).
+        principal:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: >
+            The approver's self-asserted identity. Unauthenticated in Phase 1;
+            recorded for inspectability.
+
+    DecisionResult:
+      type: object
+      required: [last_seq]
+      properties:
+        last_seq:
+          type: integer
+          description: The seq of the last event committed by this decision.

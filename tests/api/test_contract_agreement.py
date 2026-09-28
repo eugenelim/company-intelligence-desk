@@ -23,7 +23,7 @@ import yaml
 
 from .conftest import Client
 
-# NOT module-wide: `test_the_contract_file_describes_three_routes` reads only
+# NOT module-wide: `test_the_contract_file_describes_four_routes` reads only
 # the committed YAML and is free in the offline gate. Only the checks that need
 # a running server carry the mark.
 CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "openapi" / "runs.yaml"
@@ -67,7 +67,7 @@ def served(api_server: Client) -> dict[str, Any]:
     return document
 
 
-def test_the_contract_file_describes_three_routes(
+def test_the_contract_file_describes_four_routes(
     committed: dict[str, Any],
 ) -> None:
     """Setup check, reported separately: it cannot fail on the application.
@@ -76,7 +76,7 @@ def test_the_contract_file_describes_three_routes(
     empty, which is the way a contract test most often becomes decorative.
     """
     table = _route_table(committed)
-    assert len(table) == 3, sorted(table)
+    assert len(table) == 4, sorted(table)
 
 
 @pytest.mark.substrate

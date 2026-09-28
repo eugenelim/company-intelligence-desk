@@ -1403,3 +1403,15 @@ def test_the_decision_index_covers_the_declared_types(
         f"index predicate type list {type_values!r} does not match the expected "
         "set; a widened or narrowed predicate is present"
     )
+
+
+@pytest.mark.substrate
+# STUB: AC-0333
+def test_a_step_awaiting_a_decision_is_not_claimed(require_substrate: None) -> None:
+    """The exclusion is a column the decision path clears, not a step state."""
+    with psycopg.connect(database_url("worker")) as conn:
+        found = conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'steps'"
+            " AND column_name = 'awaiting_decision'"
+        ).fetchone()
+    assert found is not None

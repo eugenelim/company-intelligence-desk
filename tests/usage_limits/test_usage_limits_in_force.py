@@ -67,7 +67,7 @@ def test_usage_limits_identity() -> None:
 
     # _run_compiled_agent is the executor's function — not agent.run_sync.
     # It passes compiled.limits as usage_limits; the test only observes.
-    _run_compiled_agent(compiled, toolset)
+    _run_compiled_agent(compiled, [toolset])
 
     assert len(captured) == 1, f"expected one observation, got {len(captured)}"
     assert captured[0] is compiled.limits, (
@@ -90,4 +90,4 @@ def test_usage_limits_are_enforced() -> None:
     )
 
     with pytest.raises(UsageLimitExceeded):
-        _run_compiled_agent(compiled, _make_approval_toolset())
+        _run_compiled_agent(compiled, [_make_approval_toolset()])

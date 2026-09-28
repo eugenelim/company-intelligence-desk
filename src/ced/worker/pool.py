@@ -429,6 +429,7 @@ def claim_one(conn: psycopg.Connection, config: PoolConfig) -> Lease | None:
              WHERE pool_class = %s
                AND (state = 'runnable'
                     OR (state = 'leased' AND lease_expires_at < now()))
+               AND NOT awaiting_decision
              ORDER BY created_at
                FOR UPDATE SKIP LOCKED
              LIMIT 1
@@ -562,12 +563,21 @@ class Worker:
         `restart: "no"`, so capacity halves until an operator intervenes, and
         the fault-injection suite's ECS substitution covers container kill and
         not process exit.
+
+        **Liveness mark.** The mark is refreshed on the idle path (between
+        claims) so a worker with nothing to claim stays reported healthy.
+        `liveness` is imported lazily to avoid the circular import that would
+        arise at module load time (``liveness.py`` imports ``LEASE_TTL_SECONDS``
+        from this module). AC-0331.
         """
+        from ced.worker.liveness import refresh_mark as _refresh_mark
+
         log.info("ready: %s polling class %s", self.config.worker_id, self.config.pool_class)
         with psycopg.connect(database_url("worker")) as conn:
             while not self._stop.is_set():
                 lease = claim_one(conn, self.config)
                 if lease is None:
+                    _refresh_mark()  # AC-0331: idle-path mark
                     self._stop.wait(timeout=self.config.poll_seconds)
                     continue
                 self._execute(conn, lease)
@@ -579,6 +589,14 @@ class Worker:
         completed body is released at once and a `SIGTERM` reaches
         `_expire_now` without waiting out a heartbeat. AC-0011 states the
         second of those as one poll interval.
+
+        **Liveness mark on the busy path.** The mark is also refreshed at each
+        successful heartbeat renewal so a worker executing a long step stays
+        reported healthy. Without the busy-path refresh a mark written only
+        between claims would age out during a model call — ``run_forever``
+        makes no passes while ``_execute`` runs — and the healthcheck would
+        fire against a working worker. AC-0331. The import is lazy for the
+        same reason as in ``run_forever``.
 
         Three orderings here are deliberate and each was got wrong once:
 
@@ -655,6 +673,8 @@ class Worker:
 
         # The heartbeat runs on a separate connection, so the renewal is not
         # queued behind whatever the step body is doing.
+        from ced.worker.liveness import refresh_mark as _refresh_mark
+
         with psycopg.connect(database_url("worker")) as heartbeat_conn:
             # Computed once. A wake that is neither stop nor completion must
             # not push the renewal out by another full interval.
@@ -721,6 +741,7 @@ class Worker:
 
                 try:
                     run_state = renew(heartbeat_conn, self.config, lease)
+                    _refresh_mark()  # AC-0331: busy-path mark
                 except Fenced:
                     log.warning("fenced on step %s — abandoning", lease.step_id)
                     if not stop_body("fence loss"):

@@ -70,7 +70,11 @@ from ced.adapters.framework_contract import (
 from ced.adapters.objectstore.client import write_payload
 from ced.adapters.objectstore.history import serialise_history
 from ced.adapters.postgres.dsn import database_url
-from ced.adapters.postgres.event_log import append_step_event, read_run_principal
+from ced.adapters.postgres.event_log import (
+    append_run_terminal,
+    append_step_event,
+    read_run_principal,
+)
 from ced.adapters.postgres.roles import (
     LoadedRole,
     RoleLoadError,
@@ -91,10 +95,11 @@ from ced.agents.toolsets import PolicyDecisionPoint
 from ced.agents.toolsets.step_events import StepContext, StepEventToolset
 from ced.worker.context import ContextAssemblyError, assemble_planning_context
 from ced.worker.pool import Lease, PoolConfig, StepBody
+from ced.worker.prerelease import check_prerelease_failed
 
 log = logging.getLogger("ced.worker.executor")
 
-__all__ = ["make_step_body"]
+__all__ = ["make_step_body", "offered_approval_gated_tools"]
 
 
 def _tool_manifest_hash(integrations: Sequence[Mapping[str, Any]]) -> str:
@@ -191,9 +196,25 @@ def _make_approval_toolset() -> FunctionToolset[Any]:
     return toolset
 
 
+def offered_approval_gated_tools(prerelease_failed: bool) -> list[FunctionToolset[Any]]:
+    """Return the list of toolsets the agent is offered at run time.
+
+    When the pre-release check passes (``prerelease_failed=False``) the list is
+    empty and the agent never sees the gated tool — satisfying the "no
+    unconditional approval gate" boundary (AC-0302, Boundaries § Never do).
+
+    When the check fails the list contains the approval toolset. The toolset is
+    built fresh per call so each run gets its own instance (ADR-0008: the gate
+    stays outside the compiled stack and is injected at run time).
+    """
+    if not prerelease_failed:
+        return []
+    return [_make_approval_toolset()]
+
+
 def _run_compiled_agent(
     compiled: CompiledRole,
-    approval_toolset: FunctionToolset[Any],
+    toolsets: list[FunctionToolset[Any]],
     cancellation_token: CancellationToken | None = None,
 ) -> Any:
     """Call ``agent.run_sync`` with the executor's bound, override, and token.
@@ -209,12 +230,17 @@ def _run_compiled_agent(
     alongside the role's own output type.  ``compiled.agent.output_type`` is
     unchanged (AC-0203's identity check in ``test_quarantined_role.py`` remains
     green).
+
+    ``toolsets`` is the list returned by ``offered_approval_gated_tools``: empty
+    for a clean run, one entry for a flagged run. Passing the list rather than a
+    single toolset avoids branching here and keeps the approval-gate decision in
+    one place.
     """
     return compiled.agent.run_sync(
         "Return an empty list of references.",
         usage_limits=compiled.limits,
         output_type=[compiled.agent.output_type, DeferredToolRequests],
-        toolsets=[approval_toolset],
+        toolsets=toolsets,
         cancellation_token=cancellation_token,
         # AC-0276: refuse any call that would reach a provider without disabling
         # reasoning.  The guard is at the 'innermost' ordering tier so it sees
@@ -291,16 +317,26 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 _producer_tuple(loaded, MODEL_ADAPTER_NAME, FETCH_ADAPTER_NAME)
             )
 
-            append_step_event(
-                conn,
-                run_id=lease.run_id,
-                step_id=lease.step_id,
-                lease_epoch=lease.epoch,
-                type="step.started",
-                principal=principal,
-                agent_role=role_name,
-                payload_ref=payload_ref,
-            )
+            # AC-0327: requested→running on step.started, committed together.
+            # The inner conn.transaction() inside append_step_event creates a
+            # SAVEPOINT under this outer transaction; both commit atomically
+            # when the outer with-block exits.
+            with conn.transaction():
+                conn.execute(
+                    "UPDATE runs SET state = 'running'"
+                    " WHERE run_id = %s AND state = 'requested'",
+                    (lease.run_id,),
+                )
+                append_step_event(
+                    conn,
+                    run_id=lease.run_id,
+                    step_id=lease.step_id,
+                    lease_epoch=lease.epoch,
+                    type="step.started",
+                    principal=principal,
+                    agent_role=role_name,
+                    payload_ref=payload_ref,
+                )
         # Connection is released here; no transaction is held during the call.
         # The two the step context holds are opened next and closed in the
         # outer finally, because a tool call records through them mid-run.
@@ -345,12 +381,18 @@ def make_step_body(config: PoolConfig) -> StepBody:
             deadline_timer = threading.Timer(config.step_deadline, token.cancel)
             deadline_timer.start()
 
+        # AC-0302: offer the gated tool only when the pre-release check fails.
+        # A clean role (no needs_approval flag) gets an empty toolset list, so
+        # the agent never sees the approval tool. A flagged role gets one entry.
+        prerelease_failed = check_prerelease_failed(loaded.role)
+        approval_toolsets = offered_approval_gated_tools(prerelease_failed)
+
         # Run the agent. Any exception is caught and recorded as step.failed.
         # The finally block disarms the deadline timer whether the run succeeds,
         # suspends, or fails — so a late-firing timer cannot discard a completed
         # step (AC-0232).
         try:
-            result = _run_compiled_agent(compiled, _make_approval_toolset(), token)
+            result = _run_compiled_agent(compiled, approval_toolsets, token)
         except Exception as exc:
             log.error("executor: agent run failed for step %s: %s", lease.step_id, exc)
             with psycopg.connect(database_url("worker")) as conn:
@@ -360,6 +402,18 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     step_id=lease.step_id,
                     lease_epoch=lease.epoch,
                     type="step.failed",
+                    principal=principal,
+                    agent_role=role_name,
+                )
+                # AC-0327: running→failed on run.failed. Same connection, own
+                # transaction. step_id is null — written by the path, not a
+                # predicate callers can violate (AC-0320).
+                append_run_terminal(
+                    conn,
+                    run_id=lease.run_id,
+                    step_id=lease.step_id,
+                    lease_epoch=lease.epoch,
+                    type="run.failed",
                     principal=principal,
                     agent_role=role_name,
                 )
@@ -399,12 +453,16 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     agent_role=role_name,
                     payload_ref=suspension_ref,
                 )
+                # AC-0333: set awaiting_decision so the claim predicate excludes
+                # this step until a decision commits. The step stays 'runnable'
+                # so AC-0237's resume path works and nothing has to move it back.
                 conn.execute(
                     """
                     UPDATE steps
                        SET state = 'runnable',
                            lease_expires_at = NULL,
-                           owner = NULL
+                           owner = NULL,
+                           awaiting_decision = true
                      WHERE step_id = %s
                        AND lease_epoch = %s
                        AND owner = %s
@@ -446,6 +504,15 @@ def make_step_body(config: PoolConfig) -> StepBody:
                         principal=principal,
                         agent_role=role_name,
                     )
+                    append_run_terminal(
+                        conn,
+                        run_id=lease.run_id,
+                        step_id=lease.step_id,
+                        lease_epoch=lease.epoch,
+                        type="run.failed",
+                        principal=principal,
+                        agent_role=role_name,
+                    )
                 return
             # Crash ordering: write the payload object before the fenced
             # append that references it.  A crash between the two leaves an
@@ -462,6 +529,17 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 principal=principal,
                 agent_role=role_name,
                 payload_ref=output_payload_ref,
+            )
+            # AC-0327: running→completed on run.completed, committed together
+            # with step.completed on the same connection (separate transactions).
+            append_run_terminal(
+                conn,
+                run_id=lease.run_id,
+                step_id=lease.step_id,
+                lease_epoch=lease.epoch,
+                type="run.completed",
+                principal=principal,
+                agent_role=role_name,
             )
 
     return body

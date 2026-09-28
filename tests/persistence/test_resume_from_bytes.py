@@ -126,11 +126,14 @@ _LIMITS: dict[str, int | bool] = {
 }
 
 #: Valid model settings for the test role — quarantined (empty ceiling).
+#: ``needs_approval: True`` ensures ``check_prerelease_failed`` returns ``True``
+#: so the executor offers the gated tool and ``TestModel`` can trigger suspension.
 _MODEL_SETTINGS = json.dumps(
     {
         "model_id": "stub:counting",
         "settings": {"max_tokens": 1024, "temperature": 0.0, "thinking": False},
         "limits": {},
+        "needs_approval": True,
     }
 )
 
