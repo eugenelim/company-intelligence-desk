@@ -791,16 +791,21 @@ the projection reports `requested`, the snapshot reports `running`, and they
 disagree — which is exactly the proof the plan pins. That proof is owed against
 the shipped path and is recorded under § Round 12 when it lands.
 
-**Layer 2 — what the substrate file currently does, stated accurately.**
-`tests/e2e/test_ac_0327_committed_run.py` fabricates each run with raw
-`INSERT INTO events` and `UPDATE runs SET state = …` under the `migration`
-role. It calls neither `append_run_terminal` nor `append_step_event`, so it
-establishes that the projection agrees with rows in the tables — not that it
-agrees with what the shipped append paths commit, and not AC-0327's
-"written together with its event, in one transaction" clause. Direct writes
-under the owner role are the path AC-0320 exists to make unreachable through
-the intended route, so describing them as "real runs" overstated what the file
-proves.
+**Layer 2 — the three raw-SQL fixtures in the substrate file, stated accurately.**
+Three tests in `tests/e2e/test_ac_0327_committed_run.py` fabricate runs with
+raw `INSERT INTO events` and `UPDATE runs SET state = …` under the `migration`
+role. They call neither `append_run_terminal` nor `append_step_event`, so they
+establish that the projection agrees with rows in the tables — not that it
+agrees with what the shipped append paths commit, and not AC-0327's "written
+together with its event, in one transaction" clause. Direct writes under the
+owner role are the path AC-0320 exists to make unreachable through the intended
+route, so describing them as "real runs" overstated what those three prove.
+
+The fourth test, `test_edge1_projection_agrees_with_snapshot`, drives the step
+through `make_step_body` with `Worker._execute`. It commits through the shipped
+`append_step_event` and `append_run_terminal` paths, so it does satisfy the
+"written together with its event, in one transaction" clause for edge 1. See §
+Round 12 Entry 3 for its mutation proof.
 
 ### AC-0328 and AC-0303: behavioural end-to-end proofs
 
@@ -1022,3 +1027,172 @@ count change since it was within an existing test); `main.py` pre-validation
 comment corrected.
 Cumulative net new from all Round 12 passes: 4 tests (fifth pass) + 4 tests
 (fourth pass net) over the 992 baseline = 22 tests total, same as before.
+
+---
+
+### Round 13 — adversarial-reviewer adjudication `12-t2-adversarial-reviewer-adjudication.md`
+
+Finding-15 (plan-changelog placement) was refuted by the adjudicator and is
+not recorded here.
+
+**Entry 1 — AC-0330 coverage: three new substrate tests.**
+Three tests added to `tests/suspension/test_the_gate_is_conditional.py`:
+
+*Test A — `test_rejected_tool_body_does_not_run_on_resume`.* Suspends a step,
+reads the `payload_ref` and `pending_call_ids`, commits `APPROVAL_REJECTED` for
+every call, re-claims the step, patches `ced.worker.persistence.request_approval`
+with a spy decorated with `@functools.wraps(_real_request_approval)` (so the
+spy carries `__name__ = "request_approval"` for pydantic_ai tool-name matching),
+then calls `resume_step`. Asserts `not body_called.is_set()`.
+
+Mutation verified (install → red → restore): replaced line 142 of
+`src/ced/worker/persistence.py` (the return in `approval_results_for_cycle`)
+with `return {cid: True for cid in pending_call_ids}`. The approval map now
+maps every call to `True`; pydantic_ai re-executes the deferred call; the spy
+fires; `assert not body_called.is_set()` reds. Restored.
+
+*Test B — `test_refused_resume_commits_step_failed_and_run_failed`.* Suspends a
+step, reads `payload_ref`. Does **not** commit a decision; manually clears
+`awaiting_decision = false` via the migration role without touching
+`approval_cycles` (leaving `cycle = 0`). Re-claims the step. Calls `resume_step`
+— which calls `approval_results_for_cycle(step_id, 0, ...)`, which raises
+`LookupError("below 1")` immediately. Asserts that `"step.failed"` and
+`"run.failed"` appear in the event log for the run.
+
+Mutation verified: commented out the `append_step_event("step.failed")` call in
+`persistence.py`'s `except LookupError` block. `assert "step.failed" in
+event_types` reds. Restored.
+
+*Test C — repeated-poll-after-refusal pinned inside test B.* After the
+LookupError path fires, the test reads `event_count_before` and calls
+`claim_one` three more times against the refused step (now
+`awaiting_decision = false` but no live lease). Asserts that
+`event_count_after == event_count_before`. Pinned inside `test_refused_resume_commits_step_failed_and_run_failed`.
+
+`functools` added to imports; `_real_request_approval` imported as
+`from ced.agents.tools.approval import request_approval as
+_real_request_approval`.
+
+**Entry 2 — busy-path probe threshold corrected.**
+`tests/worker/test_liveness.py` busy-path test called `probe(mark)` with the
+default `lease_ttl_seconds=120`. The threshold is `0.5 * lease_ttl_seconds`,
+so a 120-second TTL means the threshold is 60 seconds — the mark file would
+never be stale enough to trip "stalled" during the test, but also the test
+waited for the wrong bound. Fixed to `probe(mark, lease_ttl_seconds=TTL)` where
+`TTL = 10` (defined at module level), giving a threshold of 5 seconds and
+matching the 6-second stale mark the test creates.
+
+**Entry 3 — ledger busy-path paragraph corrected.**
+The paragraph in Round 12 described the intended behavior (probe sees a
+recently-written mark and returns `busy`) but the test had not been exercising
+it correctly — `probe(mark)` used the 120-second default. The paragraph is now
+accurate: the fix in Entry 2 makes the test exercise exactly the described
+path.
+
+**Entry 4 — pre-revision-0005 claimability: new substrate test.**
+`test_a_pre_revision_0005_step_row_is_claimable_after_upgrade` added to
+`tests/schema/test_migration_applies.py`. Uses `_probe_database`,
+`_replay_provisioning`, and `_alembic` helpers. Creates a probe database,
+upgrades to revision 0002, inserts a `steps` row (no `awaiting_decision`
+column yet), upgrades to `head`, then calls `claim_one` via the worker role
+against the probe database and asserts `lease is not None` and
+`lease.step_id == step_id`.
+
+Mutation verified: edited revision `0005_run_state_paths.py` to make
+`awaiting_decision` nullable with no `DEFAULT` instead of `NOT NULL DEFAULT
+false`. Pre-existing rows carry `NULL`; `AND NOT awaiting_decision` evaluates to
+`NULL`; `claim_one` excludes the row; `assert lease is not None` reds. Restored.
+
+**Entry 5 — Layer 2 paragraph scoped.**
+The Round 11 Layer 2 paragraph described all four tests in
+`tests/e2e/test_ac_0327_committed_run.py` as raw-SQL fixtures. The paragraph
+now correctly scopes to the three that fabricate with raw `INSERT INTO events`
+and `UPDATE runs SET state`. The fourth test (`test_edge1_projection_agrees_with_snapshot`)
+drives through `make_step_body` and commits through the shipped append paths;
+it is not Layer 2 and is noted as such.
+
+**Entry 6 — `ced-liveness` command-line argument.**
+`AGENTS.md` § Running the two deployables does not document a path argument
+for `ced-liveness`. The liveness module's `run()` function now reads
+`sys.argv[1]` when `path` is `None`, so `ced-liveness /path/to/mark` works
+from the command line without source changes. The default stays `None` when
+called without arguments (original test coverage unaffected). T2's `Touches`
+field was widened (see Entry 7).
+
+**Entry 7 — owner decision: `AGENTS.md` named in T2 Touches.**
+T2's `Touches` in `docs/specs/walking-skeleton-run-state/plan.md` was widened
+to include `AGENTS.md`. This records the decision that T2 owns the argv change
+in `liveness.py` and its documentation in `AGENTS.md`. No convention or
+published interface changed; the decision was made by the implementer as an
+in-scope scope clarification and recorded here per the bundled-fixes carve-out.
+
+**Entry 8 — repeated-poll-against-undecided-step: event-count and lease-epoch assertions.**
+`test_repeated_poll_against_undecided_step_appends_nothing_and_consumes_no_lease`
+now reads `event_count_before` and `epoch_before` before the three-poll loop
+and `event_count_after` and `epoch_after` after it, asserting both unchanged.
+
+Mutation verified: negated `AND NOT awaiting_decision` in the `claim_one` SQL
+(changing it to `AND awaiting_decision`). The awaiting step is now claimed by
+`claim_one`, bumping `lease_epoch`. The existing inner identity assertion fires
+first at poll 0 (the returned lease's step_id is the awaiting step rather than
+`None`), making the test red. The epoch assertion would also red if the inner
+one were absent.
+
+**Entry 9 — API pre-validation block deleted.**
+Lines 250–278 of `src/ced/api/main.py` (a `SELECT` that re-checked
+`awaiting_decision` and `suspension_seq` before calling
+`append_approval_decision`) were deleted. The SECURITY DEFINER function
+`append_approval_decision` enforces these predicates internally and raises a
+`RAISE EXCEPTION` visible to the caller if they are not met; the pre-validation
+was redundant and masked the definer's own error. The delete was already
+recorded in the plan.
+
+**Entry 10 — run-stays-running residual: deferred to T4.**
+Two paths leave `runs.state = 'running'` when only the step finishes:
+
+1. Generic agent failure (`step.failed` + no `run.failed`).
+2. Role compilation refused on quarantine (`step.failed` + no `run.failed`).
+
+Both are known gaps against AC-0321 (the run transitions to a terminal state).
+Neither path is exercised by T2's artifact set. Recording here so T4 can pick
+them up explicitly; no code change in T2.
+
+**Entry 11 — dead `else` arm deleted from `executor.py`.**
+The `else` arm at lines 709–715 of `src/ced/worker/executor.py` wrote
+`{"schema_version": 1}` to the object store for non-quarantined roles. But
+AC-0301's artifact path always goes through the quarantine branch (ceiling
+compiled to the empty set on quarantine, so the schema-version payload is
+written there). The non-quarantine branch writes a `DeferredToolRequests` or
+`CompiledRole.output_type` result, never a bare schema-version dict. The arm
+was dead code; deleted.
+
+**Entry 12 — stalled-verdict race eliminated.**
+The stalled-path test in `tests/worker/test_liveness.py` previously called
+`probe(mark)` in a thread and relied on the liveness loop having not yet called
+`claim_one` by the time the assertion ran — a timing race. Fixed by patching
+`ced.worker.pool.claim_one` with `_hold_then_claim`: a replacement that signals
+`loop_held` (so the test thread knows the loop is blocked inside `claim_one`)
+and then waits on `loop_resume` before returning. The test sets the mark stale,
+signals `loop_resume`, then calls `probe`. The loop is guaranteed to be inside
+the `claim_one` call when `probe` runs, making the stalled verdict deterministic.
+
+**Entry 13 — two files without substrate mark identified and noted.**
+`tests/thinking_reaches_the_model/test_no_path_re_enables_reasoning.py` and
+`tests/usage_limits/test_usage_limits_in_force.py` lack the `substrate` marker.
+Both are forced into the offline suite by `[tool.pytest.ini_options]
+`filterwarnings` handling rather than by marker. No change made; the absence of
+the marker is the intended design (they run offline via `TestModel`). Noted for
+the record.
+
+**Entry 14 — no-op `INSERT INTO runs ... WHERE false` deleted.**
+A five-line `INSERT INTO runs (run_id, state, next_seq) VALUES (...) WHERE
+false` block inside the repeated-poll test's initial setup transaction was
+deleted. It was a remnant from an earlier draft and had no effect on the schema
+or the step row.
+
+**Gates after Round 13 (2026-09-28):**
+`ruff format --check`, `ruff check`, `mypy` all clean.
+**999 passed, 3 skipped** (full suite, substrate reachable, 234.57 s).
+Net new: 3 substrate tests (Entry 1 A + B/C, Entry 4) over the 996 baseline.
+Repository checks clean: `lint-no-identifiers.py --staged`, `lint-intents.py`,
+`pre-pr.py`, `lint-spec-status.py --root . --all`.

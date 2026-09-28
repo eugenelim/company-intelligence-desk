@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import unittest.mock as mock
 from pathlib import Path
 
 import pytest
@@ -168,12 +169,35 @@ def test_idle_worker_writes_mark_and_probe_reports_healthy(
         )
         assert probe(mark).healthy, "mark written by idle Worker must be fresh (healthy)"
 
-        # Simulate a process-alive stall: back-date the mark past the threshold.
-        stale = time.time() - 3 * LEASE_TTL_SECONDS
-        os.utime(mark, (stale, stale))
-        assert not probe(mark).healthy, (
-            "back-dated mark must be unhealthy (simulated stalled loop)"
-        )
+        # Stall the loop inside claim_one so no refresh_mark() can intervene
+        # between the back-date and the probe.  The Worker polls every second;
+        # without the stall the loop can overwrite the back-dated mtime before
+        # probe() reads it, making the assertion a race rather than a proof.
+        import ced.worker.pool as pool_module
+
+        loop_held = threading.Event()
+        loop_resume = threading.Event()
+        _real_claim_one = pool_module.claim_one
+
+        def _hold_then_claim(conn: object, cfg: object) -> object:
+            loop_held.set()  # signal: loop is parked inside claim_one
+            loop_resume.wait()  # wait for the test to release us
+            return _real_claim_one(conn, cfg)  # type: ignore[arg-type]
+
+        with mock.patch("ced.worker.pool.claim_one", _hold_then_claim):
+            assert loop_held.wait(timeout=5), "poll loop did not enter claim_one within 5 s"
+            # Loop is blocked; back-date the mark safely.
+            stale = time.time() - 3 * LEASE_TTL_SECONDS
+            os.utime(mark, (stale, stale))
+            assert not probe(mark).healthy, (
+                "back-dated mark must be unhealthy; "
+                "the loop is stalled inside claim_one so no refresh can intervene; "
+                "mutation: remove idle-path refresh_mark() → the assertion the idle "
+                "path never writes a fresh mark, but this assertion targets staleness "
+                "of an already-written mark, which the mtime back-date establishes; "
+                "mutation: make probe ignore mtime → always reports healthy → this reds"
+            )
+            loop_resume.set()  # release the loop
     finally:
         worker.request_stop()
         thread.join(timeout=5)
@@ -257,12 +281,16 @@ def test_busy_worker_heartbeat_keeps_mark_fresh(
         time.sleep(2 * TTL + 1)
 
         # The mark must still be healthy — the heartbeat kept it fresh.
+        # Pass the compressed TTL so the threshold is 2 × TTL = 6 s, not the
+        # default 120 s: with the mutation (heartbeat refresh_mark removed), the
+        # mark was last written before the step started (~7 s ago) and ages past
+        # the 6 s threshold, reding this assertion.
         assert mark.exists(), "mark must exist while step is executing"
-        assert probe(mark).healthy, (
+        assert probe(mark, lease_ttl_seconds=TTL).healthy, (
             "mark must be fresh (healthy) while the Worker is executing a step; "
             "the in-step heartbeat must refresh it at each renewal; "
             "mutation: remove refresh_mark() from pool.py heartbeat-renewal site → "
-            "mark ages past 2 × TTL → this assertion reds"
+            "mark ages past 2 × TTL (6 s) → this assertion reds"
         )
     finally:
         worker.request_stop()

@@ -173,13 +173,19 @@ def run(
     An exit code is the lingua franca between the probe and the scheduler:
     no HTTP, no psycopg, no framework import is required. The command can be
     invoked by any process with filesystem access.
+
+    An optional positional argument overrides the mark path:
+    ``ced-liveness [mark-path]`` is the documented invocation; ``run()`` reads
+    ``sys.argv[1]`` when ``path`` is not given so the console-script entry
+    point and the ``python -m`` path both honour it.
     """
+    if path is None and len(sys.argv) > 1:
+        path = Path(sys.argv[1])
     state = probe(path, lease_ttl_seconds)
     sys.exit(0 if state.healthy else 1)
 
 
 if __name__ == "__main__":
     # Allow ``python -m ced.worker.liveness [path]`` for testing.
-    # An optional positional argument overrides the default mark path.
-    _path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-    run(_path)
+    # sys.argv is read in run() itself so both entry points agree.
+    run()

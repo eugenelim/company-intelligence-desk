@@ -706,13 +706,6 @@ def make_step_body(config: PoolConfig) -> StepBody:
             # append that references it.  A crash between the two leaves an
             # unreferenced object rather than a dangling payload_ref.
             output_payload_ref = write_payload({"references": refs})
-        else:
-            # Entry 13 (adjudication): non-quarantined roles must also carry a
-            # payload_ref on step.completed so AC-0301 is satisfiable. Write
-            # a minimal schema_version stub before the fenced append (crash
-            # ordering: an unreferenced object is less harmful than a dangling
-            # payload_ref).
-            output_payload_ref = write_payload({"schema_version": 1})
 
         with psycopg.connect(database_url("worker")) as conn:
             append_step_event(

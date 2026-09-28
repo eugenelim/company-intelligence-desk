@@ -27,6 +27,7 @@ events; the rejected call's body must not execute.
 
 from __future__ import annotations
 
+import functools
 import json
 import threading
 import unittest.mock as mock
@@ -40,11 +41,17 @@ import pytest
 from ced.adapters.postgres.dsn import database_url
 from ced.adapters.postgres.event_log import (
     append_approval_decision,
+    read_events,
     start_run,
 )
+from ced.agents.tools.approval import request_approval as _real_request_approval
 from ced.domain.events import APPROVAL_GRANTED, APPROVAL_REJECTED
 from ced.worker.executor import _StepBodyFailed, make_step_body
-from ced.worker.persistence import approval_results_for_cycle
+from ced.worker.persistence import (
+    approval_results_for_cycle,
+    load_suspension_payload,
+    resume_step,
+)
 from ced.worker.pool import Lease, PoolConfig, Worker, claim_one
 
 # ── pure offered-list function (AC-0302) ─────────────────────────────────────
@@ -595,11 +602,6 @@ def test_repeated_poll_against_undecided_step_appends_nothing_and_consumes_no_le
                 " VALUES (%s, %s, 'runnable', true, %s)",
                 (step_id, run_id, pool_class),
             )
-            conn.execute(
-                "INSERT INTO runs (run_id, state, next_seq)"
-                " SELECT %s, 'running', 0 WHERE false",
-                (run_id,),
-            )
 
     # A second runnable step (not awaiting) ensures the pool is not empty
     run2_id = uuid.uuid4()
@@ -627,6 +629,21 @@ def test_repeated_poll_against_undecided_step_appends_nothing_and_consumes_no_le
             pool_class=pool_class,
         )
 
+        # Read baseline event count and lease_epoch before any polls.
+        # spec.md:178: "a worker polling repeatedly against the undecided step
+        # appends nothing and consumes no lease."
+        with psycopg.connect(database_url("migration")) as conn:
+            event_count_before = int(
+                conn.execute(
+                    "SELECT count(*) FROM events WHERE run_id = %s", (run_id,)
+                ).fetchone()[0]
+            )
+            epoch_before = int(
+                conn.execute(
+                    "SELECT lease_epoch FROM steps WHERE step_id = %s", (step_id,)
+                ).fetchone()[0]
+            )
+
         with psycopg.connect(database_url("worker")) as conn:
             # Three polls. The undecided step must never appear; the runnable
             # step2 may appear but step1 must never.
@@ -646,6 +663,34 @@ def test_repeated_poll_against_undecided_step_appends_nothing_and_consumes_no_le
                     )
                     conn.commit()
 
+        # Assert that no events were appended and the lease was not consumed.
+        # Mutation that must red (lease_epoch): negate 'AND NOT awaiting_decision'
+        # in claim_one — the awaiting step is claimed, lease_epoch advances for
+        # each poll, and the epoch assertion reds. (The inner identity assertion
+        # above also reds on this mutation; the epoch assertion provides the same
+        # coverage independently, so either alone would catch it.)
+        with psycopg.connect(database_url("migration")) as conn:
+            event_count_after = int(
+                conn.execute(
+                    "SELECT count(*) FROM events WHERE run_id = %s", (run_id,)
+                ).fetchone()[0]
+            )
+            epoch_after = int(
+                conn.execute(
+                    "SELECT lease_epoch FROM steps WHERE step_id = %s", (step_id,)
+                ).fetchone()[0]
+            )
+        assert event_count_after == event_count_before, (
+            f"repeated polls must append no events; before={event_count_before}, "
+            f"after={event_count_after}"
+        )
+        assert epoch_after == epoch_before, (
+            f"repeated polls must not consume the lease; lease_epoch before={epoch_before}, "
+            f"after={epoch_after}; "
+            "mutation: negate 'AND NOT awaiting_decision' in claim_one → awaiting step "
+            "claimed → lease_epoch advances → this assertion reds"
+        )
+
         # The undecided step still has its original awaiting_decision=true.
         with psycopg.connect(database_url("migration")) as conn:
             row = conn.execute(
@@ -661,3 +706,284 @@ def test_repeated_poll_against_undecided_step_appends_nothing_and_consumes_no_le
             conn.execute("DELETE FROM steps WHERE run_id IN (%s, %s)", (run_id, run2_id))
             conn.execute("DELETE FROM runs WHERE run_id IN (%s, %s)", (run_id, run2_id))
             conn.commit()
+
+
+# ── AC-0330: resume path — rejection non-execution, refusal, post-refusal ─────
+
+
+@pytest.mark.substrate
+def test_rejected_tool_body_does_not_run_on_resume(require_substrate: None) -> None:
+    """AC-0330: a rejected deferred call does not invoke the tool body on resume.
+
+    Suspends a step, commits APPROVAL_REJECTED for all pending calls, re-claims
+    the step, patches ``request_approval`` with a spy, then calls ``resume_step``.
+    With all calls rejected, pydantic_ai delivers the rejection to the model
+    without executing the tool body — the spy must not fire.
+
+    Mutation that must red: replace the ``approval_results_for_cycle`` return
+    with ``{cid: True for cid in pending_call_ids}`` (all approved) at
+    persistence.py — pydantic_ai re-executes the deferred call, the spy fires,
+    and ``not body_called.is_set()`` reds.
+    """
+    from pydantic_ai.models.test import TestModel
+
+    _POOL_CLASS = "t2-ac0330-rejection"
+    _ROLE = "t2-ac0330-rejection-role"
+
+    config = PoolConfig(
+        worker_id="t2-ac0330-rejection-worker",
+        default_limits=_GATE_LIMITS,
+        allowed_model_ids=("stub:counting",),
+        non_provider_model_ids=("stub:counting",),
+        model_factory=lambda _: TestModel(call_tools=["request_approval"]),
+        pool_class=_POOL_CLASS,
+    )
+
+    run_id, step_id, lease = _insert_role_and_step(
+        needs_approval=True, role_name=_ROLE, pool_class=_POOL_CLASS, config=config
+    )
+
+    try:
+        # Suspend the step (TestModel calls request_approval → executor suspends).
+        make_step_body(config)(lease, threading.Event())
+
+        # Read the suspension event to get payload_ref and suspension_seq.
+        with psycopg.connect(database_url("worker")) as conn:
+            events = read_events(conn, run_id=run_id)
+        suspended_events = [e for e in events if e.type == "step.suspended"]
+        assert len(suspended_events) == 1, (
+            f"expected one suspension, got {[e.type for e in events]}"
+        )
+        payload_ref = suspended_events[0].payload_ref
+        suspension_seq = suspended_events[0].seq
+        assert payload_ref is not None, "step.suspended must carry a payload_ref"
+
+        # Read pending_call_ids from the suspension payload.
+        _, pending_call_ids = load_suspension_payload(payload_ref)
+
+        # Commit APPROVAL_REJECTED for every pending call.
+        with psycopg.connect(database_url("api")) as conn:
+            append_approval_decision(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                call_ids=pending_call_ids,
+                decisions=[APPROVAL_REJECTED] * len(pending_call_ids),
+                principal=_GATE_PRINCIPAL,
+                suspension_seq=suspension_seq,
+            )
+
+        # Re-claim the step (awaiting_decision was cleared by the decision commit).
+        resume_config = PoolConfig(
+            worker_id="t2-ac0330-rejection-resume-worker",
+            default_limits=_GATE_LIMITS,
+            allowed_model_ids=("stub:counting",),
+            non_provider_model_ids=("stub:counting",),
+            model_factory=lambda _: TestModel(custom_output_args={"references": []}),
+            pool_class=_POOL_CLASS,
+        )
+        with psycopg.connect(database_url("worker")) as conn:
+            new_lease = claim_one(conn, resume_config)
+        assert new_lease is not None and new_lease.step_id == step_id, (
+            "claim_one must return the step after the decision clears awaiting_decision"
+        )
+
+        # Spy on request_approval: the body must not run when approval is False.
+        # functools.wraps copies __name__ so pydantic_ai can match the deferred
+        # call (stored as 'request_approval') back to the spy function.
+        body_called = threading.Event()
+
+        @functools.wraps(_real_request_approval)
+        def _spy() -> None:
+            body_called.set()
+
+        pool_map: dict[str, Any] = {
+            "default_limits": dict(_GATE_LIMITS),
+            "allowed_model_ids": ("stub:counting",),
+            "non_provider_model_ids": ("stub:counting",),
+            "model_factory": lambda _: TestModel(custom_output_args={"references": []}),
+        }
+
+        with mock.patch("ced.worker.persistence.request_approval", _spy):
+            resume_step(
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=new_lease.epoch,
+                role_name=_ROLE,
+                role_version=1,
+                payload_ref=payload_ref,
+                pool_map=pool_map,
+            )
+
+        assert not body_called.is_set(), (
+            "request_approval body must not be called when all tool calls are rejected; "
+            "mutation: replace approval_results_for_cycle return with {cid: True for all} → "
+            "pydantic_ai re-executes the deferred call → spy fires → this assertion reds"
+        )
+    finally:
+        _cleanup_run(run_id)
+
+
+@pytest.mark.substrate
+def test_refused_resume_commits_step_failed_and_run_failed(require_substrate: None) -> None:
+    """AC-0330: resume with no committed decision appends step.failed and run.failed.
+
+    Suspends a step then bypasses the decision gate (manually clears
+    awaiting_decision without committing any decision), leaving approval_cycles=0.
+    resume_step reads cycle=0, calls approval_results_for_cycle which raises
+    LookupError (cycle < 1), catches it, appends the terminal pair, and re-raises.
+
+    After the three-poll check (Test C of the adjudicator entry), no additional
+    events and no lease advance must be observed.
+
+    Mutation that must red (step.failed): delete the append_step_event('step.failed')
+    call in persistence.py's refusal branch → step.failed absent → reds.
+    Mutation that must red (run.failed): delete append_run_terminal('run.failed') →
+    run.failed absent → reds.
+    Mutation that must red (lease_epoch, post-refusal poll): if the refusal path
+    set steps.state='runnable' (a bug), claim_one would re-claim the step →
+    lease_epoch advances → reds.
+    """
+    from pydantic_ai.models.test import TestModel
+
+    _POOL_CLASS = "t2-ac0330-refusal"
+    _ROLE = "t2-ac0330-refusal-role"
+
+    config = PoolConfig(
+        worker_id="t2-ac0330-refusal-worker",
+        default_limits=_GATE_LIMITS,
+        allowed_model_ids=("stub:counting",),
+        non_provider_model_ids=("stub:counting",),
+        model_factory=lambda _: TestModel(call_tools=["request_approval"]),
+        pool_class=_POOL_CLASS,
+    )
+
+    run_id, step_id, lease = _insert_role_and_step(
+        needs_approval=True, role_name=_ROLE, pool_class=_POOL_CLASS, config=config
+    )
+
+    try:
+        # Suspend the step.
+        make_step_body(config)(lease, threading.Event())
+
+        # Read payload_ref from the step.suspended event.
+        with psycopg.connect(database_url("worker")) as conn:
+            events_after_suspend = read_events(conn, run_id=run_id)
+        suspended_events = [e for e in events_after_suspend if e.type == "step.suspended"]
+        assert len(suspended_events) == 1, (
+            f"expected one suspension, got {[e.type for e in events_after_suspend]}"
+        )
+        payload_ref = suspended_events[0].payload_ref
+        assert payload_ref is not None
+
+        # Do NOT commit any decision.  Manually clear awaiting_decision so
+        # claim_one can reclaim the step.  This leaves approval_cycles=0, which
+        # resume_step passes to approval_results_for_cycle as cycle=0 — a cycle
+        # below 1, which raises LookupError immediately (the "below 1" guard).
+        with psycopg.connect(database_url("migration")) as conn:
+            conn.execute(
+                "UPDATE steps SET awaiting_decision = false WHERE step_id = %s",
+                (step_id,),
+            )
+            conn.commit()
+
+        # Re-claim the step.
+        resume_config = PoolConfig(
+            worker_id="t2-ac0330-refusal-resume-worker",
+            default_limits=_GATE_LIMITS,
+            allowed_model_ids=("stub:counting",),
+            non_provider_model_ids=("stub:counting",),
+            model_factory=lambda _: None,
+            pool_class=_POOL_CLASS,
+        )
+        with psycopg.connect(database_url("worker")) as conn:
+            new_lease = claim_one(conn, resume_config)
+        assert new_lease is not None and new_lease.step_id == step_id, (
+            "claim_one must return the step after awaiting_decision is cleared"
+        )
+
+        pool_map: dict[str, Any] = {
+            "default_limits": dict(_GATE_LIMITS),
+            "allowed_model_ids": ("stub:counting",),
+            "non_provider_model_ids": ("stub:counting",),
+            "model_factory": lambda _: None,
+        }
+
+        # resume_step must raise (no committed decision for cycle 0).
+        with pytest.raises(LookupError):
+            resume_step(
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=new_lease.epoch,
+                role_name=_ROLE,
+                role_version=1,
+                payload_ref=payload_ref,
+                pool_map=pool_map,
+            )
+
+        # Both terminal events must be in the log.
+        with psycopg.connect(database_url("worker")) as conn:
+            events_after_refusal = read_events(conn, run_id=run_id)
+        event_types = {e.type for e in events_after_refusal}
+        assert "step.failed" in event_types, (
+            f"step.failed must be appended on resume refusal; got {event_types}; "
+            "mutation: delete append_step_event('step.failed') in persistence.py "
+            "refusal branch → absent → reds"
+        )
+        assert "run.failed" in event_types, (
+            f"run.failed must be appended on resume refusal; got {event_types}; "
+            "mutation: delete append_run_terminal('run.failed') in persistence.py "
+            "refusal branch → absent → reds"
+        )
+
+        # Test C (repeated poll after refusal): additional polls must append no
+        # events and must not advance the lease.  The step is still 'leased' with
+        # a live lease; claim_one's OR branch (expired-lease recovery) does not
+        # apply, so no claim is possible.  A mutation that sets steps.state =
+        # 'runnable' in the refusal branch would make the step immediately
+        # claimable, bumping lease_epoch and reding the epoch assertion.
+        event_count_before = len(events_after_refusal)
+        with psycopg.connect(database_url("migration")) as conn:
+            epoch_before = int(
+                conn.execute(
+                    "SELECT lease_epoch FROM steps WHERE step_id = %s", (step_id,)
+                ).fetchone()[0]
+            )
+
+        poll_config = PoolConfig(
+            worker_id="t2-ac0330-refusal-poll-worker",
+            default_limits=_GATE_LIMITS,
+            allowed_model_ids=("stub:counting",),
+            non_provider_model_ids=("stub:counting",),
+            model_factory=lambda _: None,
+            pool_class=_POOL_CLASS,
+        )
+        with psycopg.connect(database_url("worker")) as conn:
+            for _ in range(3):
+                claimed = claim_one(conn, poll_config)
+                assert claimed is None, (
+                    "claim_one must not return the step after a refused resume; "
+                    "the step is leased with a live lease and must not be reclaimed"
+                )
+
+        with psycopg.connect(database_url("worker")) as conn:
+            events_after_polls = read_events(conn, run_id=run_id)
+        event_count_after = len(events_after_polls)
+        with psycopg.connect(database_url("migration")) as conn:
+            epoch_after = int(
+                conn.execute(
+                    "SELECT lease_epoch FROM steps WHERE step_id = %s", (step_id,)
+                ).fetchone()[0]
+            )
+        assert event_count_after == event_count_before, (
+            f"repeated polls after refusal must append no events; "
+            f"before={event_count_before}, after={event_count_after}"
+        )
+        assert epoch_after == epoch_before, (
+            f"repeated polls after refusal must not advance the lease; "
+            f"epoch before={epoch_before}, after={epoch_after}; "
+            "mutation: set steps.state='runnable' in the refusal branch → "
+            "step immediately claimable → claim_one bumps lease_epoch → reds"
+        )
+    finally:
+        _cleanup_run(run_id)
