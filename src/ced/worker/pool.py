@@ -263,6 +263,20 @@ class PoolConfig:
     #: The evidence spec measures the calibration; this spec asserts the bound
     #: holds against whatever value is configured.
     step_deadline: float | None = None
+    #: AC-0321: r5 line 607 fixes the cap at three cycles (arbitrarily
+    #: uncalibrated in Phase 1).  A deployment that sets nothing still gets a
+    #: bounded loop; AC-0329 records that the value is owed to the first
+    #: delivery with real cycle data.
+    approval_cycle_cap: int = 3
+    #: AC-0325: per-run spend ceiling.  **Phase 1 unit mismatch**: the field is
+    #: named in tokens but the executor compares it against ``runs.next_seq``,
+    #: which counts total events for the run — not token usage.  No migration
+    #: in this delivery adds a per-step token column, and the executor reads no
+    #: ``RunUsage`` object, so there is no persisted token count to read.
+    #: ``next_seq`` was the only durable, queryable proxy available.  At the
+    #: default of 200 000 the control is inert for any producible single-step
+    #: run.  AC-0329 routes this mismatch to T4 for a replacement metric.
+    per_run_token_ceiling: int = 200_000
 
 
 def _parse_json_variable(env: Mapping[str, str], name: str) -> object:

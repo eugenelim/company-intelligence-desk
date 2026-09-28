@@ -1283,3 +1283,111 @@ sealed before them. A plan that seals its baseline before wave 1 cannot contain
 a task that edits the plan or the spec without this recovery. Either keep
 record-writing tasks out of those two files, or seal after the wave that edits
 them.
+
+## T3 — the loop and the spend are bounded
+
+**Date:** 2026-09-28. **Mode:** TDD.
+
+**What was produced.** Two new fields on `PoolConfig` (`approval_cycle_cap`,
+`per_run_token_ceiling`), a cycle-cap check in the executor's fresh/resume
+router, a spend-ceiling flag-and-page in the executor's fresh path, two
+pinned stubs in `tests/worker/test_pool_configuration.py`, one behavioral
+substrate test in `tests/suspension/test_the_gate_is_conditional.py`, and one
+behavioral substrate test in `tests/usage_limits/test_usage_limits_in_force.py`.
+
+**Stub red/green sequence.**
+
+- `test_the_cycle_cap_configuration_carries_a_finite_default`: red before adding
+  `approval_cycle_cap: int = 3` to `PoolConfig` (AttributeError); green after.
+- `test_the_per_run_spend_ceiling_carries_a_finite_default`: red before adding
+  `per_run_token_ceiling: int = 200_000` to `PoolConfig` (AttributeError); green
+  after.
+
+**Mutation proofs.**
+
+1. **Cap check removal (AC-0321 behavioral test).** Deleted the entire
+   `if approval_cycles >= config.approval_cycle_cap:` block in `executor.py`.
+   `test_the_cycle_cap_fires_across_a_handoff` failed: Worker B routed to
+   `_body_resume` instead of firing the cap; `step.failed` was absent from the
+   log. Break predicate: `"step.failed" in event_types`. Restored.
+
+2. **`approval_cycle_cap` default nulled (AC-0321 stub).** Changed
+   `approval_cycle_cap: int = 3` to `approval_cycle_cap: int | None = None` in
+   `PoolConfig`. The class remains constructible. The stub's
+   `assert cap is not None and cap > 0` failed with
+   `assert (None is not None)`. Break predicate: the `is not None` clause of the
+   stub's own assertion. Restored.
+
+3. **Spend check removal (AC-0325 behavioral test).** Replaced the `seq_row`
+   read and `_spend_ceiling_reached` assignment with
+   `_spend_ceiling_reached = False` in `executor.py`.
+   `test_the_spend_ceiling_pages_rather_than_aborting` failed: the ceiling page
+   event was never appended; `step.spend.ceiling.reached` was absent from the
+   log. Break predicate: `"step.spend.ceiling.reached" in event_types`. Restored.
+
+4. **`per_run_token_ceiling` default nulled (AC-0325 stub).** Changed
+   `per_run_token_ceiling: int = 200_000` to
+   `per_run_token_ceiling: int | None = None` in `PoolConfig`. The class remains
+   constructible. The stub's `assert ceiling is not None and ceiling > 0` failed
+   with `assert (None is not None)`. Break predicate: the `is not None` clause
+   of the stub's own assertion. Restored.
+
+**AC-0325 spend metric — forced substitution, unit mismatch, T4 routing.**
+
+The plan's T3 section does not mention `runs.next_seq`; that name appears zero
+times in `plan.md`. The choice to measure spend by event count is a keyboard
+decision, not one the plan sanctioned. The decision is forced and correct:
+
+- No migration in this delivery adds a per-step token column to any table.
+- The executor reads no `RunUsage` object after the agent returns; pydantic-ai
+  exposes per-request usage in `result.usage()`, but the executor does not store
+  it anywhere durable between a step completion and the next claim.
+- `runs.next_seq` is the only durable, queryable proxy available without a
+  schema change.
+
+What this costs: `per_run_token_ceiling` is named in tokens and defaults to
+200 000, but the executor compares it against `runs.next_seq`, which counts
+total events — not token usage. The units differ by orders of magnitude, so a
+run would need two hundred thousand events to trip a ceiling nominally about
+spend. The control is inert for any producible single-step run. The field name
+is contract — it is pinned byte-for-byte in the plan's stub — so it cannot be
+renamed here to match the metric; the tension is instead recorded in the field's
+own docstring (see `src/ced/worker/pool.py`) and here.
+
+**Routed to T4 as an AC-0329 residual.** The ceiling is configured in tokens
+and enforced on event count. T4's record must name this alongside Entry 10's
+run-stays-running paths and Entry 11b's resume-path stub. The observable: any
+deployment that reads the field's name and sets a value expecting it to bound
+token spend will find it has no effect until the metric is replaced.
+
+**Final gate run.** 1003 passed, 3 skipped (substrate, full suite; substrate
+reachable). Baseline before T3 was 1001 passed, 3 skipped; the two new
+substrate tests account for the difference. Offline suite: 691 passed,
+315 deselected. All repository checks clean: `lint-no-identifiers`,
+`lint-intents`, `pre-pr`, `lint-spec-status`.
+
+**One transient full-suite failure, recorded because a green re-run is not the
+whole story.** Taking T3's gate evidence, the first full run came back
+`10 failed, 989 passed, 3 skipped, 4 errors`, every failure the same cause:
+`botocore ClientError (403) HeadBucket Forbidden`, in tests that touch the
+object store. No code in that commit could produce an auth rejection — the
+amendments were comments, a ledger section and two mutation re-runs.
+
+Diagnosed rather than retried. All four containers reported healthy; the client
+passes explicit credentials with no AWS environment chain and no `AWS_*`
+variables set; the defaults in `src/ced/adapters/objectstore/client.py` match
+`deploy/compose.yaml`'s MinIO root user and password; and a direct `list_buckets`
+against the published endpoint returned `ced-payloads` cleanly with those same
+credentials. The immediate re-run was `1003 passed, 3 skipped` with zero
+`HeadBucket` errors.
+
+So the credentials were never wrong and the failure window has closed. What is
+worth carrying: **the object store can transiently reject valid credentials on
+this stack**, and when it does the failure presents as ten unrelated-looking
+test failures rather than as an infrastructure error. A reader who meets that
+pattern should check the object store before reading the diff.
+
+One detail that cost a minute and would cost more without the note: MinIO is
+published on **59000**, and a probe against 9000 fails to connect for reasons
+that have nothing to do with the fault — 9000 is the container-internal port
+only. `compose.yaml` maps `127.0.0.1:59000:9000`.

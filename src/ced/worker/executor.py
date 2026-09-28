@@ -456,6 +456,40 @@ def make_step_body(config: PoolConfig) -> StepBody:
 
         approval_cycles = int(cycle_row[0]) if cycle_row else 0
 
+        # AC-0321: cycle cap.  The count is read from `steps.approval_cycles`
+        # (survives a worker handoff — it is a database value, not in-process
+        # state).  When the count reaches the configured cap the step and run
+        # fail with a recorded cause rather than looping.  The check fires
+        # before _body_resume so a capped step is never resumed.
+        if approval_cycles >= config.approval_cycle_cap:
+            log.warning(
+                "executor: step %s reached the approval cycle cap (%d >= %d); failing run %s",
+                lease.step_id,
+                approval_cycles,
+                config.approval_cycle_cap,
+                lease.run_id,
+            )
+            with psycopg.connect(database_url("worker")) as conn:
+                append_step_event(
+                    conn,
+                    run_id=lease.run_id,
+                    step_id=lease.step_id,
+                    lease_epoch=lease.epoch,
+                    type="step.failed",
+                    principal=principal,
+                    agent_role=role_name,
+                )
+                append_run_terminal(
+                    conn,
+                    run_id=lease.run_id,
+                    step_id=lease.step_id,
+                    lease_epoch=lease.epoch,
+                    type="run.failed",
+                    principal=principal,
+                    agent_role=role_name,
+                )
+            raise _StepBodyFailed("approval cycle cap exceeded")
+
         if approval_cycles > 0:
             # Entry 8 (adjudication): wire resume_step into the pool.
             # The resume path handles everything from loading the approval map
@@ -502,6 +536,21 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 _producer_tuple(loaded, MODEL_ADAPTER_NAME, FETCH_ADAPTER_NAME)
             )
 
+            # AC-0325: read the run's accumulated event count BEFORE committing
+            # step.started, so only prior-step events are counted.  Phase 1
+            # approximates spend as `runs.next_seq` (total events for the run),
+            # because no per-step token count is stored in this delivery.  The
+            # ceiling pages (appends `step.spend.ceiling.reached`) rather than
+            # aborting, and only after step.started commits so the page event
+            # follows the step start in the log.
+            seq_row = conn.execute(
+                "SELECT next_seq FROM runs WHERE run_id = %s",
+                (lease.run_id,),
+            ).fetchone()
+            _spend_ceiling_reached = (
+                seq_row is not None and int(seq_row[0]) > config.per_run_token_ceiling
+            )
+
             # AC-0327: requested→running on step.started, committed together.
             # The inner conn.transaction() inside append_step_event creates a
             # SAVEPOINT under this outer transaction; both commit atomically
@@ -523,6 +572,25 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     payload_ref=payload_ref,
                 )
         # Connection is released here; no transaction is held during the call.
+        # Append the ceiling page event (if flagged) now that step.started has
+        # committed, so the page event follows step.started in the log.
+        if _spend_ceiling_reached:
+            log.info(
+                "executor: run %s exceeded the per-run spend ceiling "
+                "(%d events); appending step.spend.ceiling.reached",
+                lease.run_id,
+                config.per_run_token_ceiling,
+            )
+            with psycopg.connect(database_url("worker")) as _cc:
+                append_step_event(
+                    _cc,
+                    run_id=lease.run_id,
+                    step_id=lease.step_id,
+                    lease_epoch=lease.epoch,
+                    type="step.spend.ceiling.reached",
+                    principal=principal,
+                    agent_role=role_name,
+                )
         # The two the step context holds are opened next and closed in the
         # outer finally, because a tool call records through them mid-run.
         step_conn = psycopg.connect(database_url("worker"))

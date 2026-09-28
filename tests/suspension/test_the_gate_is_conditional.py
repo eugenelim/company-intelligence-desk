@@ -513,6 +513,124 @@ def test_suspension_path_sets_awaiting_decision_and_blocks_repoll(
         _cleanup_run(run_id)
 
 
+# ── AC-0321: cycle cap fires across a worker handoff ─────────────────────────
+
+_CAP_POOL_CLASS = "t3-cycle-cap"
+_CAP_PRINCIPAL = "t3-cycle-cap-test"
+_CAP_LIMITS: dict[str, int | bool] = {
+    "per_request_input_tokens_limit": 4_000,
+    "input_tokens_limit": 40_000,
+    "request_limit": 8,
+    "tool_calls_limit": 4,
+    "count_tokens_before_request": False,
+}
+
+
+@pytest.mark.substrate
+def test_the_cycle_cap_fires_across_a_handoff(require_substrate: None) -> None:
+    """AC-0321: cycle cap reads approval_cycles from the DB and fires on handoff.
+
+    Worker A suspends the step (approval_cycles=0 at suspension).  An approval
+    decision commits, advancing steps.approval_cycles to 1.  Worker B re-claims
+    the step — a different worker_id simulates the handoff.  Worker B's body reads
+    approval_cycles=1 from the DB, sees it >= cap=1, and appends step.failed +
+    run.failed instead of resuming.
+
+    Mutation that must red (cap check removal): remove the
+    'if approval_cycles >= config.approval_cycle_cap' block in executor.py.
+    Worker B routes to the resume path instead; step.failed is absent; the
+    assertion reds.
+    """
+    from pydantic_ai.models.test import TestModel
+
+    _CAP_ROLE = "t3-cycle-cap-role"
+
+    # Worker A: suspends the step (TestModel calls request_approval).
+    config_a = PoolConfig(
+        worker_id="t3-cap-worker-a",
+        default_limits=_CAP_LIMITS,
+        allowed_model_ids=("stub:counting",),
+        non_provider_model_ids=("stub:counting",),
+        model_factory=lambda _: TestModel(call_tools=["request_approval"]),
+        pool_class=_CAP_POOL_CLASS,
+        approval_cycle_cap=1,
+    )
+
+    run_id, step_id, lease_a = _insert_role_and_step(
+        needs_approval=True,
+        role_name=_CAP_ROLE,
+        pool_class=_CAP_POOL_CLASS,
+        config=config_a,
+    )
+
+    try:
+        # Worker A: body suspends (awaiting_decision=true, approval_cycles=0).
+        body_a = make_step_body(config_a)
+        body_a(lease_a, threading.Event())
+
+        # Read the suspension event to get payload_ref and suspension_seq.
+        with psycopg.connect(database_url("worker")) as conn:
+            events_after_suspend = read_events(conn, run_id=run_id)
+        suspended = [e for e in events_after_suspend if e.type == "step.suspended"]
+        assert len(suspended) == 1, (
+            f"expected one suspension event; got {[e.type for e in events_after_suspend]}"
+        )
+        payload_ref = suspended[0].payload_ref
+        suspension_seq = suspended[0].seq
+        assert payload_ref is not None, "step.suspended must carry a payload_ref"
+
+        _, pending_call_ids = load_suspension_payload(payload_ref)
+
+        # Commit a grant decision — advances steps.approval_cycles to 1.
+        with psycopg.connect(database_url("api")) as conn:
+            append_approval_decision(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                call_ids=pending_call_ids,
+                decisions=[APPROVAL_GRANTED] * len(pending_call_ids),
+                principal=_CAP_PRINCIPAL,
+                suspension_seq=suspension_seq,
+            )
+
+        # Worker B: different worker_id simulates a handoff.
+        config_b = PoolConfig(
+            worker_id="t3-cap-worker-b",
+            default_limits=_CAP_LIMITS,
+            allowed_model_ids=("stub:counting",),
+            non_provider_model_ids=("stub:counting",),
+            model_factory=lambda _: TestModel(custom_output_args={"references": []}),
+            pool_class=_CAP_POOL_CLASS,
+            approval_cycle_cap=1,
+        )
+        with psycopg.connect(database_url("worker")) as conn:
+            lease_b = claim_one(conn, config_b)
+        assert lease_b is not None and lease_b.step_id == step_id, (
+            "Worker B must claim the step after the decision clears awaiting_decision"
+        )
+
+        # Worker B: body reads approval_cycles=1 from DB, >= cap=1 → fires cap.
+        body_b = make_step_body(config_b)
+        with pytest.raises(_StepBodyFailed, match="approval cycle cap exceeded"):
+            body_b(lease_b, threading.Event())
+
+        # Both terminal events must be in the log.
+        with psycopg.connect(database_url("worker")) as conn:
+            events_final = read_events(conn, run_id=run_id)
+        event_types = {e.type for e in events_final}
+        assert "step.failed" in event_types, (
+            f"step.failed must be appended when the cycle cap fires; got {event_types}; "
+            "mutation: remove the cap-check block in executor.py → Worker B resumes normally "
+            "→ step.failed absent → reds"
+        )
+        assert "run.failed" in event_types, (
+            f"run.failed must be appended when the cycle cap fires; got {event_types}; "
+            "mutation: remove append_run_terminal('run.failed') from cap block → absent → reds"
+        )
+    finally:
+        _cleanup_run(run_id)
+
+
 @pytest.mark.substrate
 def test_executor_agent_failure_sets_step_state_to_failed(
     require_substrate: None,
