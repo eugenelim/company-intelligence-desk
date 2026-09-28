@@ -764,26 +764,43 @@ Two test layers cover it.
 Seven tests drive `project_run_state` against constructed Python event lists.
 Three tests cover the happy-path edges; four are drop-one mutation cases.
 
-*Why drop-one from the projection's input list, not from the database.*
-`append_run_terminal` commits the state move (UPDATE on `runs.state`) and the
-event INSERT in one transaction. Dropping an append in the database would
-therefore move neither — `runs.state` would stay at `"running"` and the event
-log would have no terminal event, so `project_run_state` and `GET
-/runs/{run_id}/snapshot` would still agree on `"running"`. That agreement is
-not a contradiction; it is both sources correctly reporting the pre-terminal
-state. The drop-one proof must therefore perturb the projection's *input list*,
-not the database, to show that the projection's output depends on each event.
-A per-edge drop removes the event from the Python list, `project_run_state`
-is called on the shortened list, and the result is compared (via `!=`) against
-the full-list projection. The assertion is that removing the event changes the
-projected state — proving the projection is not vacuous.
+*Why drop-one from the projection's input list — for two of the three edges,
+and not for the third.* This paragraph said the database-side drop was
+impossible, full stop. That was wrong for edge 1, and the controller's
+reasoning is what put it here: the argument was generalised from
+`append_run_terminal` to all three edges without checking the third.
 
-**Layer 2 — substrate oracle** (`tests/e2e/test_ac_0327_committed_run.py`):
-Tests commit real runs via direct database writes, read events using
-`read_events`, project with `project_run_state`, and compare against `GET
-/runs/{run_id}/snapshot`. A drop-one mutation on the projection's input list
-(same rationale as Layer 1) asserts that the substrate oracle's projection
-check is not vacuous.
+It holds for edges 2 and 3. `append_run_terminal` commits the state move
+(UPDATE on `runs.state`) and the event INSERT in one transaction, so dropping
+the append in the database moves neither — `runs.state` stays `"running"`, the
+log has no terminal event, and `project_run_state` and `GET
+/runs/{run_id}/snapshot` still agree on `"running"`. That agreement is both
+sources correctly reporting the pre-terminal state, not a contradiction. For
+those two the proof must perturb the projection's *input list*: the event is
+removed from the Python list, `project_run_state` is called on the shortened
+list, and the result is compared against the full-list projection, showing the
+output depends on each event.
+
+**It does not hold for edge 1, and `plan.md:240`'s obligation is dischargeable
+there.** `requested→running` does not go through a definer function.
+`src/ced/worker/executor.py:491-506` places `UPDATE runs SET state = 'running'`
+and `append_step_event(type="step.started")` as two separate statements inside
+one `conn.transaction()`. Removing the append while leaving the state move
+therefore commits `runs.state = 'running'` with no `step.started` in the log:
+the projection reports `requested`, the snapshot reports `running`, and they
+disagree — which is exactly the proof the plan pins. That proof is owed against
+the shipped path and is recorded under § Round 12 when it lands.
+
+**Layer 2 — what the substrate file currently does, stated accurately.**
+`tests/e2e/test_ac_0327_committed_run.py` fabricates each run with raw
+`INSERT INTO events` and `UPDATE runs SET state = …` under the `migration`
+role. It calls neither `append_run_terminal` nor `append_step_event`, so it
+establishes that the projection agrees with rows in the tables — not that it
+agrees with what the shipped append paths commit, and not AC-0327's
+"written together with its event, in one transaction" clause. Direct writes
+under the owner role are the path AC-0320 exists to make unreachable through
+the intended route, so describing them as "real runs" overstated what the file
+proves.
 
 ### AC-0328 and AC-0303: behavioural end-to-end proofs
 
