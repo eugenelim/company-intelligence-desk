@@ -92,7 +92,10 @@ after T0 at spec `841d0959a731` / plan `1e8cd06feefd`.
   materialized byte-identically.
 - `tests/event_log/test_definer_hardening.py` — definer count updated 4 → 6;
   `DECISION_TYPES` added to the refused-set comparison; `approval.granted` and
-  `approval.rejected` added to the step-path parametrize.
+  `approval.rejected` added to the step-path parametrize
+  Round 8 then replaced the flattened-string `search_path` substring check with
+  exact `proconfig` list membership; the Round 9 proof below is what shows that
+  tightening is load-bearing.
 
 **Gates:** `ruff format --check`, `ruff check`, `mypy`, `pytest -m 'not substrate'`,
 `pytest` (full substrate suite). Canonical full-suite result after all rounds:
@@ -152,7 +155,12 @@ check is genuinely decided by the index and not by an application-level guard
 that would have kept it green.
 
 *Restored.* Index recreated from the `pg_indexes` definition; the targeted tests
-returned green.
+returned green. That restore predates the rule below, which forbids restoring
+from the live catalogue — the rule is scoped to what the hazard needs, so read
+it as covering function bodies. A body is seventy lines of hand-replicated SQL
+and a pasted copy is how this task shipped a guard the migration never wrote; a
+`CREATE UNIQUE INDEX` is one statement, and the Round 9 diff below re-derives it
+from the rendered revision rather than trusting this line.
 
 **One false start, recorded because it is the trap this proof exists to avoid.**
 The first attempt connected as a `owner` role that does not exist, so the drop
@@ -393,12 +401,20 @@ awaiting a decision" — not `UniqueViolation`. No out-of-band state writes; bot
 calls go through `app_api`. The docstring names AC-0324's second-line-of-defence
 sentence and explains why the index is not the refusing layer here.
 
-The two assertions after the refusal (`count_after == count_before` and
-`approval_cycles == 1`) record the transaction boundary, not AC-0334. The
-wrapper calls the function inside `with conn.transaction()`, so any raise rolls
-back the second call before control returns; once `pytest.raises(DecisionRefused)`
-is satisfied, both assertions hold for every implementation that raises there.
-They are kept because they state what is true; they do not decide the criterion.
+**The two assertions after the refusal are not alike, and an earlier revision of
+this paragraph said they were.** `count_after == count_before` does record the
+transaction boundary: the wrapper calls the function inside
+`with conn.transaction()`, `count_before` is read after the *first* call
+commits, so once `pytest.raises(DecisionRefused)` is satisfied that assertion
+holds for every implementation that raises there. It is kept because it states
+something true, not because it decides anything.
+
+`approval_cycles == 1` is a different matter. It constrains the **first** call's
+counter write, which no rollback touches, and it is live — see the Round 9 proof
+below. Round 8 labelled both as recording the transaction boundary; that was
+right for the first and wrong for the second. A label saying a live check
+decides nothing is worse than no label, because the next reader deletes the
+check on the strength of it.
 
 **Mutation proof.** Migration SQL rendered by capturing `op.execute`; guard block
 `IF NOT v_awaiting THEN RAISE … END IF;` replaced by a comment and installed via
@@ -413,12 +429,16 @@ anything. Results:
   The two tests pin different layers and do not duplicate each other.
 
 Restored by re-executing the rendered original SQL; `pg_proc.prosrc` confirmed
-guard present and mutant comment absent. Full suite: 908 passed, 3 skipped.
+guard present and mutant comment absent, and the suite green. The one
+canonical suite count for this task is in § Gates above; it is not restated
+here, because a figure repeated per section is how this file disagreed with
+itself across three rounds.
 
 ### Round 8 repairs
 
-Round 8 sustained two blockers, one concern, and four nits. This section records
-the blocker and concern fixes and their proofs.
+This section records round 8's repairs and their proofs. It carries no tally of
+what the round found: the adjudications in `.context/reviews/` are the record of
+that, and a count here promised entries this section did not hold.
 
 **AC-0334 — mixed-decision pairing mutation proof (Blocker 1).** The
 `test_different_call_ids_produce_different_keys_in_one_suspension` test was
@@ -464,6 +484,93 @@ was a diff against the rendered SQL. Re-run with f-string sites substituted:
 zero-diff for all three functions (recorded in the round-7 section above under
 "Rendered-vs-`prosrc` diff"). The pre-evidence rule was also extended to cover
 EXECUTE grantee sets.
+
+### Round 9: the proofs the record was missing
+
+Round 9 sustained seven findings. One was a blocker against this file: round 8
+had labelled a live check as deciding nothing. The rest were claims made here
+without evidence. Every proof below was run by the controller, not transcribed
+from the reviewer that reported it — a reviewer's run is a pointer to run, not a
+result to copy, which is the same lesson § Round 7 records one level up.
+
+**Pre-evidence diffs, all three surfaces this time.** The rule above names
+`prosrc`, index definitions and grantee sets; the round-7 record covered only
+two of them, so the third is taken here. Rendering revision 0005 by capturing
+`op.execute` gives, for `events_decision_idempotency_idx`:
+
+```
+CREATE UNIQUE INDEX events_decision_idempotency_idx
+    ON public.events (run_id, idempotency_key)
+ WHERE type IN ('approval.granted', 'approval.rejected') AND idempotency_key IS NOT NULL
+```
+
+and `pg_indexes` gives:
+
+```
+CREATE UNIQUE INDEX events_decision_idempotency_idx ON public.events USING btree
+(run_id, idempotency_key) WHERE ((type = ANY (ARRAY['approval.granted'::text,
+'approval.rejected'::text])) AND (idempotency_key IS NOT NULL))
+```
+
+Same index. Postgres normalises `IN (...)` to `= ANY (ARRAY[...])`, spells the
+default access method, adds the casts and parenthesises the predicate. A reader
+comparing the two by eye should expect those five differences and no others.
+Grantee sets read at the same time: `append_run_terminal` and
+`append_step_event` are `{ced_owner, app_worker}`, `append_approval_decision` is
+`{ced_owner, app_api}`.
+
+**AC-0334 — M (the cycle counter): `approval_cycles + 1` rendered as
+`approval_cycles + 2`.**
+Target: `test_a_cross_call_replay_is_refused_by_the_awaiting_hold`.
+Result: FAILED, with `test_approval_decision_happy_path_clears_hold_and_advances_cycle`
+and `test_different_call_ids_produce_different_keys_in_one_suspension` red
+beside it. The mutant still clears the hold and still raises at the hold, so
+`pytest.raises(DecisionRefused)` was satisfied and the counter assertion is what
+reds. This is the proof that round 8's label was false: the assertion decides
+something. Restored through the rendered generator; `approval_cycles + 2`
+confirmed absent.
+
+**AC-0320, AC-0324 and AC-0332 — M (the grantee equalities): `EXECUTE` granted
+to a fourth role.**
+Targets: the three grantee-set assertions.
+Result: run first with `app_policy`, which reds **four** tests — the three
+equalities plus `test_the_policy_role_cannot_reach_the_general_append_path`,
+because a behavioural check names that role by hand. Re-run with `ced_fence`,
+which no behavioural check names, and exactly the three equalities red. The
+second run is the one that states the claim correctly: the equality assertions
+are the only layer that detects a grantee no behavioural test happens to name,
+which is narrower than "the only layer that detects an added grantee" and is
+what they actually buy. Grants revoked; `proacl` re-read clean on all three.
+
+**AC-0332 — M (the definer pin): `ALTER FUNCTION append_step_event SET
+search_path = pg_catalog, pg_temp, public`.**
+Targets: `test_the_definer_functions_are_configured_to_resist_temp_capture` and
+`test_the_replaced_step_function_retains_security_definer_and_search_path`.
+Result: both FAILED, while `test_exactly_one_append_step_event_survives_the_replacement`
+stayed green on its weaker `"pg_temp" in ...` substring — which is precisely the
+gap the round-8 tightening closes, demonstrated rather than argued. `proconfig`
+read back before the run to confirm the break applied. Restored on all six
+definer functions and re-read.
+
+**AC-0324 — M (the coalesce): `coalesce(array_length(p_decisions, 1), 0) <> v_n`
+rendered as `array_length(p_decisions, 1) <> v_n`.**
+Target: `test_approval_decision_refuses_null_decisions_against_nonempty_call_ids`.
+Result: FAILED, and alone — the sibling length-mismatch test stayed green, so
+the new test is the only check that pins the `coalesce`, and its assertion on the
+message text is what makes it so.
+
+**A trap inside this proof, recorded because it nearly passed.** The first
+break-verification predicate was `prosrc LIKE '%coalesce(array_length%'`, which
+returned true *after* the break applied — the body carries a second, untouched
+`coalesce(array_length(p_call_ids, 1), 0)` that the pattern also matches.
+Checking the exact mutated expression showed the break had landed. Had it not,
+that predicate would have reported success either way. A break-verification
+predicate has to name the break, not a substring a neighbour satisfies; this is
+§ Round 7's lesson one level down, inside the proof rather than around it.
+
+**After all of it**, the two touched modules return 142 passed and the substrate
+is in the state it started: bodies matching the rendered migration, grantee sets
+and `proconfig` restored, index unchanged.
 
 ### A defect T1 surfaced in the gate suite
 

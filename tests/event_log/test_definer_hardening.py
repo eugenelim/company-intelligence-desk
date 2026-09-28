@@ -49,10 +49,11 @@ def test_the_definer_functions_are_configured_to_resist_temp_capture(
 
     Every definer function must carry the exact entry `search_path=pg_catalog,
     pg_temp` in its `proconfig`. A substring check on a flattened string is too
-    weak: `search_path=pg_catalog, pg_temp, public` passes the substring but
-    admits a public-schema lookup after `pg_temp`; `search_path=pg_temp,public`
-    passes the substring but puts `pg_temp` first, which is the hazard Postgres
-    closes for the caller but not for the definer body. Postgres stores each
+    weak: `search_path=pg_catalog, pg_temp, public` contains
+    `search_path=pg_catalog, pg_temp` and so passes it, while admitting a
+    public-schema lookup after `pg_temp`. That one value is the whole case for
+    the change — a `search_path=pg_temp,public` would already fail the
+    substring, since it does not contain the pinned entry. Postgres stores each
     `SET` clause as a separate `proconfig` entry, so exact list membership is
     the right comparison.
     """

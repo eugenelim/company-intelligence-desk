@@ -1244,13 +1244,20 @@ def test_a_cross_call_replay_is_refused_by_the_awaiting_hold(
     grant. The awaiting_decision hold that refuses the second call was cleared by
     the first call, not by a privileged fixture write.
 
-    The two assertions after the refusal — `count_after == count_before` and
-    `approval_cycles == 1` — record the transaction boundary, not AC-0334. The
-    wrapper calls `append_approval_decision` inside `with conn.transaction()`, so
-    any raise rolls the second call back before control returns; once
-    `pytest.raises(DecisionRefused)` is satisfied, both follow for every
-    implementation that raises there. They are kept because they state what is
-    true, not because they decide the criterion.
+    The two assertions after the refusal are not alike. `count_after ==
+    count_before` records the transaction boundary: the wrapper calls
+    `append_approval_decision` inside `with conn.transaction()` and
+    `count_before` is read after the *first* call commits, so once
+    `pytest.raises(DecisionRefused)` is satisfied it holds for every
+    implementation that raises there. It is kept because it states what is
+    true, not because it decides anything.
+
+    `approval_cycles == 1` is live. It constrains the first call's counter
+    write, which no rollback touches: an implementation advancing the counter
+    by two still clears the hold, still raises here, and reds this test. The
+    ledger's Round 9 section records that mutant. An earlier revision of this
+    docstring called both assertions non-deciding, which was an invitation to
+    delete a working check.
     """
     # First call: succeeds, clears awaiting_decision, advances approval_cycles once.
     event_log.append_approval_decision(
@@ -1305,7 +1312,8 @@ def test_a_cross_call_replay_is_refused_by_the_awaiting_hold(
     assert step_row is not None
     assert step_row[0] == 1, (
         f"approval_cycles is {step_row[0]!r}, expected 1: "
-        "a refused second call must not advance the cycle counter"
+        "the suspension must carry exactly one cycle advance -- the granted "
+        "first call's, with the refused second call adding none"
     )
 
 
