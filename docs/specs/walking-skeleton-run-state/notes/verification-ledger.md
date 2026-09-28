@@ -1257,3 +1257,29 @@ or the step row.
 Net new: 3 substrate tests (Entry 1 A + B/C, Entry 4) over the 996 baseline.
 Repository checks clean: `lint-no-identifiers.py --staged`, `lint-intents.py`,
 `pre-pr.py`, `lint-spec-status.py --root . --all`.
+
+### A second baseline drift, from the same cause as T0's
+
+Closing T2 required the cohort-only recovery this file already records for T0,
+for the same structural reason and a different trigger. T2's owner-decided
+widening of `Touches` to name `AGENTS.md` edited `plan.md` after `approve-plan`
+had pinned its hash, so `schedule check-current` refused the wave transition:
+stored `1e8cd06feefd…` against current `0e081e444300…`.
+
+Recovered exactly as prescribed: both statuses to `Approved`, `loop-cohort
+reset`, `init`, `approve-plan`, `schedule`, status restored to `Implementing`,
+then the three dispatch receipts re-recorded — T0 `human-directed`, T1 and T2
+`receipt` — and the waves advanced 0 → 3. The engine was **not** reset;
+`plan-locked` is legal only from `SPEC-PLAN-APPROVED` and resetting it strands
+the run. Re-pinning is a re-approval in substance: it records the post-decision
+plan text as the baseline, which is the mechanical consequence of an owner
+decision that edits a pinned field, not a new scope change.
+
+**The lesson is now twice-earned and belongs to the next spec in this series.**
+T0 drifted because a task whose `Touches` names `spec.md` must edit the spec;
+T2 drifted because an owner decision widened the plan's own pinned field
+mid-flight. Both are ordinary, both were correct, and both broke a baseline
+sealed before them. A plan that seals its baseline before wave 1 cannot contain
+a task that edits the plan or the spec without this recovery. Either keep
+record-writing tasks out of those two files, or seal after the wave that edits
+them.
