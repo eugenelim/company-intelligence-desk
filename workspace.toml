@@ -52,7 +52,9 @@ name   = "Inspectable Diligence MVP"
 status = "active"
 
 ["ini-001".work]
-# Phase 1 walking skeleton, now six specs after three cuts. Cut into three on
+# Phase 1 walking skeleton. The spec set is whatever this file registers —
+# `lint-spec-status --root . --all` counts it, and no number is written here,
+# because every cut so far has left a stale one behind. Cut into three on
 # 2026-09-18 after a single spec did not converge across three review rounds;
 # the agent-runtime spec was cut into three again on 2026-09-20 because it
 # carried AC-0201 through AC-0232, about two and a half times either sibling;
@@ -65,8 +67,8 @@ status = "active"
 # toolset stack that spec ships. step-lifecycle's resume criterion needs an
 # approved tool body to run, which needs the decision point's predicate, and the
 # evidence spec measures the system its siblings build. The count lives in the
- # `needs` list below, not in this comment: it was five until the 2026-09-27
- # run-state split made it six, and a number here goes stale at the next one.
+# `needs` list below states each spec's own dependencies; the size of the set
+# is the register's, read by the lint rather than restated here.
 queue = [
   { path = "docs/specs/walking-skeleton-evidence/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 evidence: run state machine and publication, browser stream, the four Phase 1 measurements, analytical re-baseline, and the record of what was not established", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-policy-decision-point/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-step-lifecycle/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-run-state/spec.md" }] },
 ]

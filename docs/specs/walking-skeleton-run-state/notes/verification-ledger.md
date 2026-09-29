@@ -1577,3 +1577,20 @@ neither. That is not a defect: the adjudicator established in T3 that **a
 unchanged breaks no clause. The spec's status stays `Implementing` while this
 review decides whether T4 holds, and the three § Follow-ons items have their
 durable home in the spec that owns them.
+
+
+### Where the status flip lands
+
+A reviewer asked why all fifteen acceptance criteria read `- [x]` while the
+spec reads `Implementing` and the plan reads `Approved`. The answer is that
+**the flip is the work loop's closeout, not a task's**: the engine holds the run
+at `CODE-HUMAN-GATE` until the owner answers "are these changes correct and
+ready to merge", and only a `done` transition from there makes `Shipped` true. A
+task that marked its own spec `Shipped` would assert the gate's answer before
+the gate ran. `lint-spec-status --root . --all` exits 0 either way, so nothing
+mechanical separates "every criterion met, awaiting the gate" from "in flight".
+
+*This was first written into `plan.md` as a new section.* The plan's own
+contract says substantive change is allowed only while its Status is
+`Drafting`, and that post-approval execution observations belong here — so
+placing it in the plan broke the rule it was explaining. Moved.

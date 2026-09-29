@@ -332,22 +332,6 @@ def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
 - **The denylist change is a foundation-owned behaviour change.** Re-issuing `append_step_event` through `CREATE OR REPLACE` with two more refused types narrows what `app_worker` may append — **not** by editing `NON_STEP_EVENT_TYPES`, which is rendered into the function body at creation time and would reach no already-migrated database, which is the safe direction, but it is a shipped rule this spec edits — and `tests/event_log/` asserts against it.
 - **AC-0327's snapshot reads are timing-sensitive** between steps. Mitigated by asserting the sequence of observed states rather than a state at a wall-clock moment.
 
-## Status transitions
-
-Recorded because a reviewer reasonably asked where they land. All fifteen
-acceptance criteria are `- [x]` and T4 is the last task, yet the spec reads
-`Implementing` and this plan reads `Approved`. That is deliberate and not a
-task's omission: **the flip is the work loop's closeout, not T4's work.** The
-engine holds the run at `CODE-HUMAN-GATE` until the owner answers "are these
-changes correct and ready to merge", and only a `done` transition from there
-makes `Shipped` true. A task that marked its own spec `Shipped` would be
-asserting the gate's answer before the gate ran.
-
-`lint-spec-status --root . --all` does not catch the interim state, so nothing
-mechanical distinguishes "every criterion met, awaiting the gate" from "in
-flight". This paragraph is that distinction, written where the next reader of
-this plan will look.
-
 ## Changelog
 
 - 2026-09-27: **plan approved by eugenelim**, on the same basis and with the same qualification as the spec approval below. The build order is T0 through T4; T0's records must exist before the code they govern.
