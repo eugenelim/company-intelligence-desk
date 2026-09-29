@@ -149,7 +149,9 @@ each rather than inheriting it.
 **Persisting and resuming a step**
 
 - [x] **AC-0226.** A message history containing a tool call, a tool return, a retry part, and a pending approval serialises, deserialises, and re-serialises to identical bytes.
-- [x] **AC-0237.** A step suspended on `request_approval()` releases its lease **after** the payload write and the fenced append that references it, so the row is claimable by another worker without waiting for the lease to expire and without the release making that append unfenced.
+- [x] **AC-0237.** A step suspended on `request_approval()` releases its lease **after** the payload write and the fenced append that references it, so no worker waits out the lease TTL and the release does not make that append unfenced.
+
+  **Amended 2026-09-28 by `walking-skeleton-run-state` AC-0333.** Lease release and claimability were one clause here; they are now two. The released row is *not* immediately claimable: `claim_one` excludes a step whose suspension is undecided, so the row becomes claimable when a decision commits. What this criterion still guarantees is that no worker waits out a TTL and that the append stays fenced. The earlier wording — "so the row is claimable by another worker without waiting for the lease to expire" — read the two as one thing, which is why the approval hold looked like it preserved this criterion when it does not. Owner decision, recorded rather than resolved inside the amending spec, because a shipped criterion is not that spec's to rewrite silently.
 - [x] **AC-0248.** A resumed step's fresh compilation resolves the integration registry at the versions the suspended role version resolved, so the `arg_schema` a ceiling was authored against is the one it is evaluated against.
 - [x] **AC-0241.** A resumed step's tool calls are authorized against the ceiling of the role version the step was suspended under, not against any ceiling carried in the persisted bytes.
 - [x] **AC-0245.** A resumed step's entitlements conjunct is looked up for the principal named in the run record, demonstrated against a history whose recorded principal differs from the run's.

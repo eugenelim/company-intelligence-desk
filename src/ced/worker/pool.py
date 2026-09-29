@@ -112,11 +112,13 @@ import psycopg
 
 from ced.adapters.postgres.dsn import database_url
 from ced.adapters.postgres.event_log import Fenced
+from ced.worker.liveness import LEASE_TTL_SECONDS, refresh_mark, unlink_mark
 
 log = logging.getLogger("ced.worker.pool")
 
 #: r7 § Step execution: TTL 60 s, heartbeat at TTL/3, poll 30 s.
-LEASE_TTL_SECONDS = 60
+#: ``LEASE_TTL_SECONDS`` is imported from ``liveness`` (its canonical home);
+#: re-exporting it here keeps pool callers working unchanged.
 HEARTBEAT_SECONDS = LEASE_TTL_SECONDS // 3
 POLL_SECONDS = 30
 
@@ -261,6 +263,20 @@ class PoolConfig:
     #: The evidence spec measures the calibration; this spec asserts the bound
     #: holds against whatever value is configured.
     step_deadline: float | None = None
+    #: AC-0321: r5 line 607 fixes the cap at three cycles (arbitrarily
+    #: uncalibrated in Phase 1).  A deployment that sets nothing still gets a
+    #: bounded loop; AC-0329 records that the value is owed to the first
+    #: delivery with real cycle data.
+    approval_cycle_cap: int = 3
+    #: AC-0325: per-run spend ceiling.  **Phase 1 unit mismatch**: the field is
+    #: named in tokens but the executor compares it against ``runs.next_seq``,
+    #: which counts total events for the run — not token usage.  No migration
+    #: in this delivery adds a per-step token column, and the executor reads no
+    #: ``RunUsage`` object, so there is no persisted token count to read.
+    #: ``next_seq`` was the only durable, queryable proxy available.  At the
+    #: default of 200 000 the control is inert for any producible single-step
+    #: run.  AC-0329 routes this mismatch to T4 for a replacement metric.
+    per_run_token_ceiling: int = 200_000
 
 
 def _parse_json_variable(env: Mapping[str, str], name: str) -> object:
@@ -429,6 +445,7 @@ def claim_one(conn: psycopg.Connection, config: PoolConfig) -> Lease | None:
              WHERE pool_class = %s
                AND (state = 'runnable'
                     OR (state = 'leased' AND lease_expires_at < now()))
+               AND NOT awaiting_decision
              ORDER BY created_at
                FOR UPDATE SKIP LOCKED
              LIMIT 1
@@ -562,12 +579,22 @@ class Worker:
         `restart: "no"`, so capacity halves until an operator intervenes, and
         the fault-injection suite's ECS substitution covers container kill and
         not process exit.
+
+        **Liveness mark.** The mark is refreshed on the idle path (between
+        claims) so a worker with nothing to claim stays reported healthy.
+        The former lazy import of ``refresh_mark`` is now a module-level import:
+        ``liveness.py`` no longer imports ``pool``, so the circular dependency
+        is broken. AC-0331.
         """
+        # AC-0331 / entry 16: unlink any mark from a previous process before the
+        # first poll so a stale file does not make the new process appear healthy.
+        unlink_mark()
         log.info("ready: %s polling class %s", self.config.worker_id, self.config.pool_class)
         with psycopg.connect(database_url("worker")) as conn:
             while not self._stop.is_set():
                 lease = claim_one(conn, self.config)
                 if lease is None:
+                    refresh_mark()  # AC-0331: idle-path mark
                     self._stop.wait(timeout=self.config.poll_seconds)
                     continue
                 self._execute(conn, lease)
@@ -579,6 +606,15 @@ class Worker:
         completed body is released at once and a `SIGTERM` reaches
         `_expire_now` without waiting out a heartbeat. AC-0011 states the
         second of those as one poll interval.
+
+        **Liveness mark on the busy path.** The mark is also refreshed at each
+        successful heartbeat renewal so a worker executing a long step stays
+        reported healthy. Without the busy-path refresh a mark written only
+        between claims would age out during a model call — ``run_forever``
+        makes no passes while ``_execute`` runs — and the healthcheck would
+        fire against a working worker. AC-0331. ``refresh_mark`` is now a
+        module-level import (the former lazy import removed the circular
+        dependency; now the cycle is broken at the source).
 
         Three orderings here are deliberate and each was got wrong once:
 
@@ -721,6 +757,7 @@ class Worker:
 
                 try:
                     run_state = renew(heartbeat_conn, self.config, lease)
+                    refresh_mark()  # AC-0331: busy-path mark
                 except Fenced:
                     log.warning("fenced on step %s — abandoning", lease.step_id)
                     if not stop_body("fence loss"):

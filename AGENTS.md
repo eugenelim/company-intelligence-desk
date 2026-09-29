@@ -297,21 +297,74 @@ holds it to the same terms as the other two: an empty string or a malformed
 value is refused before any database connection, naming the variable.
 `deploy/compose.yaml` sets it on both worker services.
 
+**`CED_REQUIRE_DISTINCT_APPROVER`** (API only, optional): when set to `"1"`,
+`"true"`, or `"yes"` (case-insensitive), the approval route refuses a decision
+whose `principal` matches the run's initiating principal. Absent or set to a
+recognised falsy string (`"0"`, `"false"`, `"no"`) disables the check. A
+present but unrecognised value causes `ced-api` to refuse startup. The
+lifespan reads the variable before yielding; a malformed value therefore
+prevents the server from starting rather than misreading the operator's intent.
+
+**`ced-liveness`** (worker side): the container healthcheck command, installed
+as an entry point by `pyproject.toml`. It reads the liveness mark file and
+exits 0 (healthy) or 1 (unhealthy). Usage: `ced-liveness [mark-path]`. The
+mark path defaults to `/tmp/ced-liveness-mark-<CED_WORKER_ID>` when
+`CED_WORKER_ID` is set, `/tmp/ced-liveness-mark` when it is not, and
+`CED_LIVENESS_MARK_PATH` overrides both. A missing mark exits 1; a mark whose
+mtime is older than `2 × LEASE_TTL_SECONDS` (120 s) exits 1. The worker
+refreshes the mark on the idle path (between claims) and on every successful
+heartbeat renewal. `deploy/compose.yaml` sets `CED_WORKER_ID` on both worker
+services so each worker writes a distinct mark path.
+
 ### Repository checks
 
-These predate the application and still run against every change:
+All but one of these predate the application; `lint-prose-totals.py` was added
+alongside it on 2026-09-28. Every one runs against every change:
 
 ```bash
 python3 tools/lint-no-identifiers.py --staged   # no account ids, ARNs, keys,
                                                 # emails or absolute home paths
 python3 tools/lint-intents.py                   # structural lint for docs/product/intents/
-python3 tools/hooks/pre-pr.py                   # knowledge lint + work-loop caps + ADR shape lint
+python3 tools/hooks/pre-pr.py                   # knowledge lint + work-loop caps
+                                                # + ADR shape lint + prose totals
+python3 tools/lint-prose-totals.py              # drifting totals in guarded prose
 python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all
 ```
 
-The last one checks spec and plan status metadata across every spec. It is
-listed here because T7's pinned `Tests` says it is, and it was not — so the
-command T7 verifies against was invisible from a clean clone.
+`lint-prose-totals.py` runs inside `pre-pr.py` and is listed separately because
+it is useful on its own while editing. It refuses a **sentence-initial cardinal
+inside a guarded region** — `Ten were enumerated in AC-0329`, `Six — marked
+(discovered) below` — because such a sentence totals a list that lives
+elsewhere in the file and drifts the next time that list grows. A cardinal
+anywhere else in the sentence is admitted: `in one transaction`, `roughly four
+events`, `the cycle cap's three` each quantify something the sentence names or
+a value another gate reads. A region opts in with a
+`<!-- prose-totals:start -->` / `<!-- prose-totals:end -->` pair, so a file
+carrying no guard is not a failure; one line is waived with a trailing
+`<!-- prose-totals: allow -->`.
+
+**Read the tool's docstring before relying on it — the rule is narrower than
+the paragraph above may suggest.** It matches only spelled cardinals `one`
+through `twenty`, only a bare cardinal — a list bullet, markdown emphasis and the
+`(discovered)` marker may precede it, but a determiner or a prepositional
+lead-in defeats the match — and only in sentence-initial position. So a digit (`10 were
+enumerated`), a determiner (`All ten were enumerated`), a lead-in (`Of these,
+six are marked`) and a mid-sentence cross-reference (`the five paths above`)
+all pass — and that last form is the one that has actually shipped here,
+repeatedly, which is why the guarded regions still need reading. Invoked bare it reads
+`docs/**/*.md` only, so a guard anywhere else needs its path passed explicitly
+or it is never read.
+
+`docs/architecture/README.md` §
+`walking-skeleton-run-state` residuals and AC-0329 in
+`docs/specs/walking-skeleton-run-state/spec.md` are guarded today, by owner
+decision of 2026-09-28 after six review rounds found the same drifting total
+and the fifth introduced one while repairing another.
+`tests/architecture/test_prose_totals_lint.py` pins both directions.
+
+`lint-spec-status.py` checks spec and plan status metadata across every spec.
+It is listed here because T7's pinned `Tests` says it is, and it was not — so
+the command T7 verifies against was invisible from a clean clone.
 
 Run the first two before committing and the third before opening a PR. There is
 no CI: the gates on this page are the whole gate. Add a new install, build or

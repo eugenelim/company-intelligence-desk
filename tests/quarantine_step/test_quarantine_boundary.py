@@ -28,7 +28,7 @@ from ced.adapters.objectstore.client import read_payload
 from ced.adapters.postgres.dsn import database_url
 from ced.adapters.postgres.event_log import read_events, start_run
 from ced.worker.context import assemble_planning_context
-from ced.worker.executor import make_step_body
+from ced.worker.executor import _StepBodyFailed, make_step_body
 from ced.worker.pool import Lease, PoolConfig
 
 pytestmark = pytest.mark.substrate
@@ -234,7 +234,14 @@ def test_refused_output_leaves_no_trace_in_events_or_payloads(
     lease, config, run_id = _start_and_claim(_ROLE_NAME, model)
     try:
         body = make_step_body(config)
-        body(lease, threading.Event())
+        # Entry 11 (adjudication): the executor raises _StepBodyFailed so the
+        # pool records outcome = "failed" rather than "completed". The test
+        # catches the exception and proceeds to assert no durable artifact holds
+        # the distinctive text (AC-0242).
+        try:
+            body(lease, threading.Event())
+        except _StepBodyFailed:
+            pass
 
         with psycopg.connect(database_url("worker")) as conn:
             events = read_events(conn, run_id=run_id)

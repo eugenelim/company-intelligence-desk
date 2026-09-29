@@ -31,6 +31,7 @@ conjunct even though the ceiling is pinned to the suspended role version.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, cast
 from uuid import UUID
 
@@ -40,15 +41,105 @@ from ced.adapters.framework_contract import DeferredToolRequests, FunctionToolse
 from ced.adapters.objectstore.client import read_payload
 from ced.adapters.objectstore.history import deserialise_history, run_with_approval
 from ced.adapters.postgres.dsn import database_url
-from ced.adapters.postgres.event_log import append_step_event, read_run_principal
+from ced.adapters.postgres.event_log import (
+    append_run_terminal,
+    append_step_event,
+    read_run_principal,
+)
 from ced.adapters.postgres.roles import load_entitlements, load_role
 from ced.agents.ceilings import compile_ceiling
 from ced.agents.compiler import compile_role
 from ced.agents.tools.approval import request_approval
 from ced.agents.toolsets import PolicyDecisionPoint
 from ced.agents.toolsets.step_events import StepContext, StepEventToolset
+from ced.domain.events import APPROVAL_GRANTED
 
-__all__ = ["load_suspension_payload", "resume_step"]
+log = logging.getLogger("ced.worker.persistence")
+
+__all__ = ["approval_results_for_cycle", "load_suspension_payload", "resume_step"]
+
+
+def approval_results_for_cycle(
+    step_id: str | UUID,
+    cycle: int,
+    pending_call_ids: list[str],
+) -> dict[str, bool]:
+    """Read committed decisions for the step's *cycle*-th suspension.
+
+    ``cycle`` is 1-based: cycle 1 means the first suspension, cycle 2 the
+    second, and so on.  The caller reads ``steps.approval_cycles`` (which is
+    incremented by each committed decision) and passes it as ``cycle``.
+
+    Returns a mapping of ``{call_id: granted}`` for every ``pending_call_id``.
+
+    Raises ``LookupError`` when:
+
+    * No ``step.suspended`` event exists for the requested cycle (the cycle
+      number is out of range).
+    * No committed decision exists for the suspension that cycle identifies.
+    * Any ``call_id`` in ``pending_call_ids`` has no committed decision.
+
+    AC-0330: a pending call with no committed decision for this cycle makes
+    the resume refuse — this is the validation the worker does, because the
+    API cannot reach the object-store payload that contains the pending call ids.
+    """
+    # AC-0330: a cycle below 1 means the step has never suspended; querying with
+    # OFFSET -1 raises a Postgres error rather than returning an empty result.
+    # Guard here so the contracted refusal path fires instead.
+    if cycle < 1:
+        raise LookupError(f"step {step_id} has no suspension event: cycle {cycle} is below 1")
+
+    with psycopg.connect(database_url("worker")) as conn:
+        # Find the seq of the cycle-th step.suspended event (1-indexed, so
+        # cycle 1 → OFFSET 0, cycle 2 → OFFSET 1, etc.).
+        suspension_row = conn.execute(
+            "SELECT seq FROM events"
+            " WHERE step_id = %s AND type = 'step.suspended'"
+            " ORDER BY seq"
+            " LIMIT 1 OFFSET %s",
+            (step_id, cycle - 1),
+        ).fetchone()
+        conn.commit()
+
+    if suspension_row is None:
+        raise LookupError(
+            f"step {step_id} has no {cycle}th suspension event (cycle {cycle} is out of range)"
+        )
+    suspension_seq = int(suspension_row[0])
+
+    # Read decisions whose idempotency key starts with <suspension_seq>:.
+    # Format: <suspension_seq>:<call_id>  (AC-0334).
+    prefix = f"{suspension_seq}:"
+    with psycopg.connect(database_url("worker")) as conn:
+        rows = conn.execute(
+            "SELECT idempotency_key, type FROM events"
+            " WHERE run_id = (SELECT run_id FROM steps WHERE step_id = %s)"
+            "   AND type IN ('approval.granted', 'approval.rejected')"
+            "   AND idempotency_key LIKE %s",
+            (step_id, prefix + "%"),
+        ).fetchall()
+        conn.commit()
+
+    if not rows:
+        raise LookupError(
+            f"step {step_id} has no committed decision for cycle {cycle}"
+            f" (suspension seq {suspension_seq})"
+        )
+
+    committed: dict[str, bool] = {}
+    for key, event_type in rows:
+        # Strip the <suspension_seq>: prefix to recover the call_id.
+        call_id = str(key).removeprefix(prefix)
+        committed[call_id] = event_type == APPROVAL_GRANTED
+
+    # AC-0330: every pending call must have a committed decision.
+    missing = [cid for cid in pending_call_ids if cid not in committed]
+    if missing:
+        raise LookupError(
+            f"step {step_id} cycle {cycle}: no committed decision for call id(s) {missing!r}"
+        )
+
+    return {cid: committed[cid] for cid in pending_call_ids}
 
 
 def load_suspension_payload(payload_ref: str) -> tuple[list[Any], list[str]]:
@@ -95,7 +186,53 @@ def resume_step(
     """
     # Load history and pending approval calls from the object store.
     messages, pending_call_ids = load_suspension_payload(payload_ref)
-    approval_map = {call_id: True for call_id in pending_call_ids}
+
+    # Read the step's current approval cycle (incremented after each decision).
+    # This identifies which suspension the worker is resuming from.
+    with psycopg.connect(database_url("worker")) as conn:
+        cycle_row = conn.execute(
+            "SELECT approval_cycles FROM steps WHERE step_id = %s",
+            (step_id,),
+        ).fetchone()
+        conn.commit()
+    cycle = int(cycle_row[0]) if cycle_row is not None else 1
+
+    # Read the initiating principal from the run's durable record (AC-0245).
+    # This must come before the AC-0330 refusal branch: if that branch fires
+    # it appends terminal events to the permanent log, and an empty principal
+    # on a terminal event is a defect — the run record already exists and
+    # read_run_principal is always available at this point.
+    with psycopg.connect(database_url("worker")) as conn:
+        principal = read_run_principal(conn, run_id=run_id)
+
+    # AC-0330: read the committed decisions for this cycle. Raises LookupError
+    # if any pending call has no committed decision — refusing rather than
+    # approving blindly, so a resume whose decision was never issued fails the
+    # step rather than looping.
+    try:
+        approval_map = approval_results_for_cycle(step_id, cycle, pending_call_ids)
+    except LookupError as exc:
+        log.error("resume_step: no committed decision for step %s: %s", step_id, exc)
+        with psycopg.connect(database_url("worker")) as conn:
+            append_step_event(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=lease_epoch,
+                type="step.failed",
+                principal=principal,
+                agent_role=role_name,
+            )
+            append_run_terminal(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=lease_epoch,
+                type="run.failed",
+                principal=principal,
+                agent_role=role_name,
+            )
+        raise
 
     # Load the role from the database and compile it fresh.
     # AC-0229: fresh compilation means stale instruction text in the history
@@ -105,10 +242,6 @@ def resume_step(
     # pins, so the compilation resolves at exactly those versions.
     loaded = load_role(role_name, role_version)
     compiled = compile_role(loaded.role, loaded.integrations, pool_map)
-
-    # Read the initiating principal from the run's durable record (AC-0245).
-    with psycopg.connect(database_url("worker")) as conn:
-        principal = read_run_principal(conn, run_id=run_id)
 
     # Look up entitlements fresh at resume time (AC-0245, AC-0253).
     # The principal comes from the run record, not from the history bytes.

@@ -36,8 +36,10 @@ import psycopg
 import pytest
 
 from ced.adapters.postgres.dsn import database_url
-from ced.adapters.postgres.event_log import read_events, start_run
+from ced.adapters.postgres.event_log import append_approval_decision, read_events, start_run
+from ced.domain.events import APPROVAL_GRANTED
 from ced.worker.executor import make_step_body
+from ced.worker.persistence import load_suspension_payload
 from ced.worker.pool import Lease, PoolConfig
 
 from .test_resume_from_bytes import (
@@ -178,6 +180,31 @@ def suspended_on_a_ceiling_bearing_role(
     suspended = [e for e in events if e.type == "step.suspended"]
     assert len(suspended) == 1, f"expected a suspension, got {[e.type for e in events]}"
     assert suspended[0].payload_ref is not None
+
+    # **Commit a decision before yielding so ``claim_one`` can reclaim the step.**
+    # T2 sets ``awaiting_decision = true`` on suspension (AC-0333), and the
+    # pool's ``AND NOT awaiting_decision`` predicate blocks reclaiming until a
+    # decision is committed.  The resume tests are about authority inputs, not
+    # about the approval gate, so the decision here is a precondition that puts
+    # the step back into a claimable state.
+    #
+    # ``load_suspension_payload`` reads the ``pending_call_ids`` from the object
+    # store; ``append_approval_decision`` commits one ``approval.granted`` event
+    # per call id, clears ``awaiting_decision``, and advances ``approval_cycles``.
+    _, pending_call_ids = load_suspension_payload(suspended[0].payload_ref)
+    suspension_seq = suspended[0].seq
+    with psycopg.connect(database_url("api")) as api_conn:
+        append_approval_decision(
+            api_conn,
+            run_id=run_id,
+            step_id=step_id,
+            call_ids=pending_call_ids,
+            decisions=[APPROVAL_GRANTED] * len(pending_call_ids),
+            principal=_PRINCIPAL,
+            suspension_seq=suspension_seq,
+            agent_role=_RESUME_ROLE,
+            payload_ref=suspended[0].payload_ref,
+        )
 
     yield suspended[0].payload_ref, run_id, step_id, pool_class
 

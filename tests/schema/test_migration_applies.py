@@ -526,7 +526,7 @@ def test_a_migration_blocked_by_a_reader_aborts_rather_than_queueing(
             unset=(_LOCK_TIMEOUT_ENV_VAR,),
         )
         assert retried.returncode == 0, retried.stderr
-        assert _current_revision(probe_url) == "0004"
+        assert _current_revision(probe_url) == "0005"
         assert "tools" in _column_names(probe_url, "integration_registry"), (
             "the retry exited 0 without applying the pending migrations — "
             "a bounded wait that makes migrations unrunnable rather than "
@@ -644,7 +644,7 @@ def test_the_lock_timeout_override_reaches_the_migration_session(
                 "reader the default gave up on, and gave up too, so the value "
                 f"is not reaching the migration session.\n{patient.stderr}"
             )
-            assert _current_revision(probe_url) == "0004"
+            assert _current_revision(probe_url) == "0005"
         finally:
             release.set()
             keeper.join(timeout=30)
@@ -1048,3 +1048,82 @@ def test_the_policy_role_can_connect_and_is_refused_every_read(
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             policy_conn.execute(f"SELECT count(*) FROM {table}")
         policy_conn.rollback()
+
+
+def test_a_pre_revision_0005_step_row_is_claimable_after_upgrade(
+    require_substrate: None,
+) -> None:
+    """awaiting_decision NOT NULL DEFAULT false backfills pre-0005 rows (Entry 4).
+
+    A step inserted before revision 0005 has no awaiting_decision column. After
+    upgrading to head, that column exists with NOT NULL DEFAULT false. claim_one
+    must return the pre-existing step: its backfilled awaiting_decision=false
+    satisfies 'AND NOT awaiting_decision'.
+
+    Mutation that must red: if revision 0005 added awaiting_decision as nullable
+    with no DEFAULT, pre-existing rows would carry NULL. 'AND NOT NULL' evaluates
+    to NULL in SQL, so claim_one's WHERE clause excludes the row and claim_one
+    returns None — this assertion reds while fresh-row cases stay green.
+    """
+    import uuid
+
+    from ced.worker.pool import PoolConfig, claim_one
+
+    _pool_class = f"t2-pre0005-claim-{os.getpid()}"
+
+    with _probe_database("ced_pre0005_probe") as probe_url:
+        _replay_provisioning(probe_url)
+
+        # Upgrade to 0002: steps table exists with pool_class but no awaiting_decision.
+        at_0002 = _alembic("upgrade", "0002", env={"CED_DATABASE_URL": probe_url})
+        assert at_0002.returncode == 0, at_0002.stderr
+
+        # Insert a run and step directly — no awaiting_decision column yet.
+        run_id = uuid.uuid4()
+        step_id = uuid.uuid4()
+        with psycopg.connect(probe_url) as conn:
+            with conn.transaction():
+                conn.execute(
+                    "INSERT INTO runs (run_id, state, next_seq) VALUES (%s, 'running', 0)",
+                    (run_id,),
+                )
+                conn.execute(
+                    "INSERT INTO steps (step_id, run_id, state, pool_class)"
+                    " VALUES (%s, %s, 'runnable', %s)",
+                    (step_id, run_id, _pool_class),
+                )
+
+        # Upgrade to head: revision 0005 adds awaiting_decision boolean NOT NULL DEFAULT false.
+        # The pre-existing row is backfilled with awaiting_decision = false.
+        at_head = _alembic("upgrade", "head", env={"CED_DATABASE_URL": probe_url})
+        assert at_head.returncode == 0, at_head.stderr
+
+        # Build the worker-role URL for the probe database.
+        probe_name = probe_url.rsplit("/", 1)[1]
+        worker_probe_url = database_url("worker").rsplit("/", 1)[0] + "/" + probe_name
+
+        pool_config = PoolConfig(
+            worker_id="t2-pre0005-claim-worker",
+            default_limits={
+                "per_request_input_tokens_limit": 4_000,
+                "input_tokens_limit": 40_000,
+                "request_limit": 8,
+                "tool_calls_limit": 4,
+                "count_tokens_before_request": False,
+            },
+            allowed_model_ids=("stub:counting",),
+            pool_class=_pool_class,
+        )
+
+        with psycopg.connect(worker_probe_url) as conn:
+            lease = claim_one(conn, pool_config)
+
+        assert lease is not None, (
+            "claim_one must return the pre-0005 step row after upgrade to head; "
+            "mutation: add awaiting_decision as nullable with no DEFAULT in revision 0005 → "
+            "pre-existing row has NULL → 'AND NOT awaiting_decision' evaluates to NULL → "
+            "claim_one excludes the row and returns None → this assertion reds"
+        )
+        assert lease.step_id == step_id, (
+            f"expected step {step_id!r}, claim_one returned {lease.step_id!r}"
+        )

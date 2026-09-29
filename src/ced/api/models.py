@@ -83,3 +83,51 @@ class Event(BaseModel):
 class EventPage(BaseModel):
     run_id: UUID
     events: list[Event]
+
+
+class DecisionPair(BaseModel):
+    """One call-id / decision pair in an approval request.
+
+    ``call_id`` identifies the deferred tool call. ``granted`` is True for
+    ``approval.granted`` and False for ``approval.rejected``.
+
+    Both are bounded: ``call_id`` at ``ATTRIBUTION_MAX_LENGTH`` characters
+    so one unauthenticated request cannot persist an arbitrarily long string
+    in the event log (AC-0328). The bound at the route is what makes the
+    decision set finite; AC-0330 validates whether the call ids in the
+    request match the pending set in the suspension payload.
+    """
+
+    call_id: str = Field(min_length=1, max_length=ATTRIBUTION_MAX_LENGTH)
+    granted: bool
+
+
+class ApprovalDecisionRequest(BaseModel):
+    """What the approver submits to release a suspended step.
+
+    ``suspension_seq`` identifies which suspension is being answered — the
+    seq of the committed ``step.suspended`` event (AC-0334). The decision
+    path refuses a seq that is not the step's latest suspension.
+
+    ``decisions`` carries one pair per pending call id. An empty list is
+    refused (one unauthenticated request would consume the suspension and
+    kill the run via AC-0330). The list is bounded at
+    ``ATTRIBUTION_MAX_LENGTH`` entries — the same seam as the per-call-id
+    length — so the number of rows one request appends is finite (AC-0328).
+
+    ``principal`` is the approver's self-asserted identity. Unauthenticated
+    in Phase 1; recorded for inspectability (AC-0303, AC-0328, AC-0329).
+    """
+
+    suspension_seq: int = Field(ge=1)
+    decisions: list[DecisionPair] = Field(
+        min_length=1,
+        max_length=ATTRIBUTION_MAX_LENGTH,
+    )
+    principal: str = Field(min_length=1, max_length=ATTRIBUTION_MAX_LENGTH)
+
+
+class DecisionResult(BaseModel):
+    """The approval route's response: the seq of the last committed event."""
+
+    last_seq: int

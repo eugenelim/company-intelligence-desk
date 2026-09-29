@@ -493,7 +493,7 @@ def test_the_executors_call_site_installs_the_guard() -> None:
     )
 
     with pytest.raises(ReasoningReachesTheProvider):
-        _run_compiled_agent(substituted, _make_approval_toolset())
+        _run_compiled_agent(substituted, [_make_approval_toolset()])
 
 
 def test_the_resume_paths_call_site_installs_the_guard() -> None:

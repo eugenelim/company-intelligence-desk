@@ -202,6 +202,16 @@ def main() -> int:
     else:
         _run("ADR shape lint", [py, str(lint_adr_shape), str(adr_dir)])
 
+    # Prose totals that drift as the list they count grows. Guarded regions
+    # opt in with an HTML-comment pair, so this walks `docs/` and checks only
+    # what has opted in; a file with no guard is not a failure, it is a file
+    # that has not adopted the rule. See `tools/lint-prose-totals.py`.
+    prose_totals = Path("tools/lint-prose-totals.py")
+    if not prose_totals.is_file():
+        print("pre-pr: (no lint-prose-totals.py — skipping prose-total lint)")
+    else:
+        _run("prose-total lint", [py, str(prose_totals)])
+
     # --- Wire your own gate here ---------------------------------------------
     # This is your project's pre-PR gate. Add your lint / typecheck / test
     # commands as `_run(...)` calls — they run in repo-root, fail the hook on a

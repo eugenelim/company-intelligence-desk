@@ -21,6 +21,7 @@ from collections.abc import Iterator, Mapping
 import pytest
 
 from ced.worker import pool
+from ced.worker.pool import PoolConfig
 
 #: An admitted configuration, in `role-configuration-seams` § 5's `limits`
 #: shape. Cases below start from this and break exactly one thing.
@@ -277,3 +278,17 @@ def test_an_empty_allowed_model_set_is_admitted() -> None:
     config = pool.validate_pool_config(env_with(**{pool.ALLOWED_MODEL_IDS_VAR: "[]"}))
 
     assert config.allowed_model_ids == ()
+
+
+# STUB: AC-0321
+def test_the_cycle_cap_configuration_carries_a_finite_default() -> None:
+    """A deployment that declares no cap still gets a bounded loop."""
+    cap = PoolConfig.approval_cycle_cap
+    assert cap is not None and cap > 0
+
+
+# STUB: AC-0325
+def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
+    """A deployment that declares no ceiling still gets one."""
+    ceiling = PoolConfig.per_run_token_ceiling
+    assert ceiling is not None and ceiling > 0
