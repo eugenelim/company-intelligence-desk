@@ -345,11 +345,13 @@ carrying no guard is not a failure; one line is waived with a trailing
 
 **Read the tool's docstring before relying on it — the rule is narrower than
 the paragraph above may suggest.** It matches only spelled cardinals `one`
-through `twenty`, only with nothing between the sentence start and the
-cardinal, and only in sentence-initial position. So a digit (`10 were
+through `twenty`, only a bare cardinal — a list bullet, markdown emphasis and the
+`(discovered)` marker may precede it, but a determiner or a prepositional
+lead-in defeats the match — and only in sentence-initial position. So a digit (`10 were
 enumerated`), a determiner (`All ten were enumerated`), a lead-in (`Of these,
 six are marked`) and a mid-sentence cross-reference (`the five paths above`)
-all pass — and that last form has shipped here twice. Invoked bare it reads
+all pass — and that last form is the one that has actually shipped here,
+repeatedly, which is why the guarded regions still need reading. Invoked bare it reads
 `docs/**/*.md` only, so a guard anywhere else needs its path passed explicitly
 or it is never read.
 

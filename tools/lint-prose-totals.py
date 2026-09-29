@@ -31,8 +31,8 @@ is.** Only spelled cardinals `one` through `twenty` are matched, so a digit
 or a prepositional lead-in in front of it passes (`All ten were enumerated`,
 `Of these, six are marked`). Only a *sentence-initial* position is matched, so
 a cross-reference total mid-sentence passes (`the five paths above`) -- the
-form that has actually shipped twice here, and the reason the guarded regions
-still need reading. Table cells are not parsed. Widen the rule before relying
+form that has actually shipped here, repeatedly, and the reason the guarded
+regions still need reading. Table cells are not parsed. Widen the rule before relying
 on it for any of these.
 
 With no arguments this walks `docs/**/*.md` only, which is where the guarded

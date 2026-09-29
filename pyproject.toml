@@ -84,6 +84,9 @@ src = ["src", "tests"]
 # `tools/lint-prose-totals.py` is deliberately NOT excluded: it was authored
 # against this manifest on 2026-09-28, so the reason above does not reach it,
 # and a gate the toolchain never reads is a gate nobody notices decaying.
+# Naming the paths also fixed an accident: the bare `"tools"` entry matched any
+# directory of that name, so `src/ced/agents/tools/` had never been linted
+# either. It is read now, and was already clean.
 extend-exclude = [
     ".agents",
     ".claude",

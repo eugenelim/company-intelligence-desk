@@ -142,8 +142,8 @@ every review round it has been through.
   - `requested→claimed` on `run.claimed` — **not committed.** No append path
     defines, emits or admits that type; the only occurrence anywhere in the
     code is the docstring in `src/ced/domain/run_state.py` explaining its
-    absence — r8's own table and this page name it too, as prose about the gap
-    rather than vocabulary the system can emit. Inventing
+    absence; it is named in prose elsewhere too — r8's table, this page, the
+    spec — as description of the gap rather than vocabulary the system emits. Inventing
     the type is a decision no spec currently owns. **The state value is
     authored, though:** `claimed` is in the `runs.state` CHECK
     (`migrations/versions/0001_base_schema.py`) and in the snapshot `state`

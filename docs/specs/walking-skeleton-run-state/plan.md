@@ -312,24 +312,29 @@ def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
 
 **Depends on:** T3
 
-**Touches:** docs/architecture/README.md, docs/specs/walking-skeleton-run-state/spec.md, docs/specs/walking-skeleton-run-state/plan.md, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md, workspace.toml, tools/lint-prose-totals.py, tools/hooks/pre-pr.py, tests/architecture/test_prose_totals_lint.py, AGENTS.md
+**Touches:** docs/architecture/README.md, docs/specs/walking-skeleton-run-state/spec.md, docs/specs/walking-skeleton-run-state/plan.md, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md, workspace.toml, tools/lint-prose-totals.py, tools/hooks/pre-pr.py, tests/architecture/test_prose_totals_lint.py, AGENTS.md, pyproject.toml
 
-**Widened 2026-09-28 by owner decision.** The last four entries and the ledger
+**Widened 2026-09-28 by owner decision.** The last five entries and the ledger
 were added after six review rounds found the same defect in this task's own
 artifact: a total in prose over a list enumerated elsewhere in the same file,
 including one introduced by the commit that repaired the round before it. The
 owner's decision was to stop relying on care and gate the construct, so T4
 gained the lint that enforces it, its wiring into the pre-PR hook, its
 regression tests, and the AGENTS.md entry that AGENTS.md § Build and test
-commands requires in the same change. Recorded here rather than absorbed,
-because a task exceeding its pinned `Touches` without a decision is the drift
-this field exists to catch.
+commands requires in the same change. `pyproject.toml` followed for the same
+reason: the new lint is code this project authors, and `tools/` was excluded
+from `ruff` and `mypy` under a rationale — "lints that predate this manifest" —
+that cannot reach a file authored against it. **That entry was itself missed
+once:** the toolchain change landed in `02a111e` while this paragraph, which
+exists to catch exactly that, went un-amended. Recorded here rather than
+absorbed, because a task exceeding its pinned `Touches` without a decision is
+the drift this field exists to catch.
 
 **Tests:**
 - AC-0329 is checked by reading: the record must name every residual AC-0329 enumerates, including the uncommitted transitions it lists and the safety constraints `awaiting_input` owes.
 - `python3 .agents/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green across **every** walking-skeleton spec under `docs/specs/`, whatever the count — `--all` sweeps them regardless, and the sibling plan records why a number here goes stale.
 - `no stub (mode)` — record review, for AC-0329.
-- **The gate this task added, per the `Touches` widening above.** `python3 tools/lint-prose-totals.py` exits 0 over `docs/`, and `tools/hooks/pre-pr.py` runs it — a lint nothing invokes is not a gate. `./.venv/bin/python -m pytest tests/architecture/test_prose_totals_lint.py` covers both directions: the totals that actually drifted here are refused, and the sound cardinals in the same section are admitted. Every predicate in the tool is mutation-proved with a witness of its own; the ledger records which mutant reds which test.
+- **The gate this task added, per the `Touches` widening above.** `python3 tools/lint-prose-totals.py` exits 0 over `docs/`, and `tools/hooks/pre-pr.py` runs it — a lint nothing invokes is not a gate. `./.venv/bin/python -m pytest tests/architecture/test_prose_totals_lint.py` covers both directions: the totals that actually drifted here are refused, and the sound cardinals in the same section are admitted. Every predicate in the tool is mutation-proved, and no two share a sole witness; the ledger tabulates which mutant reds which test.
 
 **Done when:** AC-0329 holds and the architecture map names the transitions this delivery did not commit.
 
