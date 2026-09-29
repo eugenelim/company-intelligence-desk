@@ -53,9 +53,9 @@ status = "active"
 
 ["ini-001".work]
 # Phase 1 walking skeleton. The spec set is whatever this file registers —
-# `lint-spec-status --root . --all` counts it, and no number is written here,
-# because every cut so far has left a stale one behind. Cut into three on
-# 2026-09-18 after a single spec did not converge across three review rounds;
+# `lint-spec-status --root . --all` counts it, and no set-size number is
+# written here, because every cut so far has left a stale one behind.
+# Cut into three on 2026-09-18 after a single spec did not converge across three review rounds;
 # the agent-runtime spec was cut into three again on 2026-09-20 because it
 # carried AC-0201 through AC-0232, about two and a half times either sibling;
 # and authority-containment was cut in two on 2026-09-23, separating the

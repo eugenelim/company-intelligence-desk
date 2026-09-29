@@ -29,12 +29,12 @@ points — `ced-api` and `ced-worker`.
 | The privilege split | `migrations/versions/0002_*`, `migrations/versions/0005_*` | No application role holds `INSERT` on `events`. Five `SECURITY DEFINER` append functions — `append_step_event`, `append_run_event`, `append_policy_decision`, `append_run_terminal`, `append_approval_decision` — plus `fence_step`, which is owned by the `NOLOGIN` `ced_fence` so the role the split distrusts cannot drop the control that constrains it. **Every one pins `SET search_path = pg_catalog, pg_temp` and schema-qualifies every relation reference.** The control is disjointness between *roles*, not one function per role: `app_worker` holds `append_step_event` and `append_run_terminal`, `app_api` holds `append_run_event` and `append_approval_decision`, `app_policy` holds `append_policy_decision`, and `PUBLIC` holds none. The fence proves **possession**, not knowledge: it requires a live, owned lease (`owner IS NOT NULL AND lease_expires_at > clock_timestamp()`, never `now()`, which is the caller's transaction start), so a never-claimed, released, drained or expired step is unappendable at any epoch. Every fenced append also checks the step belongs to the run. `events.type` carries a CHECK requiring a dotted run of lowercase ASCII alphanumerics, which is what makes the reserved-type refusal exhaustive by construction rather than by a denylist of invisible characters. Revision 0005 re-issues `append_step_event` through `CREATE OR REPLACE` with the two decision types added to its refusal list, so they cannot reach the worker's path | r8 § 4 Contracts and Invariants; `worker-runtime.md` r4 change 1 as narrowed by [ADR-0004](../adr/0004-fence-function-owner.md); the possession predicate by [ADR-0005](../adr/0005-the-fence-proves-lease-possession.md); the two new paths by [ADR-0009](../adr/0009-the-two-new-append-paths-and-who-holds-them.md) |
 | The HTTP surface | `src/ced/api/` | `POST /runs`, `GET /runs/{id}/snapshot`, `GET /runs/{id}/events`, and `POST /runs/{run_id}/steps/{step_id}/decision` — the approval operation `walking-skeleton-run-state` added. Holds no model authority. It reaches the log through the two run-lifecycle types **and**, since that spec, through the two step-scoped decision types on `app_api`'s own append path; an earlier version of this row said "only through the two run-lifecycle types", which stopped being true when AC-0324 granted that path. The decision route validates shape, cardinality and origin, and deliberately validates **no call ids** — the pending set lives in the object store and nothing under `src/ced/api/` reaches it | r8 § 4 Contracts and Invariants; `contracts/openapi/runs.yaml` |
 | The worker pool | `src/ced/worker/pool.py` | Claim under a lease with `SKIP LOCKED`, execute outside any transaction, heartbeat-renew fenced on epoch and owner. TTL 60 s, heartbeat 20 s, poll 30 s. `validate_pool_config` refuses at boot, with no database, a deployment that leaves any of the four token ceilings unset or names no allowed model id — the pool's own spend bound is checked rather than assumed | r8 § 3 Runtime Model; `worker-runtime.md` § 6 Deployment and Operations; [ADR-0006](../adr/0006-four-r5-deviations-for-phase-1.md) D1 |
-| The role compiler | `src/ced/agents/compiler.py`, `src/ced/agents/models.py`, `src/ced/adapters/postgres/roles.py`, `migrations/versions/0003_*` | An `agent_role` record becomes an `Agent` here and nowhere else. Revision 0003 closes `agent_role` and `integration_registry` to r5's record shapes; `load_role` reads them and `decode_role_record` refuses a malformed one. The compile-time guards refuse a role that widens a pool limit, declares a model id outside the pool's allowed set, carries a settings key outside the declared set, binds an integration its pool class may not reach, binds a tool that does not resolve, or declares an output contract the compiler does not know. The append path for a refusal exists and names its event type from the raised type rather than from a caller — `role.load.failed` at the loader stage, `role.compile.refused` at the compiler's. **Nothing calls it yet:** the step executor that appends is `walking-skeleton-step-lifecycle`'s, so no refusal reaches the log today and this row claims the seam, not the behaviour | `worker-runtime.md` r5 § 2 and § 4; `role-configuration-seams.md` § 5 and § 6; [ADR-0006](../adr/0006-four-r5-deviations-for-phase-1.md) |
+| The role compiler | `src/ced/agents/compiler.py`, `src/ced/agents/models.py`, `src/ced/adapters/postgres/roles.py`, `migrations/versions/0003_*` | An `agent_role` record becomes an `Agent` here and nowhere else. Revision 0003 closes `agent_role` and `integration_registry` to r5's record shapes; `load_role` reads them and `decode_role_record` refuses a malformed one. The compile-time guards refuse a role that widens a pool limit, declares a model id outside the pool's allowed set, carries a settings key outside the declared set, binds an integration its pool class may not reach, binds a tool that does not resolve, or declares an output contract the compiler does not know. The append path for a refusal exists and names its event type from the raised type rather than from a caller — `role.load.failed` at the loader stage, `role.compile.refused` at the compiler's. **It is wired:** `src/ced/worker/executor.py` calls it from both handlers, on `RoleLoadError` and on `RoleCompileError`, and each handler then returns without starting the step. That early return is why a run whose role fails to load or compile never leaves `requested` — the residuals subsection below records that stuck state | `worker-runtime.md` r5 § 2 and § 4; `role-configuration-seams.md` § 5 and § 6; [ADR-0006](../adr/0006-four-r5-deviations-for-phase-1.md) |
 | The toolset stack | `src/ced/agents/toolsets/`, `src/ced/worker/executor.py` | The compiled stack is one toolset besides the framework's own, and it is the policy decision point wrapping the step-event toolset wrapping the trust-class toolset wrapping the function toolset. The compiler builds the chain and a separate checker asserts the order, so order is never a caller's parameter. **The decision point now holds its predicate as well as its position.** It decodes a stored ceiling into the containment fragment, denies a lookup that finds nothing, and commits a `policy.decision` before the tool body runs or the refusal is raised; the step-event layer below it appends the invocation pair and turns a duplicate derived key into a terminated step. **A flagged run carries a second toolset outside that stack:** when a pre-release check fails, `offered_approval_gated_tools` returns an approval-gated `FunctionToolset` that the executor passes to `run_sync` beside the compiled one — the run-time placement [ADR-0008](../adr/0008-the-approval-gate-stays-outside-the-compiled-toolset.md) records and AC-0302 reads. A clean run is offered none | ADR-0001 D3; `worker-runtime.md` r5 § 2 Structural Model |
 | The quarantine boundary | `src/ced/agents/toolsets/trust_class.py`, `src/ced/domain/quarantine/` | A role is quarantined exactly when its `ceiling` is empty — a construction, not a declaration — and it compiles to no domain tools, the `reference-selection` output contract, and zero tool-retry and output-validation-retry budgets. A deterministic pipeline mints the candidate reference set from the recorded filing **before** the agent runs and seals it, so the agent selects among references it cannot mint. The parser admits a closed set of scalar types, a closed label vocabulary, and only minted references | `runtime-architecture.md` r8 § 4 Contracts and Invariants; `worker-runtime.md` r5 § 4 |
 | The containment fragment | `src/ced/domain/containment/` | Decides whether an argument *value* falls inside a role's ceiling over parsed components rather than over the string. Arguments carry a domain type, a string prefix is expressible only on `opaque-string`, and the caller receives a parsed `CanonicalUrl` it cannot recover the original from. A canonicaliser of ten named rules runs first, each recording the r5 clause it implements; percent-decoding runs before dot-segment removal and a pinned case holds that order. Authoring refuses a prefix on an interpreted type, a `host_in_domain` over a public suffix **as the bundled 2019-12-21 dataset knows one** — a suffix delegated since is authorable, and that dependency has shipped no refresh — a `url` argument with no host-constraining predicate, and one whose scheme predicate is missing **or names anything but `https`** — the one place the fragment bounds a predicate's value rather than only its presence, because a scheme the egress path cannot carry makes the host predicate beside it decide nothing — a `within` root that is relative or the whole filesystem, and an argument with no predicate at all. Evaluation has three outcomes and no fourth: it admits, carrying the canonical value; it denies, including for an argument no predicate ranges over and one the call omits; or it raises `ContainmentUndecidable` on an input it cannot decide. **It is installed:** [`walking-skeleton-policy-decision-point`](../specs/walking-skeleton-policy-decision-point/spec.md) decodes `agent_role.ceiling` and `entitlements.ceiling` into it on the compile path, routing every entry through this fragment's own authoring surface so a stored row the fragment could not have been written with is refused at compile time rather than evaluated | `worker-runtime.md` r5 § 4, "Why a prefix predicate is not safe on an interpreted argument" |
 | The authorization boundary | `src/ced/agents/ceilings.py`, `src/ced/agents/toolsets/policy.py`, `src/ced/adapters/postgres/event_log.py` | `may_act` as a conjunction: a call is admitted only when the acting role's ceiling admits it **and** the initiating user's entitlements do. Both identities are read from the claimed step and its run — `events.principal` on the run's `run.requested` row — never from the call, so an agent cannot select the ceiling it is judged against. The decision is committed before the body runs or the refusal is raised. On **any** append failure the worker attempts a fenced step termination and raises: where the fence was held the step terminates, and where the worker was genuinely evicted the write matches zero rows and the step stays with its new owner. The database is the discriminator, because an injected serialization failure and a real takeover both surface as the same exception. A `url`-typed argument is refused at compile time while the bundled public-suffix dataset is its 2019-12-21 snapshot | `worker-runtime.md` r5 § 2 and § 4; r8 § 4 Contracts and Invariants |
-| The run state machine | `src/ced/domain/run_state.py`, `src/ced/worker/executor.py`, `src/ced/worker/persistence.py`, `src/ced/worker/pool.py`, `src/ced/adapters/postgres/event_log.py`, `src/ced/api/main.py`, `migrations/versions/0005_*` | Three committed transitions — `requested→running` on `step.started`, and `running→completed` / `running→failed` on the two terminal types — each written with its event in one transaction. `append_run_terminal` is fenced and granted to `app_worker` alone; `append_approval_decision` is unfenced and granted to `app_api` alone, keyed `<suspension_seq>:<call_id>` under a partial unique index. A suspended step is held out of the claim predicate by `steps.awaiting_decision` rather than by a step state, which keeps the lease released as AC-0237 requires while stopping a re-claim before the approver acts. `project_run_state` is the pure projection the snapshot is checked against. Two bounding controls on `PoolConfig`, both with finite defaults: an approval cycle cap, and a ceiling named for tokens that is in fact compared against the run's event count — no token count is persisted in this delivery, so at its default a run emitting roughly four events is measured against 200 000. The residuals subsection below records that mismatch rather than the table implying a working spend bound. **What it does not commit, and why, is enumerated in § `walking-skeleton-run-state` residuals below** — that subsection is the point, not a footnote | r8 § 3 Runtime Model; `worker-runtime.md` r5 § 3; [ADR-0008](../adr/0008-the-approval-gate-stays-outside-the-compiled-toolset.md) and [ADR-0009](../adr/0009-the-two-new-append-paths-and-who-holds-them.md) |
+| The run state machine | `src/ced/domain/run_state.py`, `src/ced/worker/executor.py`, `src/ced/worker/persistence.py`, `src/ced/worker/pool.py`, `src/ced/adapters/postgres/event_log.py`, `src/ced/api/main.py`, `migrations/versions/0005_*` | `_TRANSITIONS` in `src/ced/domain/run_state.py` holds the edges the projection replays — `requested→running` on `step.started`, and `running→completed` / `running→failed` on the two terminal types — each written with its event in one transaction. The run's birth at `requested` is committed by `start_run` and needs no projection entry, since a run is inserted in that state rather than moved into it. `append_run_terminal` is fenced and granted to `app_worker` alone; `append_approval_decision` is unfenced and granted to `app_api` alone, keyed `<suspension_seq>:<call_id>` under a partial unique index. A suspended step is held out of the claim predicate by `steps.awaiting_decision` rather than by a step state, which keeps the lease released as AC-0237 requires while stopping a re-claim before the approver acts. `project_run_state` is the pure projection the snapshot is checked against. Two bounding controls on `PoolConfig`, both with finite defaults: an approval cycle cap, and a ceiling named for tokens that is in fact compared against the run's event count — no token count is persisted in this delivery, so at its default a run emitting roughly four events is measured against 200 000. The residuals subsection below records that mismatch rather than the table implying a working spend bound. **What it does not commit, and why, is enumerated in § `walking-skeleton-run-state` residuals below** — that subsection is the point, not a footnote | r8 § 3 Runtime Model; `worker-runtime.md` r5 § 3; [ADR-0008](../adr/0008-the-approval-gate-stays-outside-the-compiled-toolset.md) and [ADR-0009](../adr/0009-the-two-new-append-paths-and-who-holds-them.md) |
 | The dependency-direction gate | `tests/architecture/dependency_direction.py` | An AST walk refusing `pydantic_ai` outside `agents/` and `adapters/`, and the AWS SDK outside `adapters/` | The spec's Never-do |
 | The local substrate | `deploy/` | Postgres 17 with `deadlock_timeout` at 200 ms, MinIO, and two worker containers | `worker-runtime.md` § 6 Deployment and Operations |
 
@@ -47,17 +47,12 @@ be issued, against a model that would reason at the provider.
 
 **What is designed and not built.** The browser stream and the Phase 1
 measurements, which belong to `walking-skeleton-evidence`; and the run state
-machine's **remaining** transitions, which have different owners and in three
-cases none. `requested→claimed` and `running→awaiting_approval` need event
-types — `run.claimed` and `approval.requested` — that exist nowhere in the
-tree, which is a vocabulary decision no spec currently owns.
-`any non-terminal→cancelled` is expressible today and needs a cancel caller,
-which no spec currently owns either. Only what `awaiting_input` owes belongs to
-the spec that first wires the input tool.  The run
-state machine itself is **built**: it was split out into
-`walking-skeleton-run-state` and shipped, and § `walking-skeleton-run-state`
-residuals below enumerates every edge r8 § 3 names, marking the three this
-delivery commits and the seven it does not, each with the reason it is stuck. 
+machine's **remaining** transitions. Only what `awaiting_input` owes has an
+owner — the spec that first wires the input tool. Every other remaining edge
+owns nothing yet, and § `walking-skeleton-run-state` residuals below is where
+that breakdown lives: it walks r8 § 3's table row by row, so no count is
+restated here to drift against it. The run state machine itself is **built**:
+it was split out into `walking-skeleton-run-state` and shipped.
 
 **What the step lifecycle established, and what it did not.** The credential
 scan reads a locally running container and shows it holds no static key; on a
@@ -132,30 +127,59 @@ should know which entries a separate list ever checked.
 
 **What the state machine does not commit.**
 
-- **Of the edges r8 § 3 names, this delivery commits three and leaves seven.**
-  Committed: `requested→running` on `step.started`, and `running→completed` /
-  `running→failed` on the two terminal types. Not committed, with the reason
-  each is stuck:
-  - `requested→claimed` and `running→awaiting_approval` need `run.claimed` and
-    `approval.requested`, which exist nowhere in `src/`, `migrations/`,
-    `contracts/` or `tests/`. Inventing an event type is a vocabulary decision
-    no spec currently owns.
+- **Every row of r8 § 3's table, and what the tree does with it.** Two rows are
+  committed under a source state r8 does not write, so a reader matching the two
+  tables row by row will not find them where r8 puts them.
+  - `—→requested` on `run.requested` — **committed.** `start_run` in
+    `src/ced/adapters/postgres/event_log.py` inserts the run at `requested` and
+    appends the event in one transaction.
+  - `requested→claimed` on `run.claimed` — **not committed.** The event type
+    exists nowhere in `src/`, `migrations/`, `contracts/` or `tests/`.
+    Inventing one is a vocabulary decision no spec currently owns.
+  - `claimed→running` on `step.started` — **committed from `requested`, not
+    from `claimed`.** Because `claimed` is never entered, the tree collapses
+    r8's two hops into one: `_TRANSITIONS` in `src/ced/domain/run_state.py`
+    maps `("requested", "step.started")` to `running`, and the executor's
+    `UPDATE runs` is guarded `AND state = 'requested'`.
+  - `running→awaiting_input` on `input.requested` and `awaiting_input→running`
+    on `input.supplied` — **not committed.** These are what `awaiting_input`
+    owes, and they belong to the spec that first wires the input tool.
+  - `running→awaiting_approval` on `approval.requested` — **not committed.**
+    Same vocabulary gap as `run.claimed`.
   - `awaiting_approval→running` on `approval.rejected` and
-    `awaiting_approval→completed` on `approval.granted` have their event types —
-    revision 0005 ships both and `app_api` appends them — but **nothing ever
+    `awaiting_approval→completed` on `approval.granted` — **dead.** Both event
+    types ship in revision 0005 and `app_api` appends them, but **nothing ever
     writes `runs.state = 'awaiting_approval'`**, so the source state is
-    unreachable and the edges are dead. This is the one a reader is most likely
-    to get wrong: the approval *decision* path shipped, the approval *states* did
-    not.
+    unreachable. This is the one a reader is most likely to get wrong: the
+    approval *decision* path shipped, the approval *states* did not.
   - `awaiting_approval→expired` on `approval.expired` and
-    `expired→awaiting_approval` on `approval.reopened` need both the source state
-    and two more event types that exist nowhere.
-  - `any non-terminal → cancelled` is declined rather than overlooked, for a
-    different reason — see the next bullet.
+    `expired→awaiting_approval` on `approval.reopened` — **not committed.** They
+    need both the unreachable source state and two more event types that exist
+    nowhere.
+  - `running→completed` on `run.completed` — **committed**, through
+    `append_run_terminal`.
+  - `any non-terminal→failed` on `run.failed` — **committed from `running`
+    only.** `append_run_terminal` updates `WHERE run_id = p_run_id AND state =
+    'running'` and raises otherwise, so a run still at `requested` cannot be
+    failed at all. The bullet after next is the witness.
+  - `any non-terminal→cancelled` on `run.cancelled` — **declined rather than
+    overlooked**, for a reason of its own; see below.
 
   A reader therefore cannot distinguish a suspended run from a working one by
   `runs.state` at all: a suspension is visible only as the `step.suspended`
   event.
+- **(discovered) A role that fails to load or compile strands its run at
+  `requested`, where nothing can move it.** Both handlers in
+  `src/ced/worker/executor.py` append the refusal and return before the
+  `UPDATE runs SET state = 'running'` and the `step.started` append, so the run
+  never reaches `running`; and because `append_run_terminal` refuses a run that
+  is not at `running`, no later path can fail it either. The event log records
+  the refusal; the run record shows a run that never began. No test exercises
+  this — the checks naming `RoleLoadError` and `RoleCompileError` drive
+  `append_role_refusal` and the compile guards directly, never the executor
+  branch or `runs.state`. This is a gap in `src/`, not on this page: closing it
+  needs a delivery whose `Touches` reaches the executor, and it is distinct from
+  the five `running` paths below.
 - `any non-terminal → cancelled` is declined rather than overlooked. `run.cancelled`
   ships and `append_run_event` admits it, so the tree can express the edge;
   nothing appends it, and committing it would mean building a cancel caller this

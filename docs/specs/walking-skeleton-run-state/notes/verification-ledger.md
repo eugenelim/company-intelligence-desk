@@ -1594,3 +1594,59 @@ mechanical separates "every criterion met, awaiting the gate" from "in flight".
 contract says substantive change is allowed only while its Status is
 `Drafting`, and that post-approval execution observations belong here — so
 placing it in the plan broke the rule it was explaining. Moved.
+
+### Round 15 — the rewrite was necessary and not sufficient
+
+Round 14 rewrote § What is built from the tree rather than patching it at the
+coordinates prior rounds reported. Round 15 was briefed to re-derive r8 § 3's
+table independently rather than check the four edges round 14 added, and it
+found more. **Re-derivation is what found the residue; it is not what removed
+it.** The theory that patching alone was the defect was therefore wrong, or at
+least incomplete: the rewrite was done against the *reported* shape of r8 § 3
+rather than against its rows, so it reproduced the same class of error at a
+finer grain.
+
+Six findings were raised, five sustained and one refuted by adjudication.
+
+**Sustained, and what the tree says instead.**
+
+- The subsection claimed to enumerate "every edge r8 § 3 names, marking the
+  three this delivery commits and the seven it does not". `runtime-architecture.md`
+  § 3 carries thirteen rows; 3 + 7 = 10. `—→requested`, `claimed→running`,
+  `running→awaiting_input` and `awaiting_input→running` appeared in neither set.
+  Two of the three "committed" edges were also relabelled: r8 writes
+  `claimed→running`, not `requested→running`, and `any non-terminal→failed`,
+  not `running→failed`.
+- That second relabel was **load-bearing, not cosmetic.** `append_run_terminal`
+  updates `WHERE run_id = p_run_id AND state = 'running'`, and the two
+  role-refusal handlers in `src/ced/worker/executor.py` return before the
+  `UPDATE runs SET state = 'running'` and the `step.started` append. So a run
+  whose role fails to load or compile stays at `requested` and **no path can
+  ever fail it**. Writing the edge as `running→failed` made that gap
+  unstateable, because the source state it strands a run in was outside the
+  edge as written. Recorded as a new AC-0329 residual; the fix is in `src/` and
+  no task in this spec `Touches` the executor.
+- The role-compiler row still read "**Nothing calls it yet**" while
+  `src/ced/worker/executor.py` calls `append_role_refusal` from both handlers.
+  Two rows below it, the run-state row already listed that file.
+- The summary paragraph counted "in three cases none" against a residuals
+  subsection listing seven ownerless edges. The paragraph now defers the
+  breakdown rather than restating a count that must be kept in sync.
+- `workspace.toml`'s register comment said "no number is written here" and then
+  wrote three dates and a criterion range. Scoped to "no set-size number".
+
+**Refuted.** The frozen-foundation corrections were said to name no way to
+reach the current answer. Both name `workspace.toml`, which is what the
+finding's own fix asked for, so the prescription could resolve nothing.
+
+**The same class, swept rather than patched.** The run-state subsystem row said
+"Three committed transitions", which undercounts once `—→requested` is admitted
+as committed. It now scopes the three to `_TRANSITIONS` — what the *projection*
+replays — and states separately that a run is inserted at `requested` rather
+than moved into it. The finding named the residuals subsection only; leaving the
+row would have reinstated the contradiction from the other side.
+
+**What this round changes about how the map is written.** Counts against an
+external table were the mechanism in four of the five sustained findings. The
+enumeration now walks r8 § 3 row by row and publishes no total, which is what
+AC-0329 asks for in saying "the gate is that list, not its length".
