@@ -17,9 +17,16 @@ proof filed where nobody looks is the same defect as a proof never run.
 >
 > Nothing here gates anything. The obligations that are gated live in
 > `spec.md`, `plan.md`, `docs/architecture/README.md`, and the commands in
-> AGENTS.md § Repository checks; those were reviewed to a clean verdict and are
-> where a reader should go for what is true. This file explains how the work
-> was verified, not whether it holds.
+> AGENTS.md § Repository checks; those are where a reader should go for what is
+> true. This file explains how the work was verified, not whether it holds.
+>
+> **An earlier revision of this header said those artifacts "were reviewed to a
+> clean verdict".** That was false when written — no round had returned clean —
+> and the next round proved it, finding three statements in `spec.md` that were
+> false against the tree, including a paragraph describing the pre-build code
+> in the present tense on a criterion marked `[x]`. Freezing this file is a
+> decision about where review effort goes, not a claim that what remains was
+> already clean.
 >
 > **Why freeze rather than converge.** Correcting it was, by the last three
 > rounds, generating about as many defects as it closed, in a file no gate
@@ -2034,3 +2041,40 @@ same form, standing then and now, and in a criterion whose own prose says it
 "enumerates and does not tally". The header now names the form it covers, and
 AC-0320 and AC-0324 lost their tallies, which were the last two in the class
 outside the guarded regions.
+
+### Round 22 — the freeze worked, and the gated artifact was not clean
+
+Recorded after the freeze because it concerns `spec.md`, not this file.
+
+With the ledger out of scope, the round found what five previous rounds had not
+reached: **three statements in `spec.md` that are false against the tree.**
+
+- **AC-0330 carried a whole paragraph of pre-build state in the present
+  tense**, on a criterion marked `[x]`. It said "the shipped resume path does
+  none of this" — that `persistence.py` fabricated an all-approved map, that no
+  reader of `approval.granted` or `approval.rejected` existed in `src/`, and
+  that `resume_step` had no caller outside a test harness. T2 and T3 falsified
+  all three, and the paragraph was never revised. The adjacent
+  "Amended 2026-09-28" note is marked as history; this one was not, so it read
+  as current.
+- **Two citations resolved to the wrong statements.** `0001_base_schema.py:228-229`
+  is `GRANT SELECT`, not the `UPDATE ON runs` pair the carve-out is about — those
+  are at `:232-233`. `pool.py:429-431` is `return config` at the end of the boot
+  helper, not the claim predicate, which is at `:446-447`.
+- **AC-0329's lead sentence undercounted the class it names.** "r8 § 3 names two
+  events this system has never emitted" — there are six: `run.claimed`,
+  `approval.requested`, `input.requested`, `input.supplied`, `approval.expired`,
+  `approval.reopened`. The last four appear nowhere in `src`, `migrations`,
+  `contracts` or `tests`; the first two only in a docstring. The README this
+  criterion gates already enumerates all six, so the spec contradicted its own
+  record. The cardinal is mid-sentence — the one form the lint documents itself
+  as unable to see.
+
+**The freeze is what made this reachable.** Rounds 17 through 21 spent
+themselves on this file; the first round that could not see it went straight to
+defects in the artifact that actually gates the delivery. That is the argument
+for the freeze restated as evidence rather than as prediction.
+
+**And the freeze header was itself wrong.** It claimed the gated artifacts "were
+reviewed to a clean verdict" — false when written, and disproved within the
+hour. Corrected above.
