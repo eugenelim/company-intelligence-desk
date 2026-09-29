@@ -1814,20 +1814,27 @@ listed, with that miss recorded beside it.
 
 **The tally reappeared inside the gate's own documentation.** AGENTS.md and the
 tool's docstring both said the mid-sentence cross-reference form "has shipped
-here twice". Named rather than tallied, because the tally is the defect: at
-`08d9f7a` the form stood at `docs/architecture/README.md` "distinct from the
-five `running` paths below", and at `docs/specs/walking-skeleton-run-state/spec.md`
-in three places — "what five other paths in", "shares the event five other
-causes in", and "than the five `running` paths above". `891b704` removed one,
-`02a111e` removed two, and round 18 found the last still standing. Both
-documents now describe the form without counting it.
+here twice". Named rather than tallied, because the tally is the defect. Every
+instance that stood at `08d9f7a`, and the commit that removed it:
 
-**An earlier revision of this paragraph said "six instances ... four had been
-removed by then and one was still standing"**, which does not reconcile, names
-none of the instances, and dates removals "by then" against the same instant it
-measures. Round 19 caught it. That is a prose tally inside the sentence
-reporting the removal of prose tallies — the same construct, one level up, for
-the fourth round running.
+| Instance at `08d9f7a` | Removed by |
+| --- | --- |
+| `README.md` "distinct from the five `running` paths below" | `02a111e` |
+| `README.md` "shares `step.failed` with the five `src/ced/worker/executor.py` paths above" | `891b704` |
+| `spec.md` "what five other paths in `src/ced/worker/executor.py` append too" | `e088189` |
+| `spec.md` "shares the event five other causes in `executor.py` emit" | `02a111e` |
+| `spec.md` "than the five `running` paths above" | `891b704` |
+
+Both documents now describe the form without counting it.
+
+**This paragraph has now been wrong twice.** It first said "six instances ...
+four had been removed by then and one was still standing" — a sum that does not
+reconcile, naming nothing, dating removals against the instant it measures.
+Round 19 caught that. The replacement named four instances and attributed the
+removals to two commits; round 20 found a fifth, `README.md`'s
+`executor.py`-paths twin, and that `891b704` removed two rather than one. The
+table above is the third attempt and the first built from a class-wide search
+rather than from the previous wording.
 
 **A third sweep was written up as complete and was not.** Round 17's entry above
 says two cross-reference totals "are now removed". A third stood at
@@ -1908,6 +1915,40 @@ no gate, because the claim stops anyone reading.
 reporting the removal of a tally stated "six instances ... four had been removed
 by then and one was still standing" — a sum that does not reconcile, naming
 none of the instances, dating removals "by then" against the instant it
-measures. It now names all four and which commit removed which. **Fourth
-consecutive round in which this construct appeared in the prose describing its
-own removal.**
+measures. It now carries a table of every instance and its removing commit —
+built, on the third attempt, from a search for the *form* rather than for the
+wording already written. **Fifth consecutive round in which this construct
+appeared in the prose describing its own removal.**
+
+### Round 20 — the verification was circular, which is the actual finding
+
+One blocker. The round-18 paragraph — rewritten in round 19 precisely *because*
+it carried a bad count — named four instances of the cross-reference form when
+five stood at `08d9f7a`, and misattributed the removals. The table above is now
+correct and was checked instance by instance against each commit.
+
+**How it stayed wrong through two corrections is the part worth keeping.** Both
+times, the "verification" was a grep whose pattern was derived from the wording
+already written:
+
+- Round 19's check matched `` five (`running` paths (above|below)|other (paths|causes) in) `` — an alternation assembled from the four instances already named. It could not have found a fifth phrased differently, and the missing one is phrased differently.
+- Round 20's first re-check used `[^.]{0,80}` between the cardinal and `above`. The missed instance is "five `src/ced/worker/executor.py` paths above", and `[^.]` excludes the period inside the filename. A second pattern chosen to confirm a claim, failing on the one case that would have refuted it.
+
+Only a search for the *form* — a cardinal within a short span of a
+cross-reference word, no assumption about what sits between — found it.
+
+**The rule this delivery actually earned:** a claim that an enumeration is
+complete must be verified by a search for the class, never by a search built
+from the items already listed. The second kind cannot fail, which is why it
+keeps returning clean on incomplete lists. It is the same defect as a test that
+cannot red, and it has now produced three false completeness claims in a row in
+this one paragraph.
+
+Round 20 verified everything else in the diff and found it sound: all forty-eight
+bullets in both guarded regions expose their cardinal to the repaired `_LEAD`,
+including all five `(discovered)` spellings actually present; the lint stays at
+exit 0 over `docs/`; the permissive lead provably cannot traverse a word, since
+every alternation branch consumes a non-word character; reverting `_LEAD` reds
+exactly the bolded-marker case, and over-permitting it to `.*?` reds seven tests
+and makes the live lint emit seventeen refusals, so the permissive side is held
+too.
