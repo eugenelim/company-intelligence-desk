@@ -64,7 +64,9 @@ status = "active"
 # the foundation. The decision point needs the compiler, because it extends the
 # toolset stack that spec ships. step-lifecycle's resume criterion needs an
 # approved tool body to run, which needs the decision point's predicate, and the
-# evidence spec measures the system the other five build.
+# evidence spec measures the system its siblings build. The count lives in the
+ # `needs` list below, not in this comment: it was five until the 2026-09-27
+ # run-state split made it six, and a number here goes stale at the next one.
 queue = [
   { path = "docs/specs/walking-skeleton-evidence/spec.md", kind = "spec", source = { mode = "repo-origin" }, summary = "Phase 1 evidence: run state machine and publication, browser stream, the four Phase 1 measurements, analytical re-baseline, and the record of what was not established", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-policy-decision-point/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-step-lifecycle/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-run-state/spec.md" }] },
 ]
