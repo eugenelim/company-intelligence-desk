@@ -470,12 +470,15 @@ def make_step_body(config: PoolConfig) -> StepBody:
                 lease.run_id,
             )
             with psycopg.connect(database_url("worker")) as conn:
+                # A distinct type so the cause is recoverable from the log
+                # without reading log.warning output or exception messages.
+                # Scoped to the cap path; AC-0330's refusal path is unchanged.
                 append_step_event(
                     conn,
                     run_id=lease.run_id,
                     step_id=lease.step_id,
                     lease_epoch=lease.epoch,
-                    type="step.failed",
+                    type="step.approval.cap.exceeded",
                     principal=principal,
                     agent_role=role_name,
                 )

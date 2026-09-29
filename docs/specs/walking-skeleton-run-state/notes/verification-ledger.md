@@ -1305,11 +1305,12 @@ behavioral substrate test in `tests/usage_limits/test_usage_limits_in_force.py`.
 
 **Mutation proofs.**
 
-1. **Cap check removal (AC-0321 behavioral test).** Deleted the entire
+1. **Cap check removal (AC-0321 behavioral test).** Disabled the entire
    `if approval_cycles >= config.approval_cycle_cap:` block in `executor.py`.
-   `test_the_cycle_cap_fires_across_a_handoff` failed: Worker B routed to
-   `_body_resume` instead of firing the cap; `step.failed` was absent from the
-   log. Break predicate: `"step.failed" in event_types`. Restored.
+   `test_the_cycle_cap_fires_across_a_handoff` failed: Worker B's subprocess
+   routed to `_body_resume` and completed normally, exiting 2 (no cap); the
+   `returncode == 0` assertion failed at line 659. Break predicate:
+   `result.returncode == 0` (subprocess exits 2 when cap does not fire). Restored.
 
 2. **`approval_cycle_cap` default nulled (AC-0321 stub).** Changed
    `approval_cycle_cap: int = 3` to `approval_cycle_cap: int | None = None` in
@@ -1332,7 +1333,7 @@ behavioral substrate test in `tests/usage_limits/test_usage_limits_in_force.py`.
    with `assert (None is not None)`. Break predicate: the `is not None` clause
    of the stub's own assertion. Restored.
 
-**AC-0325 spend metric — forced substitution, unit mismatch, T4 routing.**
+**AC-0325 spend metric — forced substitution, unit mismatch.**
 
 The plan's T3 section does not mention `runs.next_seq`; that name appears zero
 times in `plan.md`. The choice to measure spend by event count is a keyboard
@@ -1354,17 +1355,114 @@ is contract — it is pinned byte-for-byte in the plan's stub — so it cannot b
 renamed here to match the metric; the tension is instead recorded in the field's
 own docstring (see `src/ced/worker/pool.py`) and here.
 
-**Routed to T4 as an AC-0329 residual.** The ceiling is configured in tokens
-and enforced on event count. T4's record must name this alongside Entry 10's
-run-stays-running paths and Entry 11b's resume-path stub. The observable: any
-deployment that reads the field's name and sets a value expecting it to bound
-token spend will find it has no effect until the metric is replaced.
+**Unit-mismatch owed to T4.** AC-0329's enumeration (`spec.md:223`) names the
+fabricated multi-step exercise and the unsourced default; it does not name the
+token-to-event-count substitution, and AC-0329's gate is "that list, not its
+length", so T4 can satisfy its `Done when` without it. The substitution is
+therefore owed to T4, not routed: T4 must add it to reach a gate that reads it.
+The two routes that satisfy this: a bullet added to AC-0329's enumeration beside
+`spec.md:223`, or a `workspace.toml [backlog].open` entry. Neither is in T3's
+`Touches`, so that choice belongs to T4.
 
-**Final gate run.** 1003 passed, 3 skipped (substrate, full suite; substrate
-reachable). Baseline before T3 was 1001 passed, 3 skipped; the two new
-substrate tests account for the difference. Offline suite: 691 passed,
-315 deselected. All repository checks clean: `lint-no-identifiers`,
-`lint-intents`, `pre-pr`, `lint-spec-status`.
+**Final gate run (initial T3).** 1003 passed, 3 skipped (substrate, full suite;
+substrate reachable). Baseline this ledger recorded is 999 passed, 3 skipped
+(`:1256`); T3 adds four test functions (two stubs + two substrate), so
+999 + 4 = 1003. Offline suite: 691 passed, 315 deselected. All repository
+checks clean: `lint-no-identifiers`, `lint-intents`, `pre-pr`, `lint-spec-status`.
+
+### Round 14
+
+**Date:** 2026-09-28.
+
+Seven adjudication items: three refuted (see adjudication record for rationale),
+two blockers and four concerns closed here.
+
+**Blocker 1 — recorded cause.** The cap path now appends
+`step.approval.cap.exceeded` (a distinct type) instead of bare `step.failed`.
+Scoped to the cap path only; AC-0330's refusal path is unchanged (that path is
+outside T3's authority and its own clause has the same gap — recorded as
+observed, not fixed). Mutation proof: replace the distinct type with bare
+`step.failed` → `"step.approval.cap.exceeded" in event_types` assertion fails.
+Break predicate: `"step.approval.cap.exceeded" in event_types`. Confirmed red.
+
+**Blocker 2 — across-handoff.** Worker B now runs in a genuine subprocess
+(separate OS process via `subprocess.run([sys.executable, "-c", ...])`), not
+inline in the pytest process. The subprocess claims the step and runs the body;
+the main process checks the subprocess exit code (0 = cap fired, 2 = no cap) and
+reads `steps.owner` from the DB. Handoff assertion: `steps.owner != "t3-cap-worker-a"`;
+if both bodies were driven from one PoolConfig (same worker_id), `claim_one` would
+set owner to Worker A's id and this assertion would red. Three mutation proofs:
+
+- Cap check removal: subprocess exits 2 (no cap) → `returncode == 0` reds.
+  Break predicate: `result.returncode == 0`. Confirmed red.
+- Recorded-cause removal: `step.approval.cap.exceeded` absent → reds.
+  Break predicate: `"step.approval.cap.exceeded" in event_types`. Confirmed red.
+- Handoff: the subprocess's `PoolConfig` rewritten to `worker_id =
+  "t3-cap-worker-a"`, the break confirmed by `t3-cap-worker-b` returning zero
+  occurrences in the test file before the run. Result: FAILED at
+  `tests/suspension/test_the_gate_is_conditional.py:674` on
+  `assert ('t3-cap-worker-a',) is not None and 't3-cap-worker-a' !=
+  't3-cap-worker-a'` — the handoff assertion itself, not a neighbouring one.
+  Restored from a byte copy; the test returns green.
+
+*Two of these were first recorded as unrun.* The handoff predicate was written
+up as "verified by simulation (python -c)" and the ordering mutation below as
+"stated as the mutation the boundary test pins". Both turned out true when
+actually installed — but this ledger has recorded a proof that did not happen
+six times, and on two of those the named assertion was not the one that red:
+once the test errored at collection instead, once the assertion was never
+reached. A stated mutation is a hypothesis, and the ones that fail this way are
+indistinguishable in advance from the ones that do not. Both were re-run by the
+controller against the live substrate and are recorded above and below with
+what each actually red.
+
+**AC-0325 — M (the pre-commit ordering), run rather than stated.** The
+`seq_row` read was moved from above the `with conn.transaction():` block that
+commits `step.started` to immediately below it, and the move was confirmed by
+line numbers before the run: the read at 570 against the transaction at 553.
+Result: FAILED at `test_no_page_when_next_seq_equals_the_ceiling`, the boundary
+case added for exactly this — and alone; the three other `tests/usage_limits`
+checks stayed green, so the boundary case is the only thing pinning the
+ordering. Restored from a byte copy; the module returns four passed.
+
+**The cap path's type replaces `step.failed` rather than joining it, and that
+is deliberate.** `step.approval.cap.exceeded` is appended instead of
+`step.failed`, so a capped step no longer appears as a failed step by event
+type. Nothing reads it programmatically: `src/ced/domain/run_state.py` projects
+only `step.started` for `requested → running` and takes terminal states from
+`run.completed` / `run.failed`; `steps.state` is written by the pool's
+`release(...)` independently of any event type; and the run still receives
+`run.failed` on this path. The repository's precedent for a recorded cause is a
+distinct type rather than a generic one carrying a payload —
+`role.compile.refused` and `role.load.failed` — so replacing matches it. The
+cost, stated rather than hidden: a consumer scanning for `step.failed` must
+know this vocabulary to find capped steps.
+
+**Concern 3 — T4 routing claim.** Ledger updated: claim changed from "routed to
+T4 as an AC-0329 residual" to "owed to T4", naming the two routes. The forcing
+evidence and cost are unchanged.
+
+**Concern 4 — ledger mutation 1 predicate.** Corrected: the break predicate for
+mutant 1 is `result.returncode == 0` (subprocess exit code), not
+`"step.failed" in event_types` (which is unreachable when the subprocess exits 2).
+
+**Concern 5 — baseline.** Corrected: the ledger's own recorded baseline is 999
+passed, 3 skipped (`:1256`). T3 adds four test functions; 999 + 4 = 1003.
+
+**Concern 6 — runs.state.** Added `SELECT state FROM runs` assertion to the
+handoff test: `runs.state == "failed"`. Mutation: `UPDATE runs SET state='running'`
+after `append_run_terminal` → event assertions stay green; state assertion reds.
+
+**Nit — ordering claim.** Added `test_no_page_when_next_seq_equals_the_ceiling`
+in `tests/usage_limits/test_usage_limits_in_force.py`: `next_seq == ceiling`
+must not append `step.spend.ceiling.reached` (strict-greater predicate). Mutation:
+move the `seq_row` read below the `step.started` commit → reads `ceiling+1` →
+pages → `not in event_types` assertion reds. The comment's ordering claim is now
+pinned.
+
+**Final gate run (round 14).** 1004 passed, 3 skipped (substrate, full suite;
+substrate reachable). One test added this round (`test_no_page_when_next_seq_equals_the_ceiling`);
+999 + 5 = 1004. All repository checks clean.
 
 **One transient full-suite failure, recorded because a green re-run is not the
 whole story.** Taking T3's gate evidence, the first full run came back

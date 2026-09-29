@@ -29,6 +29,9 @@ from __future__ import annotations
 
 import functools
 import json
+import subprocess
+import sys
+import textwrap
 import threading
 import unittest.mock as mock
 import uuid
@@ -528,18 +531,27 @@ _CAP_LIMITS: dict[str, int | bool] = {
 
 @pytest.mark.substrate
 def test_the_cycle_cap_fires_across_a_handoff(require_substrate: None) -> None:
-    """AC-0321: cycle cap reads approval_cycles from the DB and fires on handoff.
+    """AC-0321: cycle cap reads approval_cycles from the DB; cause is in the log.
 
     Worker A suspends the step (approval_cycles=0 at suspension).  An approval
-    decision commits, advancing steps.approval_cycles to 1.  Worker B re-claims
-    the step — a different worker_id simulates the handoff.  Worker B's body reads
-    approval_cycles=1 from the DB, sees it >= cap=1, and appends step.failed +
-    run.failed instead of resuming.
+    decision commits, advancing steps.approval_cycles to 1.  Worker B runs in a
+    **separate subprocess** — a genuine process boundary — and claims the step.
+    Its body reads approval_cycles=1 from the DB, sees it >= cap=1, appends
+    step.approval.cap.exceeded + run.failed, and exits.
 
-    Mutation that must red (cap check removal): remove the
-    'if approval_cycles >= config.approval_cycle_cap' block in executor.py.
-    Worker B routes to the resume path instead; step.failed is absent; the
-    assertion reds.
+    Three mutation proofs:
+
+    - Cap check removal: remove 'if approval_cycles >= config.approval_cycle_cap'
+      in executor.py → Worker B resumes; subprocess exits 2 (no cap); assertion
+      on returncode == 0 reds.
+
+    - Recorded-cause removal: replace step.approval.cap.exceeded with bare
+      step.failed → 'step.approval.cap.exceeded' absent from log → assertion
+      reds while event count stays the same.
+
+    - Handoff assertion: run both bodies from one PoolConfig (one worker_id) in
+      one process → claim_one sets steps.owner to Worker A's id → the
+      owner assertion reds.
     """
     from pydantic_ai.models.test import TestModel
 
@@ -564,7 +576,8 @@ def test_the_cycle_cap_fires_across_a_handoff(require_substrate: None) -> None:
     )
 
     try:
-        # Worker A: body suspends (awaiting_decision=true, approval_cycles=0).
+        # Worker A (main process): body suspends (awaiting_decision=true,
+        # approval_cycles=0).
         body_a = make_step_body(config_a)
         body_a(lease_a, threading.Event())
 
@@ -581,7 +594,8 @@ def test_the_cycle_cap_fires_across_a_handoff(require_substrate: None) -> None:
 
         _, pending_call_ids = load_suspension_payload(payload_ref)
 
-        # Commit a grant decision — advances steps.approval_cycles to 1.
+        # Commit a grant decision — advances steps.approval_cycles to 1 and
+        # clears awaiting_decision, making the step claimable.
         with psycopg.connect(database_url("api")) as conn:
             append_approval_decision(
                 conn,
@@ -593,39 +607,105 @@ def test_the_cycle_cap_fires_across_a_handoff(require_substrate: None) -> None:
                 suspension_seq=suspension_seq,
             )
 
-        # Worker B: different worker_id simulates a handoff.
-        config_b = PoolConfig(
-            worker_id="t3-cap-worker-b",
-            default_limits=_CAP_LIMITS,
-            allowed_model_ids=("stub:counting",),
-            non_provider_model_ids=("stub:counting",),
-            model_factory=lambda _: TestModel(custom_output_args={"references": []}),
-            pool_class=_CAP_POOL_CLASS,
-            approval_cycle_cap=1,
+        # Worker B runs in a separate subprocess — a genuine process boundary.
+        # The subprocess claims the step, runs the body, and exits 0 when the
+        # cap fires (_StepBodyFailed caught) or 2 when the cap does not fire.
+        # Subprocess exit 1 is an unexpected error.
+        worker_b_script = textwrap.dedent(f"""\
+            import sys
+            import threading
+            import uuid
+            from pydantic_ai.models.test import TestModel
+            from ced.adapters.postgres.dsn import database_url
+            from ced.worker.pool import PoolConfig, claim_one
+            from ced.worker.executor import make_step_body, _StepBodyFailed
+            import psycopg
+
+            config_b = PoolConfig(
+                worker_id="t3-cap-worker-b",
+                default_limits={{
+                    "per_request_input_tokens_limit": 4_000,
+                    "input_tokens_limit": 40_000,
+                    "request_limit": 8,
+                    "tool_calls_limit": 4,
+                    "count_tokens_before_request": False,
+                }},
+                allowed_model_ids=("stub:counting",),
+                non_provider_model_ids=("stub:counting",),
+                model_factory=lambda _: TestModel(custom_output_args={{"references": []}}),
+                pool_class="{_CAP_POOL_CLASS}",
+                approval_cycle_cap=1,
+            )
+            with psycopg.connect(database_url("worker")) as conn:
+                lease = claim_one(conn, config_b)
+            if lease is None or str(lease.step_id) != "{step_id}":
+                print(f"claim_one returned {{lease!r}}", file=sys.stderr)
+                sys.exit(3)
+            body = make_step_body(config_b)
+            try:
+                body(lease, threading.Event())
+                sys.exit(2)  # unexpected: cap did not fire
+            except _StepBodyFailed:
+                sys.exit(0)  # expected: cap fired
+            except Exception as exc:
+                print(f"unexpected: {{exc}}", file=sys.stderr)
+                sys.exit(1)
+        """)
+        result = subprocess.run(
+            [sys.executable, "-c", worker_b_script],
+            capture_output=True,
+            text=True,
         )
-        with psycopg.connect(database_url("worker")) as conn:
-            lease_b = claim_one(conn, config_b)
-        assert lease_b is not None and lease_b.step_id == step_id, (
-            "Worker B must claim the step after the decision clears awaiting_decision"
+        assert result.returncode == 0, (
+            f"Worker B subprocess expected exit 0 (cap fired); "
+            f"got {result.returncode}. stderr: {result.stderr!r}. "
+            "mutation: remove cap-check block in executor.py → body returns normally "
+            "→ subprocess exits 2 → returncode != 0 → reds"
         )
 
-        # Worker B: body reads approval_cycles=1 from DB, >= cap=1 → fires cap.
-        body_b = make_step_body(config_b)
-        with pytest.raises(_StepBodyFailed, match="approval cycle cap exceeded"):
-            body_b(lease_b, threading.Event())
+        # Handoff assertion: steps.owner must be Worker B's id, not Worker A's.
+        # Proves the count was read from the DB (not in-process state): if both
+        # bodies were run from one PoolConfig (same worker_id), claim_one would
+        # set owner to Worker A's id and this assertion would red.
+        with psycopg.connect(database_url("migration")) as conn:
+            owner_row = conn.execute(
+                "SELECT owner FROM steps WHERE step_id = %s", (step_id,)
+            ).fetchone()
+        assert owner_row is not None and owner_row[0] != "t3-cap-worker-a", (
+            f"steps.owner must be Worker B's id after the handoff; "
+            f"got {owner_row[0]!r}; "
+            "mutation: use one PoolConfig (worker_id='t3-cap-worker-a') for both bodies "
+            "→ claim_one sets owner='t3-cap-worker-a' → this assertion reds"
+        )
 
-        # Both terminal events must be in the log.
+        # Recorded cause: the cap path must write a distinct event type so the
+        # cause is recoverable from the log alone, not only from log.warning or
+        # exception messages.  Scoped to the cap path; AC-0330's refusal path
+        # is unchanged.
         with psycopg.connect(database_url("worker")) as conn:
             events_final = read_events(conn, run_id=run_id)
         event_types = {e.type for e in events_final}
-        assert "step.failed" in event_types, (
-            f"step.failed must be appended when the cycle cap fires; got {event_types}; "
-            "mutation: remove the cap-check block in executor.py → Worker B resumes normally "
-            "→ step.failed absent → reds"
+        assert "step.approval.cap.exceeded" in event_types, (
+            f"step.approval.cap.exceeded must be appended when the cycle cap fires; "
+            f"got {event_types}; "
+            "mutation: replace with bare step.failed → distinct type absent → reds"
         )
         assert "run.failed" in event_types, (
-            f"run.failed must be appended when the cycle cap fires; got {event_types}; "
-            "mutation: remove append_run_terminal('run.failed') from cap block → absent → reds"
+            f"run.failed must be appended when the cycle cap fires; got {event_types}"
+        )
+
+        # State assertion: the run must reach failed state, not only emit the
+        # event.  A mutation that appends run.failed but then reverts
+        # runs.state = 'running' would pass the event assertion and red here.
+        with psycopg.connect(database_url("migration")) as conn:
+            state_row = conn.execute(
+                "SELECT state FROM runs WHERE run_id = %s", (run_id,)
+            ).fetchone()
+        assert state_row is not None and state_row[0] == "failed", (
+            f"runs.state must be 'failed' after the cycle cap fires; "
+            f"got {state_row[0]!r}; "
+            "mutation: UPDATE runs SET state='running' after append_run_terminal "
+            "→ event present but state wrong → reds"
         )
     finally:
         _cleanup_run(run_id)

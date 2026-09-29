@@ -115,6 +115,118 @@ _CEILING_LIMITS: dict[str, int | bool] = {
 
 
 @pytest.mark.substrate
+def test_no_page_when_next_seq_equals_the_ceiling(require_substrate: None) -> None:
+    """AC-0325: next_seq == ceiling does not trigger the page (strict-greater predicate).
+
+    The executor checks `next_seq > ceiling`, so equality is the boundary that
+    must NOT fire.  This pins the ordering claim in the comment: moving the
+    seq_row read below the step.started commit would produce next_seq = ceiling+1
+    at equality, page when it should not, and red this assertion.
+
+    Mutation that must red: move the seq_row read below the conn.transaction()
+    block that commits step.started — the read then sees ceiling+1 events,
+    pages, and step.spend.ceiling.reached appears in the log → assertion reds.
+    """
+    _CEILING_ROLE = "t3-spend-ceiling-eq-role"
+
+    config = PoolConfig(
+        worker_id="t3-ceiling-eq-worker",
+        default_limits=_CEILING_LIMITS,
+        allowed_model_ids=("stub:counting",),
+        non_provider_model_ids=("stub:counting",),
+        model_factory=lambda _: TestModel(custom_output_args={"references": []}),
+        pool_class=_CEILING_POOL_CLASS,
+        per_run_token_ceiling=50,
+    )
+
+    model_settings: dict[str, Any] = {
+        "model_id": "stub:counting",
+        "settings": {},
+        "limits": {},
+    }
+    with psycopg.connect(database_url("migration")) as conn:
+        conn.execute(
+            """
+            INSERT INTO agent_role
+                (role_name, version, ceiling, instructions, model_settings, output_schema_ref)
+            VALUES (%s, 1, '[]'::jsonb, '', %s::jsonb, 'reference-selection')
+            ON CONFLICT (role_name, version) DO UPDATE
+                SET model_settings = EXCLUDED.model_settings
+            """,
+            (_CEILING_ROLE, json.dumps(model_settings)),
+        )
+        conn.commit()
+
+    run_id = uuid.uuid4()
+    step_id = uuid.uuid4()
+
+    with psycopg.connect(database_url("api")) as conn:
+        start_run(
+            conn,
+            run_id=run_id,
+            step_id=step_id,
+            principal=_CEILING_PRINCIPAL,
+            agent_role=_CEILING_ROLE,
+        )
+
+    # Set next_seq exactly at the ceiling (50 == 50 → no page).
+    with psycopg.connect(database_url("migration")) as conn:
+        conn.execute(
+            "UPDATE runs SET next_seq = 50 WHERE run_id = %s",
+            (run_id,),
+        )
+        conn.commit()
+
+    with psycopg.connect(database_url("worker")) as conn:
+        row = conn.execute(
+            """
+            UPDATE steps
+               SET state = 'leased',
+                   owner = %s,
+                   lease_epoch = lease_epoch + 1,
+                   lease_expires_at = now() + interval '300 seconds',
+                   pool_class = %s
+             WHERE step_id = %s
+             RETURNING lease_epoch
+            """,
+            (config.worker_id, _CEILING_POOL_CLASS, step_id),
+        ).fetchone()
+        conn.commit()
+
+    assert row is not None
+    lease = Lease(
+        step_id=step_id,
+        run_id=run_id,
+        epoch=int(row[0]),
+        agent_role=_CEILING_ROLE,
+    )
+
+    try:
+        body = make_step_body(config)
+        body(lease, threading.Event())
+
+        with psycopg.connect(database_url("worker")) as conn:
+            events = read_events(conn, run_id=run_id)
+        event_types = {e.type for e in events}
+
+        assert "step.spend.ceiling.reached" not in event_types, (
+            f"no page must be appended when next_seq == ceiling (strict-greater predicate); "
+            f"got {event_types}; "
+            "mutation: move the seq_row read below the step.started commit → reads "
+            "ceiling+1 → pages → this assertion reds"
+        )
+        assert "step.completed" in event_types, (
+            f"step must complete normally at the boundary; got {event_types}"
+        )
+    finally:
+        with psycopg.connect(database_url("migration")) as conn:
+            conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+            conn.commit()
+
+
+@pytest.mark.substrate
 def test_the_spend_ceiling_pages_rather_than_aborting(require_substrate: None) -> None:
     """AC-0325: the per-run spend ceiling appends a page event and does not abort.
 
