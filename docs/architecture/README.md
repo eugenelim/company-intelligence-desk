@@ -110,6 +110,15 @@ name each residual rather than count them, so that the next spec inherits a
 state machine that does **not** look finished. Each entry names what a reader can
 check.
 
+**Which entries were contracted and which were discovered, because the
+difference bears on how much this list is worth.** Ten were enumerated in
+AC-0329 before the build and so were checkable against an independent list.
+Six — marked **(discovered)** below — were found during T2 and T3 and added to
+that enumeration by the same task that satisfies it, so for those the criterion
+and the record were authored together and the gate cannot red on them by
+construction. They were each verified against the tree, but a later reader
+should know which entries a separate list ever checked.
+
 **What the state machine does not commit.**
 
 - `run.claimed` and `approval.requested` exist nowhere in the tree, so neither
@@ -120,10 +129,16 @@ check.
   ships and `append_run_event` admits it, so the tree can express the edge;
   nothing appends it, and committing it would mean building a cancel caller this
   spec does not own.
-- **A failed run stays reported `running` for ever.** The generic agent-failure
+- **(discovered) Five failure paths leave a run reported `running` for ever.** In
+  `src/ced/worker/executor.py`, the missing-suspension-`payload_ref` path, the
+  raised-resume path, the non-boolean `needs_approval` path, the agent-error
   path and the quarantine refusal each append only `step.failed` and return, so
-  `runs.state` never leaves `running` while the run's only step is finished. Only
-  AC-0330's refused resume commits the terminal edge.
+  `runs.state` never leaves `running` while the run's only step is finished.
+  **Two paths do commit the terminal edge** — AC-0321's cycle cap and AC-0330's
+  refused resume — which is the set AC-0327 enumerates. An earlier revision of
+  this bullet named two of the five and then said "only AC-0330's refused
+  resume commits the terminal edge", which was true before T3 gave the cap its
+  terminal append and false after.
 
 **What the privilege split does not reach.**
 
@@ -136,7 +151,10 @@ check.
   retains `INSERT ON steps`, so it can insert a step into any run, let a worker
   claim and suspend it, and decide against a step it caused to exist.
 - The exclusion column and the cycle counter are writable outside the two paths
-  this spec builds, because both roles hold table-level writes on `steps`.
+  this spec builds. The grants are not symmetric: revision 0001 gives
+  `app_worker` `INSERT, UPDATE` on `steps` and `app_api` `INSERT` only, so
+  `app_api` can set `awaiting_decision` and `approval_cycles` at insert time and
+  never afterwards, while `app_worker` can change them on any existing row.
 
 **What the approval interface does not establish.**
 
@@ -148,18 +166,21 @@ check.
   a browser rather than a process, the approver decides blind because no surface
   shows them the pending calls, and the attribution is retained for the life of
   the event log with no erasure path.
-- The decision-set bound is a string-length seam reused as a list count —
+- **(discovered)** The decision-set bound is a string-length seam reused as a list count —
   `ATTRIBUTION_MAX_LENGTH`, rendered `maxItems: 256`. It is finite, so the
   safety purpose holds, but nothing defines how many pending calls a suspension
   can carry, so the bound has no value to bind to.
-- **A resumed run publishes an object carrying no output.** The resume
+- **(discovered) A resumed run publishes an object carrying no output.** The resume
   completion path writes `{"schema_version": 1}` as its `payload_ref`, because
   quarantine validation is a fresh-run property. AC-0303 contracts "resumes to
   publication", and nothing asserts that `payload_ref` today.
-- **AC-0330's refusal appends a bare `step.failed`** with no recorded cause,
-  sharing an event five other causes emit. The cycle cap was given a
-  distinguishable `step.approval.cap.exceeded`; the refusal path was not.
-- **The `needs_approval` flag fails open on an absent key.** It lives in the
+- **(discovered) AC-0330's refusal carries no distinguishing event type.** It appends `step.failed` **and**
+  `run.failed`, so the terminal edge is committed — what is missing is a
+  distinguishing type, not a terminal append. It shares `step.failed` with the
+  five `src/ced/worker/executor.py` paths above, so a reader cannot tell a
+  refused resume from an ordinary agent failure. The cycle cap was given
+  `step.approval.cap.exceeded`; the refusal path was not.
+- **(discovered) The `needs_approval` flag fails open on an absent key.** It lives in the
   free-form `model_settings` JSONB. An absent key legitimately means no gate and
   a malformed `model_settings` refuses — but a key present under a misspelling
   reads as absent, which disables the control silently.
@@ -168,7 +189,7 @@ check.
 
 - The per-run spend ceiling is exercised against a fabricated multi-step run,
   because a real run has exactly one step.
-- **It is also configured in tokens and enforced on event count.**
+- **(discovered) It is also configured in tokens and enforced on event count.**
   `per_run_token_ceiling` is compared against `runs.next_seq`; no migration adds
   a token column and the executor reads no `RunUsage`, so there is no persisted
   token count. At the default a producible run emits roughly four events against
@@ -177,12 +198,18 @@ check.
 
 **What the next spec inherits, from § Follow-ons.**
 
-- `awaiting_input` and `expired` are authored in the state vocabulary and
-  exercised by nothing. The first spec to wire the input tool owes r8 § 3's two
-  safety constraints along with it: the answer admitted at the acting role's
-  existing ceiling, and both the request and the answer recorded. A transition
-  table that looks complete is the reason this is written down here rather than
-  left to that spec to discover.
+- **`expired` and `awaiting_input` are owed on different terms, and conflating
+  them misleads.** `expired` *is* authored: `migrations/versions/0001_base_schema.py`
+  lists it in the `runs.state` CHECK and `contracts/openapi/runs.yaml` in the
+  `state` enum. Nothing writes it. **`awaiting_input` is authored nowhere in
+  this repository** — not in the CHECK, not in the enum, not in
+  `src/ced/domain/run_state.py` — and exists only in r8's design table. A write
+  of that value is refused by the CHECK constraint today, so the spec that
+  first wires the input tool owes the CHECK and enum widening as well as r8
+  § 3's two safety constraints: the answer admitted at the acting role's
+  existing ceiling, and both request and answer recorded. A transition table
+  that looks complete is the reason this is written here rather than left to
+  that spec to discover.
 - r8 § 4 line 460 and § 3 line 344 disagree about whether a worker may write a
   run-lifecycle type, and § 4 line 461's possession invariant is made untrue for
   two event types by this delivery. ADR-0009 records the deviations; it does not

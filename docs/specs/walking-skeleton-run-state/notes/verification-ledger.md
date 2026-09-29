@@ -1503,3 +1503,74 @@ One detail that cost a minute and would cost more without the note: MinIO is
 published on **59000**, and a probe against 9000 fails to connect for reasons
 that have nothing to do with the fault — 9000 is the container-internal port
 only. `compose.yaml` maps `127.0.0.1:59000:9000`.
+
+
+## T4 — the residual record
+
+**Mode:** record review. AC-0329's gate is a reading of
+`docs/architecture/README.md` § What is built, not a test, so the review *is*
+the gate.
+
+**What was produced.** A `walking-skeleton-run-state` residuals subsection
+grouped by what each residual is about — what the state machine does not
+commit, what the privilege split does not reach, what the approval interface
+does not establish, what the bounding controls do not measure, what this
+delivery changed in a foundation-owned surface, and what the next spec
+inherits. Sixteen residuals, each naming an observable a reader can check.
+
+**Six were added to AC-0329's own enumeration by this task**, having been found
+during T2 and T3 rather than at authoring, and the record marks them
+`(discovered)`. That is worth stating plainly: for those six the criterion and
+the record were written in one commit, so the gate cannot red on them by
+construction. The criterion itself warns against that shape — an earlier
+revision let a reviewer satisfy it by reading its own bullets — and pinning the
+artifact to a file fixed the venue rather than the independence. Each was
+verified against the tree, which is a weaker guarantee than an independent list
+and is labelled as such.
+
+### Two blockers against this record, both mine
+
+**The terminal-edge claim was false, and stale rather than careless.** The
+record said the generic agent-failure path and the quarantine refusal leave the
+run `running` and that "only AC-0330's refused resume commits the terminal
+edge". That was true until T3 gave the cycle cap its own `append_run_terminal`,
+and I wrote the bullet after reviewing the commit that changed it. The tree
+shows five paths in `executor.py` appending a bare `step.failed` and returning,
+and two committing the edge — the cap and the refusal, which is exactly the set
+AC-0327 enumerates. The same stale claim sat in a comment at
+`executor.py:769-770` and is corrected there too.
+
+**`awaiting_input` is authored nowhere, and I had already established that
+earlier in this delivery.** The record said `awaiting_input` and `expired` are
+both "authored in the state vocabulary and exercised by nothing". `expired` is:
+revision 0001's `runs.state` CHECK carries it and so does the contract's enum.
+`awaiting_input` is in neither, nor in `src/ced/domain/run_state.py` — it exists
+only in r8's design table, so a write of it is refused by the CHECK. A reader
+trusting that sentence would conclude the column accepts a value it rejects.
+The two are now recorded on their separate terms, and the spec's § Follow-ons
+says the same.
+
+**Why both matter more here than elsewhere.** AC-0329's whole purpose is that
+the next spec does not inherit a state machine that looks finished. A residual
+record that overstates is worse than none, because it is the artifact a reader
+trusts *instead of* looking — and both errors pointed the same way, toward the
+system being more complete than it is.
+
+### Three smaller corrections
+
+The grants are not symmetric and the record said they were: `app_worker` holds
+`INSERT, UPDATE` on `steps` and `app_api` `INSERT` only, so `app_api` can set
+the exclusion column at insert time and never after. "A bare `step.failed`" on
+AC-0330's refusal read, beside the terminal-edge bullet, as "only
+`step.failed`" — that path appends `run.failed` too, and what is missing is a
+distinguishing type. And the count of paths sharing `step.failed` now keeps its
+`executor.py` scope, without which it is not checkable.
+
+### One finding answered rather than actioned
+
+T4's `Touches` names `plan.md` and `workspace.toml` and this task changed
+neither. That is not a defect: the adjudicator established in T3 that **a
+`Touches` list is permission, not obligation**, so a file inside it going
+unchanged breaks no clause. The spec's status stays `Implementing` while this
+review decides whether T4 holds, and the three § Follow-ons items have their
+durable home in the spec that owns them.

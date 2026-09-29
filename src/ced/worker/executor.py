@@ -766,8 +766,12 @@ def make_step_body(config: PoolConfig) -> StepBody:
                     exc,
                 )
                 # Entry 12 (adjudication): only step.failed for quarantine
-                # refusal; run stays in 'running'. run.failed is reserved for
-                # the AC-0330 refusal path and is not appended here.
+                # refusal; run stays in 'running'. This path appends no
+                # terminal run event. AC-0327 enumerates two causes that do —
+                # AC-0321's cycle cap and AC-0330's refused resume — and an
+                # earlier version of this comment said the refusal was the only
+                # one, which stopped being true when T3 gave the cap its own
+                # append_run_terminal.
                 # Entry 11 (adjudication): raise _StepBodyFailed so the pool
                 # records outcome = "failed" rather than "completed".
                 with psycopg.connect(database_url("worker")) as conn:
