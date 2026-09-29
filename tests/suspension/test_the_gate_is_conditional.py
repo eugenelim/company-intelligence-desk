@@ -520,6 +520,12 @@ def test_suspension_path_sets_awaiting_decision_and_blocks_repoll(
 
 _CAP_POOL_CLASS = "t3-cycle-cap"
 _CAP_PRINCIPAL = "t3-cycle-cap-test"
+#: The cap and the limits are named once here and interpolated into the
+#: subprocess below. Worker B ran on a second literal copy until
+#: 2026-09-28; two copies of a value the halves of a handoff must share
+#: drift independently, and the test stays green while they stop sharing
+#: a configuration.
+_CAP_CYCLE_CAP = 1
 _CAP_LIMITS: dict[str, int | bool] = {
     "per_request_input_tokens_limit": 4_000,
     "input_tokens_limit": 40_000,
@@ -565,7 +571,7 @@ def test_the_cycle_cap_fires_across_a_handoff(require_substrate: None) -> None:
         non_provider_model_ids=("stub:counting",),
         model_factory=lambda _: TestModel(call_tools=["request_approval"]),
         pool_class=_CAP_POOL_CLASS,
-        approval_cycle_cap=1,
+        approval_cycle_cap=_CAP_CYCLE_CAP,
     )
 
     run_id, step_id, lease_a = _insert_role_and_step(
@@ -623,18 +629,12 @@ def test_the_cycle_cap_fires_across_a_handoff(require_substrate: None) -> None:
 
             config_b = PoolConfig(
                 worker_id="t3-cap-worker-b",
-                default_limits={{
-                    "per_request_input_tokens_limit": 4_000,
-                    "input_tokens_limit": 40_000,
-                    "request_limit": 8,
-                    "tool_calls_limit": 4,
-                    "count_tokens_before_request": False,
-                }},
+                default_limits={_CAP_LIMITS!r},
                 allowed_model_ids=("stub:counting",),
                 non_provider_model_ids=("stub:counting",),
                 model_factory=lambda _: TestModel(custom_output_args={{"references": []}}),
                 pool_class="{_CAP_POOL_CLASS}",
-                approval_cycle_cap=1,
+                approval_cycle_cap={_CAP_CYCLE_CAP},
             )
             with psycopg.connect(database_url("worker")) as conn:
                 lease = claim_one(conn, config_b)

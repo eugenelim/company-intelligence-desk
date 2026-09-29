@@ -1449,9 +1449,23 @@ mutant 1 is `result.returncode == 0` (subprocess exit code), not
 **Concern 5 — baseline.** Corrected: the ledger's own recorded baseline is 999
 passed, 3 skipped (`:1256`). T3 adds four test functions; 999 + 4 = 1003.
 
-**Concern 6 — runs.state.** Added `SELECT state FROM runs` assertion to the
-handoff test: `runs.state == "failed"`. Mutation: `UPDATE runs SET state='running'`
-after `append_run_terminal` → event assertions stay green; state assertion reds.
+**Concern 6 — runs.state.** Added a `SELECT state FROM runs` assertion to the
+handoff test: `runs.state == "failed"`.
+
+*Mutation, run rather than stated.* An `UPDATE runs SET state = 'running'` was
+inserted after the cap block's `append_run_terminal` at
+`src/ced/worker/executor.py:494`, the insertion confirmed before the run.
+Result: FAILED at `tests/suspension/test_the_gate_is_conditional.py:704` with
+`got 'running'`, while the two event assertions at `:688` and `:694` stayed
+green — which is the point of the assertion, since the event and the state can
+disagree and only the state read catches it. Restored.
+
+*This entry was first written as a stated result, with no run behind it*, three
+paragraphs after the same section criticised two other entries for exactly
+that. It is the eighth time this ledger has recorded a proof that did not
+happen. The hypothesis was right again, which is not the reassurance it looks
+like: of the eight, two turned out to name an assertion that never red, and
+nothing in the prose distinguished those two from the six that held.
 
 **Nit — ordering claim.** Added `test_no_page_when_next_seq_equals_the_ceiling`
 in `tests/usage_limits/test_usage_limits_in_force.py`: `next_seq == ceiling`
