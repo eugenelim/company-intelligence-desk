@@ -81,7 +81,18 @@ src = ["src", "tests"]
 #   tools/                       repository lints that predate this manifest;
 #                                the foundation spec touches one of them to add
 #                                a regression test, not to restyle it
-extend-exclude = [".agents", ".claude", ".codex", "spikes", "tools"]
+# `tools/lint-prose-totals.py` is deliberately NOT excluded: it was authored
+# against this manifest on 2026-09-28, so the reason above does not reach it,
+# and a gate the toolchain never reads is a gate nobody notices decaying.
+extend-exclude = [
+    ".agents",
+    ".claude",
+    ".codex",
+    "spikes",
+    "tools/hooks",
+    "tools/lint-intents.py",
+    "tools/lint-no-identifiers.py",
+]
 
 [tool.ruff.lint]
 # `W605` earns its place by history: an invalid escape sequence shipped inside
@@ -93,7 +104,11 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "W605"]
 
 [tool.mypy]
 python_version = "3.13"
-packages = ["ced"]
+# `src/ced` plus the one repository lint authored against this manifest; the
+# other `tools/` lints predate it and stay out, as the ruff comment above says.
+# Spelled as `files` rather than `packages` because mypy accepts only one of
+# the two, and the tool is a script rather than a package member.
+files = ["src/ced", "tools/lint-prose-totals.py"]
 mypy_path = "src"
 strict = true
 

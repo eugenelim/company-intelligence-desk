@@ -160,6 +160,40 @@ def test_a_wrapped_sentence_is_not_a_sentence_start(tmp_path: Path) -> None:
     assert "Two" in result.stdout
 
 
+def test_a_colon_lead_in_opens_a_sentence(tmp_path: Path) -> None:
+    """A colon ends the lead-in, so the total under it is still a total.
+
+    `docs/specs/walking-skeleton-run-state/spec.md` already leads into its
+    residual list with a colon. Without this the next line reads as a wrapped
+    continuation and its total goes unrefused — the hole that shipped in the
+    first version of this gate.
+    """
+    body = guarded(
+        "What the state machine does not commit:",
+        "Two rows are committed under a source state r8 does not write.",
+    )
+    result = run(tmp_path, body)
+    assert result.returncode == 1, result.stdout
+    assert "Two" in result.stdout
+
+
+def test_a_non_waiver_trailing_comment_still_ends_a_sentence(tmp_path: Path) -> None:
+    """Separates the trailing-comment strip from the waiver branch.
+
+    Both predicates used to red only the waiver test, so one test stood for
+    two guards and neither was independently proved. Here the comment is *not*
+    a waiver: the line it sits on ends a sentence, so the cardinal below opens
+    one and must be refused. Drop the strip and this line reads as a wrap.
+    """
+    body = guarded(
+        "The residual list is rewritten from the tree. <!-- see ADR-0009 -->",
+        "Six were found during the build.",
+    )
+    result = run(tmp_path, body)
+    assert result.returncode == 1, result.stdout
+    assert "Six" in result.stdout
+
+
 def test_an_inline_waiver_admits_one_line_and_not_the_next(tmp_path: Path) -> None:
     """The waiver is per line, so it cannot silence a region."""
     body = guarded(

@@ -141,8 +141,9 @@ every review round it has been through.
     appends the event in one transaction.
   - `requested→claimed` on `run.claimed` — **not committed.** No append path
     defines, emits or admits that type; the only occurrence anywhere in the
-    tree is the docstring in `src/ced/domain/run_state.py` explaining its
-    absence, so a grep finds the explanation and not the vocabulary. Inventing
+    code is the docstring in `src/ced/domain/run_state.py` explaining its
+    absence — r8's own table and this page name it too, as prose about the gap
+    rather than vocabulary the system can emit. Inventing
     the type is a decision no spec currently owns. **The state value is
     authored, though:** `claimed` is in the `runs.state` CHECK
     (`migrations/versions/0001_base_schema.py`) and in the snapshot `state`
@@ -198,12 +199,11 @@ every review round it has been through.
   `steps.state = 'completed'`. The durable record of a refused role is therefore
   a *finished* step under a run that never started, which reads as success at
   the only level a snapshot shows. The event log records the refusal. No test
-  exercises
-  this — the checks naming `RoleLoadError` and `RoleCompileError` drive
+  exercises this — the checks naming `RoleLoadError` and `RoleCompileError` drive
   `append_role_refusal` and the compile guards directly, never the executor
   branch or `runs.state`. This is a gap in `src/`, not on this page: closing it
   needs a delivery whose `Touches` reaches the executor, and it is distinct from
-  the five `running` paths below.
+  the `running` paths listed below.
 - `any non-terminal → cancelled` is declined rather than overlooked. `run.cancelled`
   ships and `append_run_event` admits it, so the tree can express the edge;
   nothing appends it, and committing it would mean building a cancel caller this

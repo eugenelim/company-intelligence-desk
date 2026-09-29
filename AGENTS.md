@@ -318,7 +318,8 @@ services so each worker writes a distinct mark path.
 
 ### Repository checks
 
-These predate the application and still run against every change:
+All but one of these predate the application; `lint-prose-totals.py` was added
+alongside it on 2026-09-28. Every one runs against every change:
 
 ```bash
 python3 tools/lint-no-identifiers.py --staged   # no account ids, ARNs, keys,
@@ -340,16 +341,28 @@ events`, `the cycle cap's three` each quantify something the sentence names or
 a value another gate reads. A region opts in with a
 `<!-- prose-totals:start -->` / `<!-- prose-totals:end -->` pair, so a file
 carrying no guard is not a failure; one line is waived with a trailing
-`<!-- prose-totals: allow -->`. `docs/architecture/README.md` §
+`<!-- prose-totals: allow -->`.
+
+**Read the tool's docstring before relying on it — the rule is narrower than
+the paragraph above may suggest.** It matches only spelled cardinals `one`
+through `twenty`, only with nothing between the sentence start and the
+cardinal, and only in sentence-initial position. So a digit (`10 were
+enumerated`), a determiner (`All ten were enumerated`), a lead-in (`Of these,
+six are marked`) and a mid-sentence cross-reference (`the five paths above`)
+all pass — and that last form has shipped here twice. Invoked bare it reads
+`docs/**/*.md` only, so a guard anywhere else needs its path passed explicitly
+or it is never read.
+
+`docs/architecture/README.md` §
 `walking-skeleton-run-state` residuals and AC-0329 in
 `docs/specs/walking-skeleton-run-state/spec.md` are guarded today, by owner
 decision of 2026-09-28 after six review rounds found the same drifting total
 and the fifth introduced one while repairing another.
 `tests/architecture/test_prose_totals_lint.py` pins both directions.
 
-The last one checks spec and plan status metadata across every spec. It is
-listed here because T7's pinned `Tests` says it is, and it was not — so the
-command T7 verifies against was invisible from a clean clone.
+`lint-spec-status.py` checks spec and plan status metadata across every spec.
+It is listed here because T7's pinned `Tests` says it is, and it was not — so
+the command T7 verifies against was invisible from a clean clone.
 
 Run the first two before committing and the third before opening a PR. There is
 no CI: the gates on this page are the whole gate. Add a new install, build or

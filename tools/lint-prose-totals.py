@@ -25,7 +25,22 @@ Guard a region with a pair of HTML comments, which render as nothing:
 Waive one line, when the cardinal genuinely counts nothing enumerable, by
 ending it with `<!-- prose-totals: allow -->` and saying why in the text.
 
-Exit 0 when clean, 1 on any refusal, 2 on a malformed guard.
+**What this does not catch, stated so nobody reads the gate as wider than it
+is.** Only spelled cardinals `one` through `twenty` are matched, so a digit
+(`10 were enumerated`) passes. Only a bare cardinal is matched, so a determiner
+or a prepositional lead-in in front of it passes (`All ten were enumerated`,
+`Of these, six are marked`). Only a *sentence-initial* position is matched, so
+a cross-reference total mid-sentence passes (`the five paths above`) -- the
+form that has actually shipped twice here, and the reason the guarded regions
+still need reading. Table cells are not parsed. Widen the rule before relying
+on it for any of these.
+
+With no arguments this walks `docs/**/*.md` only, which is where the guarded
+regions live. A guard placed in any other file -- AGENTS.md, a root README, a
+skill -- is not read unless that path is passed explicitly, and an unclosed
+guard there is not reported either.
+
+Exit 0 when clean, 1 on any refusal or malformed guard, 2 on a missing file.
 """
 
 from __future__ import annotations
@@ -62,7 +77,10 @@ _AFTER_STOP = re.compile(
 #: safety constraints both tables state" is not a total, and refusing it would
 #: teach the reader to waive the rule rather than obey it.
 _IS_BULLET = re.compile(r"^\s*[-*+]\s")
-_ENDS_SENTENCE = re.compile(r"[.!?](?:\*{1,2}|_{1,2}|[)\"'’”])*\s*$")
+#: A colon counts: this prose leads into an enumeration with one -- "What the
+#: state machine does not commit:" -- and a total on the next line is exactly
+#: the form the rule exists for. Without it, such a line reads as a wrap.
+_ENDS_SENTENCE = re.compile(r"[.!?:](?:\*{1,2}|_{1,2}|[)\"'’”])*\s*$")
 
 #: A trailing HTML comment -- a waiver, or any other editorial note -- is not
 #: part of the sentence. Without stripping it, the line after a waived line

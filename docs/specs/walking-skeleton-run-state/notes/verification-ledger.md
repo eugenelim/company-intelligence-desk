@@ -1676,26 +1676,53 @@ events", "the cycle cap's three". None of those can drift, because each
 quantifies what its own sentence names or a value another gate reads. The
 refused form is the one that counts items living elsewhere in the file.
 
-**The gate found more than the review did.** Against the guarded region it
-refused eight occurrences where round 16 had named three. Two of the eight were
-false positives from hard-wrapped prose — a cardinal opening a *line* is
-usually mid-sentence — so the rule now treats a line-initial cardinal as
-sentence-initial only after a blank line, a bullet, or a line that ended a
-sentence. That correction matters more than the extra catches: a lint that
-refuses sound prose gets waived line by line until it gates nothing.
+**The gate found more than the review did.** Run against the two regions as
+they stood at `08d9f7a`, the shipped lint refuses seven occurrences where round
+16 had named three. **An earlier revision of this paragraph said eight**, which
+was a figure from the first draft of the rule — before the wrap correction
+below, against the README alone — reported as though it came from the shipped
+one. Round 17 reproduced the real number; it is stated here as seven because
+`git show 08d9f7a:<path>` plus the current tool prints seven, and any reader can
+re-run that.
 
-**Each of the lint's seven predicates is mutation-proved.** Dropping the wrap
-gate, the trailing-comment strip, the region bound, the waiver, the
-after-stop match, the unclosed-guard check, or the missing-file exit each reds
-a distinct test in `tests/architecture/test_prose_totals_lint.py`. The
-trailing-comment strip was found *by* its own test rather than by design: a
+The draft rule also treated any line-initial cardinal as sentence-initial,
+which false-flagged hard-wrapped prose. The rule now requires a blank line, a
+bullet, or a line that ended a sentence before it. That correction matters more
+than the extra catches: a lint that refuses sound prose gets waived line by line
+until it gates nothing.
+
+**Every predicate in the lint is mutation-proved, each with a witness of its
+own.** Dropping the wrap gate, the trailing-comment strip, the colon boundary,
+the region bound, the waiver, the after-stop match, the unclosed-guard check,
+or the missing-file exit each reds at least one test in
+`tests/architecture/test_prose_totals_lint.py`, and no two of them red only the
+same one. **That last clause was false when first written:** round 17 showed
+the trailing-comment strip and the waiver branch both red only the waiver test,
+so one witness stood for two guards. `test_a_non_waiver_trailing_comment_still_ends_a_sentence`
+separates them — the comment there is not a waiver, so only the strip decides
+the outcome.
+
+The trailing-comment strip was found *by* its own test rather than by design: a
 waiver comment made the next line read as a wrap continuation, so a total
 directly under a waived line went unchecked.
 
-**Two cross-reference totals the gate cannot see** were fixed by hand — "the
-five `src/ced/worker/executor.py` paths above" in both artifacts. They sit
-mid-sentence across a wrap, which is exactly the position the precision fix
-admits. The gate narrows the class; it does not close it.
+**Cross-reference totals the gate cannot see were *not* all fixed, and an
+earlier revision of this paragraph claimed they were.** It said two were fixed
+by hand "in both artifacts". One was: the README phrase "the five
+`src/ced/worker/executor.py` paths above" lost its count. Round 17 found two
+more still standing — `docs/architecture/README.md` "distinct from the five
+`running` paths below", and `docs/specs/walking-skeleton-run-state/spec.md`
+"shares the event five other causes in `executor.py` emit". Both are now
+removed.
+
+**This is the defect the gate was adopted for, committed in the paragraph
+describing the gate's limits.** A partial sweep was written up as a complete
+one. The correction worth keeping is not the wording: it is that a claim about
+having finished enumerating something needs the same search the enumeration
+needed, and this one was written from memory of two edits rather than from a
+search. The gate narrows the class; it does not close it, and the forms it
+misses are now listed in the tool's own docstring rather than summarised
+here.
 
 **The substantive finding was not a count.** The role-refusal residual said the
 run record "shows a run that never began" and stopped there. Tracing the path:
@@ -1717,3 +1744,54 @@ absence.
 over-long line was introduced by the previous commit's rewrap and the spliced
 sentence beside it was genuinely unreadable, so both were repaired anyway —
 as maintenance, not as a sustained finding.
+
+### Round 17 — the gate held; the account of the gate did not
+
+Round 17 raised fourteen findings. Adjudication sustained twelve, ruled one
+indeterminate on severity and one indeterminate because settling it needed code
+execution the adjudicator could not do. **None of the twelve was a false claim
+about the system.** All of them were about the new gate, its documentation, or
+this ledger's account of building it — three of the corrections above are
+amendments to paragraphs written one commit earlier.
+
+**The worst finding was in the sentence describing the gate's own limits.**
+Round 16's ledger said two cross-reference totals "were fixed by hand ... in
+both artifacts". One was. Two more were still standing, one in each artifact,
+and the paragraph that claimed the sweep was complete is itself the construct
+the gate exists to refuse: a claim of completeness written from memory instead
+of from a search. Both are now removed and the paragraph says what happened.
+
+**Two other self-claims did not reproduce.** "Eight occurrences where round 16
+named three" was a figure from the first draft of the rule, against the README
+alone, reported as though it came from the shipped one — reconstructing both
+regions at `08d9f7a` and running the shipped lint prints **seven**. And "each of
+the seven predicates reds a distinct test" was false for one pair: the
+trailing-comment strip and the waiver branch both red only the waiver test.
+`test_a_non_waiver_trailing_comment_still_ends_a_sentence` now separates them,
+and re-running every mutant shows each predicate reds at least one test with no
+two sharing a sole witness.
+
+**The gate had a live hole and a latent one.** A colon-ended lead-in read as a
+wrap, so a total on the next line passed — and `spec.md`'s residual list already
+leads in with a colon, saved only by the blank line under it. `_ENDS_SENTENCE`
+now accepts `:` and `test_a_colon_lead_in_opens_a_sentence` pins it. The forms
+that remain uncovered — digits, determiners, lead-ins, mid-sentence
+cross-references, table cells — are now listed in the tool's docstring and in
+AGENTS.md rather than left for a reader to infer from examples. **A gate whose
+documentation implies more coverage than it has is worse than a narrower gate
+honestly described**, because the first stops people looking.
+
+**The tool was excluded from the toolchain that governs authored code.**
+`pyproject.toml` excluded all of `tools/` with the reason "repository lints that
+predate this manifest" — which does not reach a file authored against it. The
+exclusion is now per-file, and `mypy` moved from `packages = ["ced"]` to a
+`files` list covering `src/ced` and this tool, because mypy accepts only one of
+the two. Both trees are mutation-proved under the new invocation: a deliberate
+type error in `src/ced/domain/run_state.py` and in `tools/lint-prose-totals.py`
+each reds `mypy`, so the change did not silently narrow coverage while looking
+green.
+
+**T4's plan now declares what T4 added.** The `Touches` widening named the lint,
+the hook and the tests; the `Tests` block still listed only the record review,
+so the completion gate had nothing to read them against. It names all three now,
+and its own "all seven specs" adopted the sibling plan's count-free wording.

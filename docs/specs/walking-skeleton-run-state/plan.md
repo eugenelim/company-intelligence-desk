@@ -327,8 +327,9 @@ this field exists to catch.
 
 **Tests:**
 - AC-0329 is checked by reading: the record must name every residual AC-0329 enumerates, including the uncommitted transitions it lists and the safety constraints `awaiting_input` owes.
-- `python3 .agents/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green across all seven specs.
-- `no stub (mode)` — record review.
+- `python3 .agents/skills/work-loop/scripts/lint-spec-status.py --root . --all` is green across **every** walking-skeleton spec under `docs/specs/`, whatever the count — `--all` sweeps them regardless, and the sibling plan records why a number here goes stale.
+- `no stub (mode)` — record review, for AC-0329.
+- **The gate this task added, per the `Touches` widening above.** `python3 tools/lint-prose-totals.py` exits 0 over `docs/`, and `tools/hooks/pre-pr.py` runs it — a lint nothing invokes is not a gate. `./.venv/bin/python -m pytest tests/architecture/test_prose_totals_lint.py` covers both directions: the totals that actually drifted here are refused, and the sound cardinals in the same section are admitted. Every predicate in the tool is mutation-proved with a witness of its own; the ledger records which mutant reds which test.
 
 **Done when:** AC-0329 holds and the architecture map names the transitions this delivery did not commit.
 
