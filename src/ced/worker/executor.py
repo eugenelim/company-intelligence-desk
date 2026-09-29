@@ -673,8 +673,11 @@ def make_step_body(config: PoolConfig) -> StepBody:
         except Exception as exc:
             log.error("executor: agent run failed for step %s: %s", lease.step_id, exc)
             # Entry 12 (adjudication): only step.failed here; run stays in
-            # 'running'. run.failed is reserved for the AC-0330 refusal path
-            # (resume_step) and is not appended for generic agent failures.
+            # 'running'. This path appends no terminal run event. AC-0327
+            # enumerates two causes that do — AC-0321's cycle cap and AC-0330's
+            # refused resume — so run.failed is not reserved for the refusal
+            # path, which an earlier version of this comment claimed and which
+            # stopped being true when T3 gave the cap its own append.
             # Entry 11 (adjudication): raise _StepBodyFailed so the pool
             # records outcome = "failed" rather than "completed" for a step
             # whose last event is step.failed.

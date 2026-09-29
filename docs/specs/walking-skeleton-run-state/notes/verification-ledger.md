@@ -1537,8 +1537,11 @@ edge". That was true until T3 gave the cycle cap its own `append_run_terminal`,
 and I wrote the bullet after reviewing the commit that changed it. The tree
 shows five paths in `executor.py` appending a bare `step.failed` and returning,
 and two committing the edge — the cap and the refusal, which is exactly the set
-AC-0327 enumerates. The same stale claim sat in a comment at
-`executor.py:769-770` and is corrected there too.
+AC-0327 enumerates. The same stale claim sat in **two** comments —
+the quarantine branch and the generic agent-failure branch — and both are now
+corrected. An earlier version of this paragraph named one site and asserted the
+repair was complete; that is the same shape as the defect it was recording, a
+claim wider than what was checked, and the confirming round caught it.
 
 **`awaiting_input` is authored nowhere, and I had already established that
 earlier in this delivery.** The record said `awaiting_input` and `expired` are
