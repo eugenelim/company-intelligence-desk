@@ -25,10 +25,10 @@ every step.
 
 Five specs built the pieces a run is made of — the event log, the compiled
 agent, the containment fragment, the decision point, the provider call and
-persistence. **Nothing moves a run between states.** `runs.state` is read by
+persistence. **At this spec's authoring, nothing moved a run between states** — `src/ced/worker/executor.py` and `append_run_terminal` now do, and the criteria below are what put them there. As of 2026-09-27: `runs.state` was read by
 `append_run_event`'s terminal guard and by the pool's heartbeat, and written by
-no code at all; `run.completed` cannot be appended by any identity; and the
-approval grant r5 places between the lease release and the re-claim has no
+no code at all; `run.completed` could not be appended by any identity; and the
+approval grant r5 places between the lease release and the re-claim had no
 writer, because the fence it would need proves a possession nobody holds by
 then.
 
@@ -103,7 +103,7 @@ are tabled below.
 | Assert the surface the approval gate is decidable on | AC-0302 | A run can complete cleanly while a gated tool it never triggered still sits in the stack | The check protecting a ratified charter amendment is satisfied by a run that happened not to trigger it |
 | Drive the flagged branch, and record who released it | AC-0303 | No named source covers the branch where a check fails and a person releases it; r8 lines 406–407 require the approver principal be recorded and no Phase 1 spec asserted it | The approval gate ships exercised only in the branch that never reaches it |
 | Fix the identity on each new append path | AC-0320, AC-0324 | r8 § 4 line 460 and § 3 line 344 disagree about which role may write a run-lifecycle type, and a function-level disjointness check stays green whichever role gets a new path | The privilege split widens by whichever shortcut the implementer reaches first |
-| Observe the cycle cap and the spend ceiling | AC-0321, AC-0325 | Both are ratified controls that nothing in `src/` implements, and both were dispositioned "lands" with no criterion reading them | Two spend and loop controls ship recorded as delivered while nothing reads them |
+| Observe the cycle cap and the spend ceiling | AC-0321, AC-0325 | Both were ratified controls that nothing in `src/` implemented when this spec was written — AC-0321 and AC-0325 are what implement them — and both were dispositioned "lands" with no criterion reading them | Two spend and loop controls ship recorded as delivered while nothing reads them |
 | Commit the transitions a reader can see | AC-0327 | `read_snapshot` returns `runs.state` verbatim, so a run that never leaves `requested` until it reaches `completed` is what every reader sees | The state column stays a field nothing writes, which is what this spec exists to change |
 | Give the approver a way to act | AC-0328 | AC-0303's grant is otherwise issued from a test connection, satisfying the criterion by a path no operator can reach | The approval gate is demonstrated against a caller that does not exist |
 | Say what this delivery did not establish | AC-0329 | Three controls here are narrower than the invariant they touch, and a record that lists results and names no residual overclaims | The next spec inherits a state machine that looks finished |
@@ -112,7 +112,7 @@ are tabled below.
 
 - [x] **AC-0301.** A run whose pre-release checks all pass reaches `completed` and publishes its typed artifact — asserted as the artifact's `payload_ref` resolving to a readable object in the store, not as `run.completed` alone — and **appends no `step.suspended` event**, which is the type this system actually writes when a run suspends.
 
-  An earlier revision asserted the absence of `approval.requested`. That type exists nowhere in the repository and no task creates it, so the clause was true for every possible implementation including one whose gate was unconditional — the vacuity shape AC-0302 exists to catch, sitting undetected in the criterion beside it.
+  An earlier revision asserted the absence of `approval.requested`. No path defines, emits or admits that type — its only occurrence in code is the docstring in `src/ced/domain/run_state.py` explaining the absence — and no task creates it, so the clause was true for every possible implementation including one whose gate was unconditional — the vacuity shape AC-0302 exists to catch, sitting undetected in the criterion beside it.
 - [x] **AC-0302.** A run whose pre-release checks all pass presents the agent with **no callable approval-gated tool**, asserted on the tool set the model is offered at run time rather than inferred from the run's outcome.
 
   The shipped placement builds the approval tool as a run-time `FunctionToolset` passed through `toolsets=[…]`, never compiling it in, so a criterion reading the *compiled* toolset is true in every possible world. r8 § 3 lines 400–403 describes the other placement; the shipped one stands by owner decision of 2026-09-26 because it keeps approval outside the decision point's ceiling check, and [ADR-0008](../../adr/0008-the-approval-gate-stays-outside-the-compiled-toolset.md) records the deviation.
@@ -128,7 +128,7 @@ are tabled below.
 
   **The committed set, over source states a producible run actually enters.** `requested→running` on `step.started`; `running→running` is not a move and is not listed; `awaiting_approval→running` is **not** committed, because no run ever enters `awaiting_approval` — see below; `running→completed` on `run.completed` through AC-0320's path; and `running→failed` on `run.failed` through the same path, for the two causes this spec produces, AC-0321's cap and AC-0330's refused resume.
 
-  So the committed set is three edges: `requested→running`, `running→completed`, `running→failed`. **An earlier revision listed `claimed→running` and `awaiting_approval→running`** — both unreachable, because nothing writes `claimed` (it appears only in revision 0001's CHECK) and nothing writes `awaiting_approval` either. The chain was broken at its head: with `requested→claimed` uncommitted, `claimed` is never entered, so `running` never is, so `running→completed` never is — and AC-0320's source-state predicate would then have refused the terminal append for every producible run, whose state at publication is `requested`. AC-0301 could not have passed. That was the residue of narrowing the entry edges out without renaming the edges whose sources depended on them.
+  So the committed set is three edges: `requested→running`, `running→completed`, `running→failed`. **An earlier revision listed `claimed→running` and `awaiting_approval→running`** — both unreachable, because nothing writes `claimed` — the *value* is authored, in revision 0001's CHECK **and** in the snapshot `state` enum in `contracts/openapi/runs.yaml`, so the spec that commits this edge owes the event type and not a schema widening and nothing writes `awaiting_approval` either. The chain was broken at its head: with `requested→claimed` uncommitted, `claimed` is never entered, so `running` never is, so `running→completed` never is — and AC-0320's source-state predicate would then have refused the terminal append for every producible run, whose state at publication is `requested`. AC-0301 could not have passed. That was the residue of narrowing the entry edges out without renaming the edges whose sources depended on them.
 
   **Three edges r8 names are deliberately not committed, and the reason is not scope.** r8 § 3 maps `requested→claimed` to `run.claimed`, `running→awaiting_approval` to `approval.requested`, and `awaiting_approval→running` to `approval.rejected` — the first two events exist nowhere, and the third moves a state the second never set. **No path in this repository defines, emits or admits either event type** — the only mention in code is the docstring in `src/ced/domain/run_state.py` explaining the absence, and r8's table and the architecture map name them as prose about the gap — no shipped path appends one, and `append_run_event` admits only `run.requested` and `run.cancelled`. Committing those edges would mean inventing two event types and a path to append them, which is an event-vocabulary decision above this spec's authority. **Owner decision 2026-09-27: this spec commits only what the tree can express**, and AC-0329 records r8's vocabulary gap as owed rather than silently papering over it. The consequence a reader sees is stated rather than hidden: a run is reported `requested` until its first step starts and `running` from then on, and a suspension is visible **only** as the `step.suspended` event — never as a run-state move. A reader watching `runs.state` cannot tell a suspended run from a working one; AC-0329 records that.
 
@@ -155,7 +155,7 @@ are tabled below.
 
   **It is also why the key needs no step component.** The shipped `derived_idempotency_key` folds the step in because its index is run-scoped and a `tool_call_id` can repeat across steps. A suspension `seq` is unique within the run by construction, so `<suspension_seq>:<call_id>` is too — no one-step-per-run assumption is load-bearing, which an earlier `<cycle>:<call_id>` form would have quietly depended on.
 
-  **Revision 0005 updates `0001_base_schema.py`'s `idempotency_key` comment** in the same change that widens which types carry a key: the column is documented there as "Null on every event type but `tool.invoked`", which this criterion falsifies.
+  **Revision 0005 updates `0001_base_schema.py`'s `idempotency_key` comment** in the same change that widens which types carry a key: before that revision the column was documented there as "Null on every event type but `tool.invoked`", which this criterion falsified; the comment now names the two approval-decision types and both partial unique indexes.
 
 - [x] **AC-0332.** After revision 0005, exactly one `append_step_event` exists, carrying the owner, the `SECURITY DEFINER` attribute and the pinned `SET search_path` revision 0002 gave it, with an `EXECUTE` grant set unchanged from 0002 and excluding `PUBLIC`. **The replaced body still refuses what it refused before**: an unfenced call, each type in the pre-existing refusal list, and a non-canonical type — each driven by a call that violates it. Asserted on a database upgraded from 0002.
 
@@ -249,7 +249,7 @@ are tabled below.
 
 ## Assumptions
 
-- Technical: nothing writes `runs.state` today and no identity can append `run.completed`; both were verified against `migrations/versions/0002_append_paths_and_privilege_split.py` and a content search of `src/` on 2026-09-27.
+- Technical, **as of 2026-09-27 and falsified by this delivery on purpose**: nothing wrote `runs.state` and no identity could append `run.completed`; both were verified against `migrations/versions/0002_append_paths_and_privilege_split.py` and a content search of `src/` on 2026-09-27.
 - Technical: `append_step_event` refuses types by denylist, so `approval.granted` is admitted on it today — verified by executing the migration module's `NON_STEP_EVENT_TYPES` on 2026-09-27.
 - Governance: r8 disagrees with itself on which role may write a run-lifecycle type; ratified means implemented, not reconciled, and this spec takes § 3's reading under an ADR.
 - Process: eugenelim approves both gates. **This is self-approval, labelled rather than presented as review**; what independent scrutiny these artifacts have came from forked-context reviewer agents.

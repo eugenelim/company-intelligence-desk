@@ -2078,3 +2078,38 @@ for the freeze restated as evidence rather than as prediction.
 **And the freeze header was itself wrong.** It claimed the gated artifacts "were
 reviewed to a clean verdict" — false when written, and disproved within the
 hour. Corrected above.
+
+### Round 23 — the defect class named in round 22 had more members
+
+The round confirmed every round-22 repair against the tree and found four more
+of the same kind, all in `spec.md`.
+
+- **AC-0327** said `claimed` "appears only in revision 0001's CHECK". It is
+  also in the snapshot `state` enum in `contracts/openapi/runs.yaml`, which
+  inverts what the next spec owes: the value is authored, so that spec owes the
+  event type and **not** a schema widening. The gated README already said this;
+  the spec contradicted it.
+- **AC-0334** described `0001_base_schema.py`'s `idempotency_key` comment as
+  still reading "Null on every event type but `tool.invoked`". Revision 0005
+  updated it — the comment now names both approval-decision types and both
+  partial unique indexes — so the criterion claimed to falsify something
+  already true.
+- **AC-0301** said `approval.requested` "exists nowhere in the repository". Its
+  docstring occurrence makes that false as written; AC-0327 and the README both
+  carry the precise form, so this was the one loose copy.
+- **§ Objective and § Assumptions** described the pre-build baseline in the
+  present tense — "nothing writes `runs.state` today", "`run.completed` cannot
+  be appended by any identity" — both falsified by this delivery on purpose.
+  Now dated and marked as the state at authoring.
+
+**This is the class round 22 opened, not a new one**, and the sweep that found
+these was the one round 22's finding should have triggered. The lesson holds
+without a count: a criterion written before the build states the world it was
+written in, and marking it `[x]` does not update its prose. Any spec that
+*changes* what it describes needs its own present-tense claims re-read against
+the tree at close, and this one was not until the last two rounds.
+
+A grep for the absence forms — "nothing writes", "no identity can", "exists
+nowhere" — was run across `spec.md` after these four, and the remaining hits
+are either already dated, already precise, or describe residuals that are still
+true.
