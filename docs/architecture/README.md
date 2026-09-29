@@ -102,6 +102,99 @@ the answer to "what does this codebase look like today" without replaying ADR
 history. Lifecycle: living. Update whenever the layout or major dependencies
 change.
 
+### `walking-skeleton-run-state` residuals
+
+The run state machine, the approval interface and the two bounding controls
+shipped with this delivery. AC-0329 requires this subsection, and requires it to
+name each residual rather than count them, so that the next spec inherits a
+state machine that does **not** look finished. Each entry names what a reader can
+check.
+
+**What the state machine does not commit.**
+
+- `run.claimed` and `approval.requested` exist nowhere in the tree, so neither
+  `requested→claimed` nor `running→awaiting_approval` is committed. A reader
+  cannot distinguish a suspended run from a working one by `runs.state` at all —
+  a suspension is visible only as the `step.suspended` event.
+- `any non-terminal → cancelled` is declined rather than overlooked. `run.cancelled`
+  ships and `append_run_event` admits it, so the tree can express the edge;
+  nothing appends it, and committing it would mean building a cancel caller this
+  spec does not own.
+- **A failed run stays reported `running` for ever.** The generic agent-failure
+  path and the quarantine refusal each append only `step.failed` and return, so
+  `runs.state` never leaves `running` while the run's only step is finished. Only
+  AC-0330's refused resume commits the terminal edge.
+
+**What the privilege split does not reach.**
+
+- Both `app_api` and `app_worker` retain a table-level `UPDATE ON runs`, so a
+  direct write still moves a run's state with nothing in the log.
+- The approval-decision path is unfenced, so r8 § 4's "the fence proves
+  possession" is untrue for `approval.granted` and `approval.rejected`; the
+  committed `step.suspended` and its `seq` are the substitute.
+- AC-0324's exclusivity is over the event type, not over causation. `app_api`
+  retains `INSERT ON steps`, so it can insert a step into any run, let a worker
+  claim and suspend it, and decide against a step it caused to exist.
+- The exclusion column and the cycle counter are writable outside the two paths
+  this spec builds, because both roles hold table-level writes on `steps`.
+
+**What the approval interface does not establish.**
+
+- The API validates no call ids, and that makes one failure unrecoverable: a
+  committed decision naming none of the step's pending calls still consumes the
+  suspension, so the resume refuses and the run ends `failed` with the
+  approver's single opportunity spent.
+- The recorded approver principal is unauthenticated, the origin refusal bounds
+  a browser rather than a process, the approver decides blind because no surface
+  shows them the pending calls, and the attribution is retained for the life of
+  the event log with no erasure path.
+- The decision-set bound is a string-length seam reused as a list count —
+  `ATTRIBUTION_MAX_LENGTH`, rendered `maxItems: 256`. It is finite, so the
+  safety purpose holds, but nothing defines how many pending calls a suspension
+  can carry, so the bound has no value to bind to.
+- **A resumed run publishes an object carrying no output.** The resume
+  completion path writes `{"schema_version": 1}` as its `payload_ref`, because
+  quarantine validation is a fresh-run property. AC-0303 contracts "resumes to
+  publication", and nothing asserts that `payload_ref` today.
+- **AC-0330's refusal appends a bare `step.failed`** with no recorded cause,
+  sharing an event five other causes emit. The cycle cap was given a
+  distinguishable `step.approval.cap.exceeded`; the refusal path was not.
+- **The `needs_approval` flag fails open on an absent key.** It lives in the
+  free-form `model_settings` JSONB. An absent key legitimately means no gate and
+  a malformed `model_settings` refuses — but a key present under a misspelling
+  reads as absent, which disables the control silently.
+
+**What the bounding controls do not measure.**
+
+- The per-run spend ceiling is exercised against a fabricated multi-step run,
+  because a real run has exactly one step.
+- **It is also configured in tokens and enforced on event count.**
+  `per_run_token_ceiling` is compared against `runs.next_seq`; no migration adds
+  a token column and the executor reads no `RunUsage`, so there is no persisted
+  token count. At the default a producible run emits roughly four events against
+  a ceiling of 200 000.
+- The ceiling's finite default is unsourced, as is the cycle cap's three.
+
+**What the next spec inherits, from § Follow-ons.**
+
+- `awaiting_input` and `expired` are authored in the state vocabulary and
+  exercised by nothing. The first spec to wire the input tool owes r8 § 3's two
+  safety constraints along with it: the answer admitted at the acting role's
+  existing ceiling, and both the request and the answer recorded. A transition
+  table that looks complete is the reason this is written down here rather than
+  left to that spec to discover.
+- r8 § 4 line 460 and § 3 line 344 disagree about whether a worker may write a
+  run-lifecycle type, and § 4 line 461's possession invariant is made untrue for
+  two event types by this delivery. ADR-0009 records the deviations; it does not
+  amend r8, so the r9 consistency pass still owes that.
+
+**What this delivery changed in a foundation-owned surface.**
+
+- Revision 0005 re-issues `append_step_event` through `CREATE OR REPLACE`,
+  narrowing what `app_worker` may append. AC-0332 guards what the replacement
+  preserves — the owner, the definer flag, the pinned `search_path`, the
+  signature and the grant set.
+
 ## Reading the frozen foundation spec
 
 `walking-skeleton-foundation` shipped before `walking-skeleton-agent-runtime`
