@@ -1,7 +1,7 @@
 # Plan: Walking skeleton — the run state machine
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Done <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8 § 3 Runtime Model (the state table, the approval gate) and § 4 Contracts and Invariants (the append paths and the fence); [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5 § 3 Runtime Model. **The analogous production implementations are the three shipped append functions** in `migrations/versions/0002_append_paths_and_privilege_split.py` — `append_step_event`, `append_run_event` and `append_policy_decision` — with `tests/event_log/` and `tests/schema/` as their construction and registration path. The two functions this spec adds are written against those three, and the predicate sets they already carry are what AC-0320 and AC-0324 enumerate. **Named deviation:** none of the three is unfenced, and AC-0324's path must be, because the lease is released before the approver acts.
 
 > **Plan contract:** the implementation strategy. Substantive change is allowed

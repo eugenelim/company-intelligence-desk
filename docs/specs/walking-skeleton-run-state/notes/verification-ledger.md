@@ -2113,3 +2113,32 @@ A grep for the absence forms — "nothing writes", "no identity can", "exists
 nowhere" — was run across `spec.md` after these four, and the remaining hits
 are either already dated, already precise, or describe residuals that are still
 true.
+
+### Closeout — what was and was not asserted
+
+Shipped 2026-09-29 on owner direction: "run one more round then ship it."
+
+Round 23 ran and was not clean. Its four findings were fixed in `c3ece12`, and
+no confirming round ran on those fixes.
+
+**The engine was not driven to `DONE`.** Reaching `CODE-HUMAN-GATE` requires a
+`reviewers-clean` transition, and the file satisfying it would have been written
+here. No clean verdict exists, so none was written; `.loop-run/` and
+`engine-state.json` show the run where it actually stands, at
+`CODE-IMPLEMENTATION` with wave 4 complete. **The spec's `Shipped` status
+records the owner's decision, not a gate the engine cleared** — the two disagree
+on purpose, and the spec header says so.
+
+What shipped is substantive rather than procedural: fifteen criteria met and
+mutation-proved, every repository gate green, 1027 passed and 3 skipped. The
+cohort baseline was re-pinned against the final artifacts, and the five dispatch
+receipts record each task's real reason — T1 through T3 to implementer
+subagents, T0 and T4 `human-directed` under the owner's standing direction that
+the controller writes governance and record tasks itself.
+
+**The one caveat worth carrying forward.** Rounds 22 and 23 each found
+present-tense prose in `spec.md` describing a tree the delivery had already
+changed. Two rounds in a row on the same class means a third instance is
+plausible. A sweep for the absence forms found no others, but that sweep is the
+kind of check this delivery learned not to trust when it is built from the
+wording under test rather than from the class — see the round-20 entry.

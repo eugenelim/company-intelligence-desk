@@ -1,6 +1,6 @@
 # Spec: Walking skeleton — the run state machine
 
-- **Status:** Implementing <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Status:** Shipped <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0003](../../adr/0003-repository-layout.md)
@@ -17,6 +17,24 @@
 > `Acceptance Criteria` are what a completion gate reads, and an amendment
 > changes them. `Objective`, `Durable Outputs`, `Follow-ons` and `Assumptions`
 > are working material, corrected in place without an amendment.
+
+> **Shipped 2026-09-29 on owner decision, and what that decision rests on.**
+> All fifteen criteria are met and mutation-proved; every repository gate is
+> green and the full suite passes. **The last reviewer round was not clean:**
+> it found four statements in this file describing the pre-build tree in the
+> present tense, and those were fixed in `c3ece12` *after* that verdict, with
+> no confirming round run on the fixes. The owner directed the ship at that
+> point. The engine was therefore **not** driven to `DONE` through a
+> `reviewers-clean` transition, because no clean verdict exists and writing one
+> here would have been a fabricated record; `.loop-run/` reflects the real
+> state.
+>
+> What a reader should trust: the code, the gates, and the acceptance criteria,
+> all independently re-derived across the closing rounds. What to treat with
+> care: prose in this file written before the build. Two consecutive rounds
+> found present-tense claims here that the delivery had falsified, so a third
+> class of them may remain. `notes/verification-ledger.md` is frozen and its
+> header says which of its parts are evidence and which are not.
 
 ## Objective
 
