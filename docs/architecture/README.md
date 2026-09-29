@@ -110,6 +110,8 @@ change.
 
 ### `walking-skeleton-run-state` residuals
 
+<!-- prose-totals:start -->
+
 The run state machine, the approval interface and the two bounding controls
 shipped with this delivery. AC-0329 requires this subsection, and requires it to
 name each residual rather than count them, so that the next spec inherits a
@@ -117,25 +119,35 @@ state machine that does **not** look finished. Each entry names what a reader ca
 check.
 
 **Which entries were contracted and which were discovered, because the
-difference bears on how much this list is worth.** Ten were enumerated in
-AC-0329 before the build and so were checkable against an independent list.
-Six — marked **(discovered)** below — were found during T2 and T3 and added to
-that enumeration by the same task that satisfies it, so for those the criterion
-and the record were authored together and the gate cannot red on them by
-construction. They were each verified against the tree, but a later reader
-should know which entries a separate list ever checked.
+difference bears on how much this list is worth.** An entry without a marker
+was enumerated in AC-0329 before the build, and so was checkable against a list
+written independently of it. An entry marked **(discovered)** was found while
+building or reviewing this delivery and added to that enumeration by the same
+task that satisfies it, so for those the criterion and the record were authored
+together and the gate cannot red on them by construction. Each was verified
+against the tree, but a later reader should know which entries a separate list
+ever checked. Read the markers rather than a total: this list has grown in
+every review round it has been through.
 
 **What the state machine does not commit.**
 
-- **Every row of r8 § 3's table, and what the tree does with it.** Two rows are
-  committed under a source state r8 does not write, so a reader matching the two
-  tables row by row will not find them where r8 puts them.
+- **Every row of r8 § 3's table, and what the tree does with it.** Where the
+  tree commits an edge from a source state r8 does not write, the row below says
+  so on the row itself — `claimed→running` is such a row, committed from
+  `requested`, and a reader matching the two tables will not find it where r8
+  puts it.
   - `—→requested` on `run.requested` — **committed.** `start_run` in
     `src/ced/adapters/postgres/event_log.py` inserts the run at `requested` and
     appends the event in one transaction.
-  - `requested→claimed` on `run.claimed` — **not committed.** The event type
-    exists nowhere in `src/`, `migrations/`, `contracts/` or `tests/`.
-    Inventing one is a vocabulary decision no spec currently owns.
+  - `requested→claimed` on `run.claimed` — **not committed.** No append path
+    defines, emits or admits that type; the only occurrence anywhere in the
+    tree is the docstring in `src/ced/domain/run_state.py` explaining its
+    absence, so a grep finds the explanation and not the vocabulary. Inventing
+    the type is a decision no spec currently owns. **The state value is
+    authored, though:** `claimed` is in the `runs.state` CHECK
+    (`migrations/versions/0001_base_schema.py`) and in the snapshot `state`
+    enum (`contracts/openapi/runs.yaml`), so the spec that commits this edge
+    owes the event type and not a schema widening.
   - `claimed→running` on `step.started` — **committed from `requested`, not
     from `claimed`.** Because `claimed` is never entered, the tree collapses
     r8's two hops into one: `_TRANSITIONS` in `src/ced/domain/run_state.py`
@@ -147,11 +159,18 @@ should know which entries a separate list ever checked.
   - `running→awaiting_approval` on `approval.requested` — **not committed.**
     Same vocabulary gap as `run.claimed`.
   - `awaiting_approval→running` on `approval.rejected` and
-    `awaiting_approval→completed` on `approval.granted` — **dead.** Both event
-    types ship in revision 0005 and `app_api` appends them, but **nothing ever
-    writes `runs.state = 'awaiting_approval'`**, so the source state is
-    unreachable. This is the one a reader is most likely to get wrong: the
-    approval *decision* path shipped, the approval *states* did not.
+    `awaiting_approval→completed` on `approval.granted` — **dead at both
+    ends.** Both event types ship in revision 0005 and `app_api` appends them,
+    but **nothing ever writes `runs.state = 'awaiting_approval'`**, so the
+    source state is unreachable — and `append_approval_decision` writes no
+    `runs.state` at all, touching only `next_seq`, `steps.awaiting_decision`
+    and `steps.approval_cycles`, so the target move is unimplemented too.
+    Reaching the source state would therefore not be enough. Like `claimed`,
+    the value `awaiting_approval` **is** authored in the CHECK and the snapshot
+    enum, so what is owed here is the writes, not the schema. This is the pair
+    a reader is most likely to get wrong: the approval *decision* path shipped,
+    and the approval *state* is declared everywhere a reader would look for
+    it — yet no code ever sets it or moves off it.
   - `awaiting_approval→expired` on `approval.expired` and
     `expired→awaiting_approval` on `approval.reopened` — **not committed.** They
     need both the unreachable source state and two more event types that exist
@@ -173,8 +192,13 @@ should know which entries a separate list ever checked.
   `src/ced/worker/executor.py` append the refusal and return before the
   `UPDATE runs SET state = 'running'` and the `step.started` append, so the run
   never reaches `running`; and because `append_run_terminal` refuses a run that
-  is not at `running`, no later path can fail it either. The event log records
-  the refusal; the run record shows a run that never began. No test exercises
+  is not at `running`, no later path can fail it either. **The step, meanwhile,
+  is recorded `completed`:** the handlers return normally, so `step_body` raises
+  nothing, the pool takes its success branch and `release` writes
+  `steps.state = 'completed'`. The durable record of a refused role is therefore
+  a *finished* step under a run that never started, which reads as success at
+  the only level a snapshot shows. The event log records the refusal. No test
+  exercises
   this — the checks naming `RoleLoadError` and `RoleCompileError` drive
   `append_role_refusal` and the compile guards directly, never the executor
   branch or `runs.state`. This is a gap in `src/`, not on this page: closing it
@@ -184,16 +208,16 @@ should know which entries a separate list ever checked.
   ships and `append_run_event` admits it, so the tree can express the edge;
   nothing appends it, and committing it would mean building a cancel caller this
   spec does not own.
-- **(discovered) Five failure paths leave a run reported `running` for ever.** In
-  `src/ced/worker/executor.py`, the missing-suspension-`payload_ref` path, the
-  raised-resume path, the non-boolean `needs_approval` path, the agent-error
-  path and the quarantine refusal each append only `step.failed` and return, so
-  `runs.state` never leaves `running` while the run's only step is finished.
-  **Two paths do commit the terminal edge** — AC-0321's cycle cap and AC-0330's
-  refused resume — which is the set AC-0327 enumerates. An earlier revision of
-  this bullet named two of the five and then said "only AC-0330's refused
-  resume commits the terminal edge", which was true before T3 gave the cap its
-  terminal append and false after.
+- **(discovered) Several failure paths leave a run reported `running` for
+  ever.** In `src/ced/worker/executor.py`: the missing-suspension-`payload_ref`
+  path, the raised-resume path, the non-boolean `needs_approval` path, the
+  agent-error path and the quarantine refusal. Each appends only `step.failed`
+  and returns, so `runs.state` never leaves `running` while the run's only step
+  is finished. The paths that **do** commit the terminal edge are AC-0321's
+  cycle cap and AC-0330's refused resume, which is the set AC-0327 enumerates.
+  An earlier revision of this bullet named a subset and then said "only
+  AC-0330's refused resume commits the terminal edge", which was true before T3
+  gave the cap its terminal append and false after.
 
 **What the privilege split does not reach.**
 
@@ -232,7 +256,7 @@ should know which entries a separate list ever checked.
 - **(discovered) AC-0330's refusal carries no distinguishing event type.** It appends `step.failed` **and**
   `run.failed`, so the terminal edge is committed — what is missing is a
   distinguishing type, not a terminal append. It shares `step.failed` with the
-  five `src/ced/worker/executor.py` paths above, so a reader cannot tell a
+  `src/ced/worker/executor.py` paths listed above, so a reader cannot tell a
   refused resume from an ordinary agent failure. The cycle cap was given
   `step.approval.cap.exceeded`; the refusal path was not.
 - **(discovered) The `needs_approval` flag fails open on an absent key.** It lives in the
@@ -276,6 +300,8 @@ should know which entries a separate list ever checked.
   narrowing what `app_worker` may append. AC-0332 guards what the replacement
   preserves — the owner, the definer flag, the pinned `search_path`, the
   signature and the grant set.
+
+<!-- prose-totals:end -->
 
 ## Reading the frozen foundation spec
 

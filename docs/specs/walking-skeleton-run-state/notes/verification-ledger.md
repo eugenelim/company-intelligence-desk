@@ -1650,3 +1650,70 @@ row would have reinstated the contradiction from the other side.
 external table were the mechanism in four of the five sustained findings. The
 enumeration now walks r8 § 3 row by row and publishes no total, which is what
 AC-0329 asks for in saying "the gate is that list, not its length".
+
+### Round 16 — the class got a gate, because six rounds of discipline did not hold
+
+Round 16 raised seven findings; adjudication sustained six and refuted one on
+authority. **Both blockers were drifting totals, and one of them was introduced
+by the commit that repaired the round before it** — the preamble said six
+`(discovered)` entries while the same commit added the seventh, in a subsection
+whose own ledger entry claimed the class had been swept.
+
+That is the fourth consecutive commit in which a total over a list went stale,
+and the repository already carried a standing instruction against the
+construct. Discipline was not the missing part.
+
+**Owner decision 2026-09-28: ban the construct in the affected prose and gate
+it.** `tools/lint-prose-totals.py` refuses a **sentence-initial cardinal inside
+a guarded region**, wired into `tools/hooks/pre-pr.py` and documented in
+AGENTS.md § Repository checks. A region opts in with an HTML-comment pair;
+`docs/architecture/README.md` § residuals and AC-0329 are guarded today.
+
+**The rule was calibrated against the real text, not invented.** A blanket ban
+on cardinals would have refused twenty sound sentences in the same section —
+"in one transaction", "collapses r8's two hops into one", "emits roughly four
+events", "the cycle cap's three". None of those can drift, because each
+quantifies what its own sentence names or a value another gate reads. The
+refused form is the one that counts items living elsewhere in the file.
+
+**The gate found more than the review did.** Against the guarded region it
+refused eight occurrences where round 16 had named three. Two of the eight were
+false positives from hard-wrapped prose — a cardinal opening a *line* is
+usually mid-sentence — so the rule now treats a line-initial cardinal as
+sentence-initial only after a blank line, a bullet, or a line that ended a
+sentence. That correction matters more than the extra catches: a lint that
+refuses sound prose gets waived line by line until it gates nothing.
+
+**Each of the lint's seven predicates is mutation-proved.** Dropping the wrap
+gate, the trailing-comment strip, the region bound, the waiver, the
+after-stop match, the unclosed-guard check, or the missing-file exit each reds
+a distinct test in `tests/architecture/test_prose_totals_lint.py`. The
+trailing-comment strip was found *by* its own test rather than by design: a
+waiver comment made the next line read as a wrap continuation, so a total
+directly under a waived line went unchecked.
+
+**Two cross-reference totals the gate cannot see** were fixed by hand — "the
+five `src/ced/worker/executor.py` paths above" in both artifacts. They sit
+mid-sentence across a wrap, which is exactly the position the precision fix
+admits. The gate narrows the class; it does not close it.
+
+**The substantive finding was not a count.** The role-refusal residual said the
+run record "shows a run that never began" and stopped there. Tracing the path:
+the handlers return normally, so `step_body` raises nothing, the pool takes its
+success branch, and `release` writes `steps.state = 'completed'`. The durable
+record is a **finished step under a run that never started** — which reads as
+success at the level a snapshot shows. Both artifacts now say so.
+
+Three further advisories were sustained and applied: `claimed` and
+`awaiting_approval` are authored in the `runs.state` CHECK and the snapshot
+enum, so the spec that commits those edges owes writes and not a schema
+widening; `append_approval_decision` writes no `runs.state` at all, so
+`awaiting_approval→completed` is dead at the target as well as the source; and
+the "exists nowhere in `src/`" claim is now scoped to what no append path
+defines, emits or admits, since a grep does find the docstring explaining the
+absence.
+
+**Refuted:** that a TOML comment owes a character width. No rule sets one. The
+over-long line was introduced by the previous commit's rewrap and the spliced
+sentence beside it was genuinely unreadable, so both were repaired anyway —
+as maintenance, not as a sustained finding.

@@ -324,9 +324,28 @@ These predate the application and still run against every change:
 python3 tools/lint-no-identifiers.py --staged   # no account ids, ARNs, keys,
                                                 # emails or absolute home paths
 python3 tools/lint-intents.py                   # structural lint for docs/product/intents/
-python3 tools/hooks/pre-pr.py                   # knowledge lint + work-loop caps + ADR shape lint
+python3 tools/hooks/pre-pr.py                   # knowledge lint + work-loop caps
+                                                # + ADR shape lint + prose totals
+python3 tools/lint-prose-totals.py              # drifting totals in guarded prose
 python3 .claude/skills/work-loop/scripts/lint-spec-status.py --root . --all
 ```
+
+`lint-prose-totals.py` runs inside `pre-pr.py` and is listed separately because
+it is useful on its own while editing. It refuses a **sentence-initial cardinal
+inside a guarded region** — `Ten were enumerated in AC-0329`, `Six — marked
+(discovered) below` — because such a sentence totals a list that lives
+elsewhere in the file and drifts the next time that list grows. A cardinal
+anywhere else in the sentence is admitted: `in one transaction`, `roughly four
+events`, `the cycle cap's three` each quantify something the sentence names or
+a value another gate reads. A region opts in with a
+`<!-- prose-totals:start -->` / `<!-- prose-totals:end -->` pair, so a file
+carrying no guard is not a failure; one line is waived with a trailing
+`<!-- prose-totals: allow -->`. `docs/architecture/README.md` §
+`walking-skeleton-run-state` residuals and AC-0329 in
+`docs/specs/walking-skeleton-run-state/spec.md` are guarded today, by owner
+decision of 2026-09-28 after six review rounds found the same drifting total
+and the fifth introduced one while repairing another.
+`tests/architecture/test_prose_totals_lint.py` pins both directions.
 
 The last one checks spec and plan status metadata across every spec. It is
 listed here because T7's pinned `Tests` says it is, and it was not — so the

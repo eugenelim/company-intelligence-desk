@@ -312,7 +312,18 @@ def test_the_per_run_spend_ceiling_carries_a_finite_default() -> None:
 
 **Depends on:** T3
 
-**Touches:** docs/architecture/README.md, docs/specs/walking-skeleton-run-state/spec.md, docs/specs/walking-skeleton-run-state/plan.md, workspace.toml
+**Touches:** docs/architecture/README.md, docs/specs/walking-skeleton-run-state/spec.md, docs/specs/walking-skeleton-run-state/plan.md, docs/specs/walking-skeleton-run-state/notes/verification-ledger.md, workspace.toml, tools/lint-prose-totals.py, tools/hooks/pre-pr.py, tests/architecture/test_prose_totals_lint.py, AGENTS.md
+
+**Widened 2026-09-28 by owner decision.** The last four entries and the ledger
+were added after six review rounds found the same defect in this task's own
+artifact: a total in prose over a list enumerated elsewhere in the same file,
+including one introduced by the commit that repaired the round before it. The
+owner's decision was to stop relying on care and gate the construct, so T4
+gained the lint that enforces it, its wiring into the pre-PR hook, its
+regression tests, and the AGENTS.md entry that AGENTS.md § Build and test
+commands requires in the same change. Recorded here rather than absorbed,
+because a task exceeding its pinned `Touches` without a decision is the drift
+this field exists to catch.
 
 **Tests:**
 - AC-0329 is checked by reading: the record must name every residual AC-0329 enumerates, including the uncommitted transitions it lists and the safety constraints `awaiting_input` owes.
