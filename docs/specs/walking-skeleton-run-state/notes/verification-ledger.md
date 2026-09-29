@@ -3,6 +3,29 @@
 Execution observations. Mutation proofs live here, not in a session report: a
 proof filed where nobody looks is the same defect as a proof never run.
 
+> **Frozen 2026-09-29 by owner decision. This file is an unconverged working
+> record, and its self-narration is the least reliable thing in this delivery.**
+>
+> Read the **mutation proofs, commands, and witnesses** here as evidence: each
+> was run, and later rounds independently reproduced them. Do **not** read the
+> round-by-round narrative as settled. Six review rounds were spent on it, and
+> they did not converge — the round-21 entry records a case where a round
+> corrected a claim that was already true and two further rounds reasoned from
+> the invented error. Corrections are made in place where a paragraph was
+> wrong, but the entries were written in sequence and some overstate how many
+> earlier claims were false.
+>
+> Nothing here gates anything. The obligations that are gated live in
+> `spec.md`, `plan.md`, `docs/architecture/README.md`, and the commands in
+> AGENTS.md § Repository checks; those were reviewed to a clean verdict and are
+> where a reader should go for what is true. This file explains how the work
+> was verified, not whether it holds.
+>
+> **Why freeze rather than converge.** Correcting it was, by the last three
+> rounds, generating about as many defects as it closed, in a file no gate
+> reads. Continuing would have bought narrative tidiness with review budget
+> that the gated artifacts have a better claim on.
+
 ## T0 — the records the build may not make silently
 
 **Date:** 2026-09-27. **Mode:** goal-based, `no stub (mode)`.
