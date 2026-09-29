@@ -1814,8 +1814,20 @@ listed, with that miss recorded beside it.
 
 **The tally reappeared inside the gate's own documentation.** AGENTS.md and the
 tool's docstring both said the mid-sentence cross-reference form "has shipped
-here twice". Six instances stood at `08d9f7a`; four had been removed by then and
-one was still standing. Both now describe the form without counting it.
+here twice". Named rather than tallied, because the tally is the defect: at
+`08d9f7a` the form stood at `docs/architecture/README.md` "distinct from the
+five `running` paths below", and at `docs/specs/walking-skeleton-run-state/spec.md`
+in three places — "what five other paths in", "shares the event five other
+causes in", and "than the five `running` paths above". `891b704` removed one,
+`02a111e` removed two, and round 18 found the last still standing. Both
+documents now describe the form without counting it.
+
+**An earlier revision of this paragraph said "six instances ... four had been
+removed by then and one was still standing"**, which does not reconcile, names
+none of the instances, and dates removals "by then" against the same instant it
+measures. Round 19 caught it. That is a prose tally inside the sentence
+reporting the removal of prose tallies — the same construct, one level up, for
+the fourth round running.
 
 **A third sweep was written up as complete and was not.** Round 17's entry above
 says two cross-reference totals "are now removed". A third stood at
@@ -1866,3 +1878,36 @@ reproduction command, each was reproduced directly before acting, and the owner
 had approved the delivery — so the gateway's cost bought less than its delay
 cost. That is a deviation from the work-loop's finding-adjudication contract and
 is recorded as one rather than presented as routine.
+
+### Round 19 — the gate had a hole in the one spelling the guarded list uses
+
+Two findings, both sustained, and the second is the substantive one.
+
+**`- **(discovered)** Two rows are committed.` passed the gate.** `_LEAD` was
+written as a fixed sequence — optional emphasis, then the marker, then optional
+emphasis — with the whitespace allowance inside the marker group. The prose
+puts a space *after* the closing `**`, so the pattern ran out of room and the
+cardinal behind it was never examined. `docs/architecture/README.md:248` is
+written in exactly that form, so **a total added to that bullet would have
+passed a gate this repository documents as catching it.**
+
+`_LEAD` is now a repeating group over emphasis and the marker in any order,
+which admits every spelling the list uses.
+`test_every_marker_spelling_still_exposes_the_cardinal` pins four of them, and
+reverting the pattern to the fixed sequence reds exactly the bolded-marker case
+and nothing else. `test_a_bullet_whose_lead_is_prose_is_not_a_total` holds the
+other side: the permissive lead must not chew through words to reach a cardinal
+further along the line.
+
+**Why this one matters more than its size.** Every earlier round found a stale
+claim. This found the control itself failing open on live text, in a region the
+record says it guards — which is the failure mode that makes a gate worse than
+no gate, because the claim stops anyone reading.
+
+**The other finding was the tally, one level up again.** The round-18 paragraph
+reporting the removal of a tally stated "six instances ... four had been removed
+by then and one was still standing" — a sum that does not reconcile, naming
+none of the instances, dating removals "by then" against the instant it
+measures. It now names all four and which commit removed which. **Fourth
+consecutive round in which this construct appeared in the prose describing its
+own removal.**

@@ -58,9 +58,15 @@ START = "<!-- prose-totals:start -->"
 END = "<!-- prose-totals:end -->"
 ALLOW = "<!-- prose-totals: allow -->"
 
-#: What may sit between a sentence boundary and the cardinal: markdown emphasis,
-#: a list bullet, and the `(discovered)` provenance marker the residual lists use.
-_LEAD = r"(?:[-*+]\s+)?(?:\*{1,2}|_{1,2})?(?:\((?:discovered)\)\s*)?(?:\*{1,2})?"
+#: What may sit between a sentence boundary and the cardinal: a list bullet,
+#: then any run of markdown emphasis and the `(discovered)` provenance marker,
+#: in any order and with or without spaces between them. Written as a repeating
+#: group rather than a fixed sequence because a fixed one missed the spelling
+#: the guarded list actually uses -- `- **(discovered)** Two rows` put a space
+#: where the pattern wanted the closing emphasis, and the total went unrefused
+#: in the live region.
+_LEAD_TOKEN = r"(?:\*{1,2}|_{1,2}|\(discovered\))\s*"
+_LEAD = rf"(?:[-*+]\s+)?(?:{_LEAD_TOKEN})*"
 
 #: A cardinal opening a line, or opening a sentence after terminal punctuation.
 _AT_LINE_START = re.compile(rf"^\s*{_LEAD}({CARDINALS})\b", re.IGNORECASE)

@@ -160,6 +160,41 @@ def test_a_wrapped_sentence_is_not_a_sentence_start(tmp_path: Path) -> None:
     assert "Two" in result.stdout
 
 
+#: Every spelling of the provenance marker that appears in, or could plausibly
+#: be written into, the guarded residual lists. The first is the one
+#: `docs/architecture/README.md` actually uses, and it escaped the first
+#: version of `_LEAD` — the pattern wanted the closing `**` where the prose has
+#: a space, so a total behind it passed inside the live region.
+MARKER_SPELLINGS = [
+    pytest.param("- **(discovered)** Two rows are committed.", "Two", id="marker-bolded"),
+    pytest.param("- (discovered) Three rows are committed.", "Three", id="marker-bare"),
+    pytest.param(
+        "- **(discovered) Four rows are committed.**", "Four", id="marker-inside-bold"
+    ),
+    pytest.param("- **Five rows are committed.**", "Five", id="no-marker-bolded"),
+]
+
+
+@pytest.mark.parametrize("body,word", MARKER_SPELLINGS)
+def test_every_marker_spelling_still_exposes_the_cardinal(
+    tmp_path: Path, body: str, word: str
+) -> None:
+    result = run(tmp_path, guarded(body))
+    assert result.returncode == 1, result.stdout
+    assert word in result.stdout
+
+
+def test_a_bullet_whose_lead_is_prose_is_not_a_total(tmp_path: Path) -> None:
+    """The permissive lead must not swallow words on its way to a cardinal.
+
+    `- **Every row of r8 § 3's table.** ...` opens with emphasis and a word, so
+    nothing sentence-initial follows the marker run; only the real sentence
+    start after the stop should be considered.
+    """
+    body = guarded("- **Every row of r8 § 3's table.** It lists two hops and one state.")
+    assert run(tmp_path, body).returncode == 0
+
+
 def test_a_colon_lead_in_opens_a_sentence(tmp_path: Path) -> None:
     """A colon ends the lead-in, so the total under it is still a total.
 
