@@ -1706,14 +1706,23 @@ The trailing-comment strip was found *by* its own test rather than by design: a
 waiver comment made the next line read as a wrap continuation, so a total
 directly under a waived line went unchecked.
 
-**Cross-reference totals the gate cannot see were *not* all fixed, and an
-earlier revision of this paragraph claimed they were.** It said two were fixed
-by hand "in both artifacts". One was: the README phrase "the five
-`src/ced/worker/executor.py` paths above" lost its count. Round 17 found two
-more still standing — `docs/architecture/README.md` "distinct from the five
-`running` paths below", and `docs/specs/walking-skeleton-run-state/spec.md`
-"shares the event five other causes in `executor.py` emit". Both are now
-removed.
+**Cross-reference totals the gate cannot see were *not* all fixed, though the
+count in the original claim was right.** It said two were fixed by hand "in
+both artifacts", and two were: `891b704` removed `docs/architecture/README.md`'s
+"the five `src/ced/worker/executor.py` paths above" and
+`docs/specs/walking-skeleton-run-state/spec.md`'s "than the five `running`
+paths above" — one in each artifact, exactly as written. What was wrong was the
+implication of completeness: two more were still standing, `README.md`'s
+"distinct from the five `running` paths below" and `spec.md`'s "shares the
+event five other causes in `executor.py` emit". Both are now removed.
+
+**Corrected 2026-09-29, round 21.** This paragraph previously said "One was",
+which was false — `891b704` removed two. The likely cause is that its commit
+message called the pair "mid-sentence **across a wrap**", and only the README
+instance is wrapped, since `spec.md` is not hard-wrapped; matching on the wrong
+property gave one. Two later rounds reasoned from that false correction, so the
+tally of genuinely false completeness claims in this paragraph is smaller than
+the round-19 and round-20 entries below assert.
 
 **This is the defect the gate was adopted for, committed in the paragraph
 describing the gate's limits.** A partial sweep was written up as a complete
@@ -1756,10 +1765,16 @@ amendments to paragraphs written one commit earlier.
 
 **The worst finding was in the sentence describing the gate's own limits.**
 Round 16's ledger said two cross-reference totals "were fixed by hand ... in
-both artifacts". One was. Two more were still standing, one in each artifact,
-and the paragraph that claimed the sweep was complete is itself the construct
-the gate exists to refuse: a claim of completeness written from memory instead
-of from a search. Both are now removed and the paragraph says what happened.
+both artifacts", and claimed that as the whole set. Two more were still
+standing, one in each artifact — the paragraph that claimed the sweep was
+complete is itself the construct the gate exists to refuse: a claim of
+completeness written from memory instead of from a search. Both are now removed
+and the paragraph says what happened.
+
+**Corrected 2026-09-29, round 21.** This entry originally read "One was",
+asserting that round 16's *count* was also wrong. It was not: `891b704` removed
+two, one per artifact. Only the completeness was false. Round 17 introduced
+that error while correcting a real one, and rounds 19 and 20 reasoned from it.
 
 **Two other self-claims did not reproduce.** "Eight occurrences where round 16
 named three" was a figure from the first draft of the rule, against the README
@@ -1815,7 +1830,9 @@ listed, with that miss recorded beside it.
 **The tally reappeared inside the gate's own documentation.** AGENTS.md and the
 tool's docstring both said the mid-sentence cross-reference form "has shipped
 here twice". Named rather than tallied, because the tally is the defect. Every
-instance that stood at `08d9f7a`, and the commit that removed it:
+instance of *this* form — a spelled cardinal counting the `executor.py` failure
+paths or the `running`-stuck paths, referred to as lying above or below — that
+stood in these two documents at `08d9f7a`, and the commit that removed it:
 
 | Instance at `08d9f7a` | Removed by |
 | --- | --- |
@@ -1952,3 +1969,45 @@ every alternation branch consumes a non-word character; reverting `_LEAD` reds
 exactly the bolded-marker case, and over-permitting it to `.*?` reds seven tests
 and makes the live lint emit seventeen refusals, so the permissive side is held
 too.
+
+### Round 21 — a correction that corrected something true
+
+Two findings. The blocker reverses part of the account above, so it is recorded
+before the smaller one.
+
+**Round 17 corrected a claim that was already right, and two later rounds
+reasoned from the error.** Round 16 wrote that two cross-reference totals "were
+fixed by hand ... in both artifacts". `891b704` did remove two, one per
+artifact — `docs/architecture/README.md`'s "the five
+`src/ced/worker/executor.py` paths above" and
+`docs/specs/walking-skeleton-run-state/spec.md`'s "than the five `running`
+paths above". Round 17 wrote "One was", which is false, and rounds 19 and 20
+inherited it. Round 16's real defect was narrower than reported: the *count*
+was right and the *completeness* was not. Both affected paragraphs are
+corrected in place rather than contradicted later in the file.
+
+**The likely cause, because it is the transferable part.** `891b704`'s commit
+message described the pair as "mid-sentence **across a wrap**". Only the README
+instance is wrapped — `spec.md` is not hard-wrapped — so a later reader
+checking that property against the tree found one and concluded the claim of
+two was wrong. **The check matched a property the commit message had asserted
+rather than the property the claim was about.** That is the same circular shape
+round 20 named, running in the opposite direction: there a search built from
+the claim confirmed a false statement; here a search built from an incidental
+detail refuted a true one. A verification derived from the wording under test
+can fail either way.
+
+**So the record's error rate has not been falling the way the entries above
+suggest.** Rounds 19 and 20 are still correct about what they found; they are
+wrong about how many prior claims were false, because one of the claims they
+counted was one round 17 had invented. The entries stay, with this correction
+above them, because deleting them would remove the evidence for the rule they
+earned.
+
+**The smaller finding: the table claimed a wider scope than it enumerated.** Its
+header said "every instance that stood at `08d9f7a`", document-wide, while
+`spec.md`'s AC-0320 carried "it admits only the two types named above" — the
+same form, standing then and now, and in a criterion whose own prose says it
+"enumerates and does not tally". The header now names the form it covers, and
+AC-0320 and AC-0324 lost their tallies, which were the last two in the class
+outside the guarded regions.
