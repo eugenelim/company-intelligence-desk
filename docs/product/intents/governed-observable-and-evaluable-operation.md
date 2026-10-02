@@ -232,12 +232,17 @@ confining its insert to a `policy-writer` role.
 *Observability and evaluation* companion document. That is what the design's
 § Scope table actually defers — telemetry boundary, redaction, payload inlining,
 evaluation architecture, fixture versioning, and release gates — and it does not
-yet exist.
+yet have ratified answers. The companion exists at Draft — revision c3 and
+remains unratified, so the cross-release evaluability outcome is still
+unsettled.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
+- Revision: r15 — next-step state corrected after the commissioned
+  observability and evaluation companion reached Draft revision c3; its
+  unratified questions remain unsettled, 2026-10-02
 - Revision: r14 — first-outcome sub-result 2's third disjunct weakened after
   verification found it made that sub-result and third-outcome sub-result 2
   coincide, defeating the paragraph that exists to separate them; its vacancy

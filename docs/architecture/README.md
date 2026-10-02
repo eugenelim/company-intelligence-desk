@@ -106,7 +106,8 @@ in ratified records that it observed falsified and could not correct:
 clause and its § 8 rows, and the
 [`inspectable-multi-agent-diligence/`](inspectable-multi-agent-diligence/README.md)
 index's "Nothing described in this folder is built". **Each of those was
-corrected on 2026-09-22.** That ledger keeps its text as written, because a
+corrected: the first two on 2026-09-22 and the index on 2026-10-02.** That
+ledger keeps its text as written, because a
 shipped spec's ledger records what one delivery observed on its own date;
 this paragraph is the successor its pointers land on.
 [`spikes/README.md`](../../spikes/README.md) § Phase 1 records, per delivery,
@@ -382,9 +383,13 @@ never gets enforced.
 ## Designed but unbuilt
 
 This directory holds current state. A designed-but-unbuilt subtree is admitted
-only when its index carries a `STATUS: PLANNED` marker and links to the
-decision governing it. [`inspectable-multi-agent-diligence/`](inspectable-multi-agent-diligence/)
-is admitted under that rule.
+only when its status-bearing entry page carries a `STATUS: PLANNED` marker and
+links to the decision governing it. The
+[`legible-refusal-and-readiness` design](legible-refusal-and-readiness/legible-refusal-and-readiness.md)
+is admitted under that rule. The
+[`inspectable-multi-agent-diligence/`](inspectable-multi-agent-diligence/)
+index instead records a partially built, mixed-lifecycle design set whose
+runtime is Accepted and whose companion documents remain Draft.
 
 ## Verification markers
 

@@ -13,7 +13,6 @@ answer to "what is the product up to right now?"
 
 | Path | Holds | Note |
 | --- | --- | --- |
-| [`roadmap.md`](roadmap.md) | Direction for the next few quarters | Direction, not commitments. An item that has not moved in two consecutive reviews is a drift signal. |
 | [`changelog.md`](changelog.md) | User-visible changes by release, in [Keep a Changelog](https://keepachangelog.com/) format | One section per release, naming every artifact it covers. Updated in the same change that bumps a released artifact's version. |
 | [`intents/`](intents/) | One admitted outcome each, recorded before a solution is chosen | Structurally linted by `tools/lint-intents.py`. |
 | [`briefs/`](briefs/) | One delivery outcome each, and the specs that deliver it | For work too large to be one spec. |
