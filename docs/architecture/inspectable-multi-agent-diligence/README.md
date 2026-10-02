@@ -1,13 +1,12 @@
 # Inspectable multi-agent diligence — design effort
 
-**STATUS: PLANNED**
+**STATUS: PARTIALLY BUILT.** The runtime design is Accepted and its Phase 1
+walking skeleton is built. The Phase 2 MVP and later phases are not built; the
+observability/evaluation and experience/presentation companions remain Draft.
 
-Most of what this folder describes is not built.
 [`../README.md`](../README.md) § What is built is the current
-map. `docs/architecture/` otherwise holds
-current state; this subtree is admitted under the designed-but-unbuilt rule in
-[`docs/architecture/README.md`](../README.md#designed-but-unbuilt), which
-requires this marker and a link to the governing decision.
+map. This index records the mixed lifecycle inside the design set; each design
+document remains the source for its own status.
 
 ## What this design is
 
@@ -55,24 +54,23 @@ for the instrumentation standard.
   carries the ratified mission, scope, and principles this design is anchored
   to, including the two principles this design required amending.
 - [`inspectable-diligence-mvp`](../../product/briefs/inspectable-diligence-mvp.md)
-  — delivery brief. **Ready**, with a confirmed four-slice delivery shape and no
-  specs cut.
+  — delivery brief. **Executing**, with the walking-skeleton specs shipped and
+  mapped to slice 1; later slices remain unmaterialized.
 - The six foundation intents in [`docs/product/intents/`](../../product/intents/),
   **all Accepted**. They are the normative statement of what the system must
   achieve; this design proposes how.
 
-## Outstanding before ratification
+## Ratification state
 
-- **Owner sign-off on all three documents.** None is ratified.
-- **Phase 0 spikes**, in `runtime-architecture.md` § Rollout: four falsifiable
-  hypotheses and two executable privilege tests. They produce evidence, not
-  product, and they gate ratification.
-- **Three edits to `runtime-architecture.md`** identified by the observability
-  companion and recorded in its § Required parent edits — an adapter field in
-  the producer tuple, the wording of the zero-unresolved-claims gate, and a
-  statement of where never-served content is stored.
-- **No ADRs exist yet.** This design produces several ADR-worthy decisions —
-  the ownership split, structural injection defence, derived-and-attenuated
-  authority, the rejection of detection, and Postgres over a dedicated queue.
-  Until they are recorded and sign-off lands, treat this folder as a proposal
-  under review.
+- [`runtime-architecture.md`](runtime-architecture.md) is **Accepted**, ratified
+  2026-09-18 with its *Accepted limits* open. Its Phase 0 spikes are complete,
+  and [`docs/adr/`](../../adr/) holds the accepted decisions produced while the
+  design and walking skeleton were built.
+- [`observability-and-evaluation.md`](observability-and-evaluation.md) and
+  [`experience-and-presentation.md`](experience-and-presentation.md) remain
+  **Draft**, revision c3. Their contracts are not ratified.
+- The observability companion's producer-tuple edit is present in the runtime
+  design as `fetch_adapter` and `model_adapter`. Its never-served-content edit
+  is present as the no-reasoning-storage invariant. The requested
+  zero-unresolved-claims wording edit remains open: the runtime Goals section
+  still calls it a release gate rather than a per-run pre-release check.

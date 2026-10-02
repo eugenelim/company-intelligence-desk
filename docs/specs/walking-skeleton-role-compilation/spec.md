@@ -5,7 +5,7 @@
 - **Plan:** [`plan.md`](plan.md)
 - **Designed by:** [`role-configuration-seams`](../../architecture/role-configuration-seams/role-configuration-seams.md), which closes `agent_role` and `integration_registry` to r5's shapes and names the compiler's seams. Ratified 2026-09-21. The configuration criteria — AC-0203, AC-0204, AC-0206, AC-0219, AC-0251, AC-0258, AC-0260, AC-0262, AC-0266, AC-0267, AC-0269 — read fields that design provides, and AC-0270 reads the pool configuration beside them. The parser, mint and decision-point criteria do not: the design's § 1 routes the quarantine guarantee out of its scope and names no such surface, which is why AC-0268 is derived from r5 § 4 directly.
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md), ADR-0002 (version pin, created by the foundation spec)
-- **Brief:** none
+- **Brief:** docs/product/briefs/inspectable-diligence-mvp.md
 - **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
 - **Contract:** none — this spec exposes no interface surface; it is reached through the foundation spec's API and the evidence spec's state machine

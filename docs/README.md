@@ -39,12 +39,12 @@ never gets enforced.
 
 ### The delivery-brief altitude
 
-A delivery brief (`product/briefs/<slug>.md`) sits between the roadmap and the
-specs — where a multi-feature delivery handoff lands when it is too big to be
-one spec. The altitude reads `roadmap → intent → delivery brief → spec → AC`: the
-roadmap names themes, an intent records one admitted outcome, a delivery brief
-records the specs that deliver it, a spec is the engineering contract for one
-feature, and an acceptance criterion is the testable unit.
+A delivery brief (`product/briefs/<slug>.md`) sits between product direction and
+the specs — where a multi-feature delivery handoff lands when it is too big to
+be one spec. The altitude reads `product direction → intent → delivery brief →
+spec → AC`: an intent records one admitted outcome, a delivery brief records
+the specs that deliver it, a spec is the engineering contract for one feature,
+and an acceptance criterion is the testable unit.
 
 A delivery brief owns only this repository's slice; an optional `Epic:` field
 points up to an external coordinator when the work spans repositories. A derived

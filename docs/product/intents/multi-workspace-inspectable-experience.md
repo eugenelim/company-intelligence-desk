@@ -97,7 +97,8 @@ workspace information architecture, Storybook's role, and the approval UI to a
 commissioned *Experience and presentation* companion document, naming the seams
 it must respect — the event log as observability substrate, the run state
 machine as intervention carrier, typed artifacts as the presentation contract.
-That companion does not yet exist and is what settles this intent.
+That companion exists at Draft — revision c3 and remains unratified; its
+ratification is what settles this intent.
 
 Inception context, not a decision: the workspace views anticipated during
 inception were Overview, Research, Workflow, Evidence, Context, Compare,
@@ -110,6 +111,9 @@ question above, not an answer to it.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
+- Revision: r14 — next-step state corrected after the commissioned experience
+  and presentation companion reached Draft revision c3; its unratified
+  questions remain unsettled, 2026-10-02
 - Revision: r13 — the private-model-reasoning exclusion cited to charter
   principle 4 rather than restated by hand, matching how every other
   externally-owned bound in this file is handled, 2026-09-10

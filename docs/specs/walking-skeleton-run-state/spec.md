@@ -4,7 +4,7 @@
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0003](../../adr/0003-repository-layout.md)
-- **Brief:** none
+- **Brief:** docs/product/briefs/inspectable-diligence-mvp.md
 - **Descends from:** `runtime-architecture.md` § 3 Runtime Model, § 10 Rollout Phase 1
 - **Discovery:** none
 - **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — gains the approval-decision operation; created by the foundation spec

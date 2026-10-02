@@ -3,17 +3,16 @@
 - **Slug:** `inspectable-diligence-mvp`
 - **Received:** 2026-09-09
 - **Owner:** eugenelim
-- **Status:** Ready
-- **Next processor:** `author-delivery-brief continue` — slice selection; the
-  brief is Ready and carries no specs, so it is not dispatchable
+- **Status:** Executing
+- **Next processor:** `author-delivery-brief continue` — confirm and materialize
+  the next delivery slice; the walking skeleton is mapped and shipped
 
 ## Source
 
 - Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b9 — the confirmed four-slice delivery shape recorded, with zero
-  specs materialized and the Spec map left empty and authoritative; the two
-  companion-blocked areas recorded as not cuttable, 2026-09-10
+- Revision: b10 — the shipped walking-skeleton specs mapped to slice 1 and the
+  companion documents recorded at their current Draft revisions, 2026-10-02
 - Review: `Findings @ b7`. Its sole blocking finding was repaired at b8, which
   replaced a reproduction of the charter's two non-boundary disclaimers with a
   pointer to them. The lifecycle owner recorded that repair as **nonmaterial** —
@@ -118,8 +117,8 @@ end to end, not a feature-complete workbench. Breadth is deliberately deferred:
 if a capability can be demonstrated once rather than generally, demonstrate it
 once.
 
-Cutting the slice is not authorized by this brief. It happens at
-`author-delivery-brief continue`, after architecture.
+Materializing each remaining slice happens through
+`author-delivery-brief continue` after explicit owner confirmation.
 
 ## Constraints
 
@@ -154,11 +153,12 @@ not restated here.
   `architect-design` has less room than the candidate list implies. If
   architecture finds a confirmed constraint unworkable, that is an owner
   decision, not an architecture decision.
-- **Risk:** two companion documents the architecture commissioned — *Observability
-  and evaluation* and *Experience and presentation* — do not exist. They settle
+- **Risk:** the architecture companions *Observability and evaluation* and
+  *Experience and presentation* exist, but both remain unratified at `Draft`,
+  revision c3. They settle
   `governed-observable-and-evaluable-operation`'s cross-release outcome and
-  `multi-workspace-inspectable-experience` entirely, so any slice depending on
-  either is unbuildable until they are written.
+  `multi-workspace-inspectable-experience` entirely, so work depending on their
+  unsettled contracts remains unbuildable.
 
 ## Traceability — foundation intents
 
@@ -180,12 +180,11 @@ owner of its outcome; this brief coordinates them.
   charter. **Accepted 2026-09-10**; `docs/CHARTER.md` carries the ratified text
   this brief's business-value statement anchors to.
 
-## Delivery shape — confirmed cut, zero specs
+## Delivery shape — confirmed cut
 
-Confirmed by eugenelim on 2026-09-10. **This is not the Spec map.** No spec
-exists for any slice below, nothing here affects delivery rollups, and the brief
-stays `Ready` and non-dispatchable. Specs are cut only on a further explicit
-confirmation, per slice.
+Confirmed by eugenelim on 2026-09-10. **This is not the Spec map.** Slice 1 has
+since shipped through the specs recorded in the map below. The remaining slices
+still require a further explicit confirmation before a spec is materialized.
 
 Each slice is a vertical through real wiring. Component and layer work — "build
 the API", "build the context service" — is deliberately absent: separable is not
@@ -209,10 +208,11 @@ must cross, which is where references and closed-vocabulary classifications have
 to work. The project's central pattern is therefore demonstrated in two steps
 rather than assumed in one.
 
-### Not cuttable yet
+### Companion-dependent scope
 
-Both are in this brief's § Scope and neither can be specified, because the
-artifact that settles each does not exist:
+Both are in this brief's § Scope. Their companion documents exist at `Draft`,
+revision c3, but remain unratified; neither area can be specified from an
+unsettled contract:
 
 - **The multi-view workspace experience** — workspace information architecture,
   the UI/API presentation contract, Storybook's role, and the approval UI are
@@ -228,13 +228,21 @@ artifact that settles each does not exist:
 <!-- Authoritative for delivery rollups. Only confirmed specs enter here. The
 delivery shape above records a confirmed cut, not materialized slices. -->
 
-_No specs. This brief is not dispatchable._
+| Spec | Slice | Status |
+| --- | --- | --- |
+| `walking-skeleton-foundation` | Slice 1 — walking skeleton | `<auto>` |
+| `walking-skeleton-role-compilation` | Slice 1 — walking skeleton | `<auto>` |
+| `walking-skeleton-authority-containment` | Slice 1 — walking skeleton | `<auto>` |
+| `walking-skeleton-policy-decision-point` | Slice 1 — walking skeleton | `<auto>` |
+| `walking-skeleton-step-lifecycle` | Slice 1 — walking skeleton | `<auto>` |
+| `walking-skeleton-run-state` | Slice 1 — walking skeleton | `<auto>` |
+| `walking-skeleton-evidence` | Slice 1 — walking skeleton | `<auto>` |
 
-## Open items carried forward
+## Items carried forward
 
-Open, and **not owned by this brief**. None gates `Status: Ready`; each must be
-resolved before a slice depending on it is cut at `author-delivery-brief
-continue`.
+These items stay with their named owners and do not block the brief's current
+`Executing` lifecycle. Any item that remains open must be resolved before a
+slice depending on it is materialized through `author-delivery-brief continue`.
 
 1. **Architecture signed off 2026-09-18 — closed.** `architect-design` ran,
    Phase 0 gated ratification and all six spikes ran (one falsified, changing
@@ -242,12 +250,10 @@ continue`.
    `runtime-architecture.md` together with `worker-runtime.md`. Ratification
    was explicitly *with* the five limits under r7 § Known at ship open; those
    are accepted limits of the design, not outstanding work.
-2. **No offline contributor path — proposed, not settled.** The MVP requires a
-   real Bedrock invocation. `runtime-architecture.md` § Local development proposes
+2. **Offline contributor path — settled.** The 2026-09-18 sign-off settled
    recorded-fixture replay, substituting exactly the model adapter and the fetch
    adapter, which is the seam set `portable-identity-first-runtime` § Excluded
-   names and closes. Settled by the 2026-09-18 sign-off; the contributor path
-   is recorded-fixture replay, implemented as a `ReplayModel`.
+   names. The model side is implemented as a `ReplayModel`.
 3. **Success metrics absent.** No measure of whether the reference
    implementation actually teaches anyone anything. Owned by
    `adoptable-reference-implementation`'s second open question — "What must a

@@ -4,7 +4,7 @@
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
-- **Brief:** none
+- **Brief:** docs/product/briefs/inspectable-diligence-mvp.md
 - **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
 - **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — adds `GET /runs/{run_id}/events/stream` as `text/event-stream`; the paged JSON operation at `GET /runs/{run_id}/events` remains unchanged
