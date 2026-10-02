@@ -146,6 +146,7 @@ def test_the_api_identity_cannot_reach_a_model_or_forge_a_decision(
     assert sorted(served["paths"]) == [
         "/runs",
         "/runs/{run_id}/events",
+        "/runs/{run_id}/events/stream",
         "/runs/{run_id}/snapshot",
         "/runs/{run_id}/steps/{step_id}/decision",
     ]

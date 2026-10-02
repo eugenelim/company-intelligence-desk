@@ -2,14 +2,34 @@
 #
 # Hand-authored. No `api-contract` skill is installed, so this file carries no
 # rule enforcement beyond AC-0009, which asserts that the routes the
-# application actually serves match the routes described here — compared
-# against the generated document, not by inspection.
+# application actually serves **in its generated OpenAPI document** match the
+# routes described here — compared document-to-document, not by inspection.
 #
-# Four routes: the three from the foundation spec, plus the approval-decision
-# operation this spec adds (AC-0328). The events route is built only far enough
-# to serve a cursor projection over committed events; its reconnect semantics,
-# `Last-Event-ID` preference and browser criteria belong to
-# `walking-skeleton-evidence`.
+# That comparison is blind to a route absent from the schema, and this
+# delivery adds two: `GET /runs/{run_id}`, registered with
+# `include_in_schema=False` because it serves the browser page rather than
+# JSON, and the `/static` asset mount. Both are served and neither appears
+# here or in the generated paths, so each is covered by its own check
+# (`tests/api/test_static_ui.py`) rather than by AC-0009. A future
+# schema-hidden route would escape AC-0009 the same way.
+#
+# Within `stream_events`, which this delivery owns, one field differs between
+# this file and the generated document, on purpose. (Elsewhere the generated
+# document still serves FastAPI's default response descriptions where this
+# file commits specific text; those operations are owned by other specs and
+# nothing here claims they match.) `Last-Event-ID` is committed here as
+# `integer, minimum: 0` —
+# the value domain a caller may send — but the route types it as a raw string,
+# so the generated document serves it as `string | null`. That is deliberate:
+# the header is judged character by character, and typing it `int` would let
+# pydantic's lax coercion turn `+1` or `1_0` into a valid cursor before any
+# check ran, which AC-0323 forbids. AC-0009 compares parameter names and
+# required flags, not schemas, so this difference is recorded here rather than
+# caught there.
+#
+# The foundation and run-state specs own the JSON and approval operations.
+# `walking-skeleton-evidence` owns the server-sent-event operation and its
+# reconnect semantics.
 openapi: 3.1.0
 
 info:
@@ -40,6 +60,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StartedRun"
+        "400":
+          # Scoped to this response, not to the operation: `walking-skeleton-
+          # foundation` owns `start_run`, and this delivery adds only the
+          # same-origin refusal.
+          x-spec: docs/specs/walking-skeleton-evidence/spec.md#watching-from-a-browser
+          description: A present Origin header does not match the API's origin.
         "422":
           description: The request body is not valid.
 
@@ -112,6 +138,65 @@ paths:
         "422":
           description: >
             `run_id` is not a UUID, or `after`/`limit` is outside its bounds.
+
+  /runs/{run_id}/events/stream:
+    get:
+      operationId: stream_events
+      summary: Stream a run's committed events in sequence order
+      x-spec: docs/specs/walking-skeleton-evidence/spec.md#watching-from-a-browser
+      description: >
+        Serves committed events as server-sent events. Each frame carries the
+        committed sequence as `id` and one JSON Event envelope as `data`, and
+        sets **no** `event:` field — the committed event type travels in the
+        envelope's `type` member, so a single `EventSource` `onmessage`
+        handler reads every type, including one added to the domain
+        vocabulary later. `Last-Event-ID` takes precedence over `after`. The
+        response closes after a terminal event is emitted.
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: after
+          in: query
+          required: false
+          description: >
+            Emit events with `seq` strictly greater than this cursor when no
+            `Last-Event-ID` header is present. The value must not be greater
+            than the run's highest committed sequence.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: >
+            Preferred resume cursor. It must be a non-negative integer no
+            greater than the run's highest committed sequence.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: >
+            Committed events after the selected cursor. The stream closes
+            after `run.completed`, `run.failed`, or `run.cancelled`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          description: No such run.
+        "422":
+          description: >
+            `run_id` is not a UUID; or **any supplied** cursor — `Last-Event-ID`
+            or `after`, whether or not it is the one selected — is not a bare
+            non-negative decimal integer; or the **selected** cursor is ahead of
+            the run's highest committed sequence. A malformed `after` is refused
+            even when a valid `Last-Event-ID` outranks it.
 
   /runs/{run_id}/steps/{step_id}/decision:
     post:

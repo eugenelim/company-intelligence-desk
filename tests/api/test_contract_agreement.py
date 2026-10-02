@@ -23,9 +23,9 @@ import yaml
 
 from .conftest import Client
 
-# NOT module-wide: `test_the_contract_file_describes_four_routes` reads only
-# the committed YAML and is free in the offline gate. Only the checks that need
-# a running server carry the mark.
+# NOT module-wide: `test_the_contract_file_includes_the_stream_operation` reads
+# only the committed YAML and is free in the offline gate. Only the checks that
+# need a running server carry the mark.
 CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "openapi" / "runs.yaml"
 
 _METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
@@ -67,16 +67,24 @@ def served(api_server: Client) -> dict[str, Any]:
     return document
 
 
-def test_the_contract_file_describes_four_routes(
+def test_the_contract_file_includes_the_stream_operation(
     committed: dict[str, Any],
 ) -> None:
     """Setup check, reported separately: it cannot fail on the application.
 
     It guards against the comparison below passing because both sides are
     empty, which is the way a contract test most often becomes decorative.
+    The stream operation's presence is asserted positively; no route total is
+    pinned here because pinning a count couples this check to unrelated route
+    additions and T1's plan forbids it.
+
+    Break: remove the stream operation from contracts/openapi/runs.yaml while
+    leaving the route implemented.  The full generated-versus-committed
+    comparison (test_the_served_routes_match_the_committed_contract) still reds
+    because the served route is absent from the committed table.
     """
     table = _route_table(committed)
-    assert len(table) == 4, sorted(table)
+    assert "GET /runs/{run_id}/events/stream" in table
 
 
 @pytest.mark.substrate

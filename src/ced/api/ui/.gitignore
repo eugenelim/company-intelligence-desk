@@ -1,0 +1,5 @@
+# Installed by `npm ci` from package-lock.json, which is committed.
+# Never commit the tree itself: it is large, platform-specific, and its
+# prebuilt native binaries embed absolute build-machine paths, which
+# AGENTS.md § Security considerations forbids in any git artifact.
+node_modules/

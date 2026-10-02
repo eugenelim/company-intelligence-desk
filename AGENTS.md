@@ -316,6 +316,108 @@ refreshes the mark on the idle path (between claims) and on every successful
 heartbeat renewal. `deploy/compose.yaml` sets `CED_WORKER_ID` on both worker
 services so each worker writes a distinct mark path.
 
+### The browser client
+
+`ced-api` serves a built React bundle from `src/ced/api/static/`. The source is
+a nested Vite project under `src/ced/api/ui/`, and `pyproject.toml`
+`[tool.setuptools.package-data]` ships only the built bundle, never the source.
+Every command below was run to produce this section:
+
+```bash
+cd src/ced/api/ui
+npm ci                  # frozen install from the committed package-lock.json
+npm run test            # tsc --noEmit
+npm run build           # vite build → ../static, emptyOutDir
+```
+
+**The bundle in `src/ced/api/static/` is committed, and it must equal what
+`npm run build` produces from the current source.** Nothing checks that
+mechanically, so check it by hand when you change the UI: build, then confirm
+the three files are unchanged. The proof recorded for this delivery was a
+SHA-256 comparison across `index.html` and both `assets/` files, taken from a
+wiped `node_modules` so the lockfile itself was exercised. A bundle that drifts
+from its source makes every browser test a claim about the wrong artifact.
+
+`node_modules/` is ignored by `src/ced/api/ui/.gitignore`. Do not commit it:
+its prebuilt native binaries embed absolute build-machine paths, which
+§ Security considerations forbids in any git artifact.
+
+The browser suite needs a real Chromium, installed once per environment:
+
+```bash
+./.venv/bin/python -m playwright install chromium
+```
+
+`pyproject.toml` pins `playwright==1.61.0` — the direct package rather than the
+`pytest-playwright` plugin, because the suite defines its own `browser`,
+`browser_context` and `page` fixtures and would not use the plugin's. The
+evidence recorded for this delivery drove Chromium 149.0.7827.55.
+
+**`tests/browser/`'s `browser` fixture is `scope="module"`, and that is
+load-bearing.** Playwright's sync API drives greenlets over an asyncio event
+loop. At session scope that loop stays running on the main thread for the rest
+of the run, and every later test that calls `asyncio.run` — which is how
+`tests/compiler/` and `tests/contract/` drive a real `Agent` — fails with
+`RuntimeError: asyncio.run() cannot be called from a running event loop`. The
+suite sorts early, so widening that scope reds 59 checks in suites the diff
+never touched.
+
+That defect is invisible to a split run. Running `-m 'not substrate'` and
+`tests/browser/` as two invocations puts the browser tests last, where the loop
+outlives nothing. **Run the whole suite in one process**, as § Gates says, and
+read `pytest`'s own exit code — a gate judged through `tail` or `grep` reports
+the filter's status, not the gate's.
+
+### Phase 1 evidence commands
+
+`ced-evidence` is installed as an entry point by `pyproject.toml` and emits
+JSON. `--help` is authoritative; the four subcommands are:
+
+```bash
+./.venv/bin/ced-evidence generate --n 30    # drive N completed steps, no provider call
+CED_STEP_DEADLINE_SECONDS=0.174862 \
+  ./.venv/bin/ced-evidence step-duration    # p99 + page threshold from the event log
+./.venv/bin/ced-evidence cancellation       # needs AWS credentials
+./.venv/bin/ced-evidence quota              # needs AWS credentials
+```
+
+**`step-duration` refuses to run without `CED_STEP_DEADLINE_SECONDS`**, naming
+the variable: `error: CED_STEP_DEADLINE_SECONDS is unset; run this command with
+the same value deploy/compose.yaml sets on the worker services`. It records the
+deadline beside the p99 it measures, and a defaulted value recorded as the
+deployed one would be a record of nothing. Pass the value
+`deploy/compose.yaml` carries on both worker services — the example above is
+that value today, and `tests/worker/test_evidence.py` reds if the two drift.
+
+`--out <path>` **merges** the subcommand's own top-level keys into an existing
+record rather than replacing the file, so the three measurement subcommands
+compose one `measurements.json` without any field being hand-written. The
+count is not one per subcommand: `step-duration` writes `step_duration`,
+`configured_step_deadline_seconds` and `configured_step_deadline_source`,
+which is why the record carries five top-level keys from three runs.
+
+A missing file is created, in a directory that already exists; a missing
+directory is not created, and gives a traceback rather than this refusal. A
+present file that cannot be read, is not valid
+JSON, or holds anything other than a JSON object is **refused**: the command
+names the path and the reason, exits 1, and leaves the file untouched, since
+treating it as empty would overwrite blocks only a provider run can rewrite.
+The JSON is still printed to stdout first, so a refused merge loses nothing.
+The merged record goes to a temporary file beside the target and is moved
+into place with `os.replace`, so an interrupted write leaves the old record
+whole.
+
+`generate` and `step-duration` need only the local substrate. `cancellation`
+and `quota` reach Bedrock and Service Quotas, so they need a resolvable profile
+and Region; both refuse rather than guess when none resolves. Recorded results
+live in `docs/specs/walking-skeleton-evidence/notes/measurements.json`, and
+`docs/architecture/pydantic-ai-worker-runtime/operations.md` carries what each
+value does and does not establish.
+
+The worker reads `CED_STEP_DEADLINE_SECONDS`; boot validation accepts a
+positive finite value or an intentional unset value, and `deploy/compose.yaml`
+sets the measured value on both worker services.
+
 ### Repository checks
 
 All but one of these predate the application; `lint-prose-totals.py` was added

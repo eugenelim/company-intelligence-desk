@@ -1156,12 +1156,28 @@ Phase 2, not that rollback is free.
   steady rate is blocked. Owner: `eugenelim`.
 - **Does a load balancer truncate an in-flight SSE response at client-keepalive
   expiry?** Answerable by test. Changes operational tuning, not architecture.
-- **What is p99 step duration?** Unmeasurable until Phase 1 runs real steps, and
-  both `step_deadline` and the page threshold depend on it. Owner: `eugenelim`,
-  at Phase 1 exit.
+- **What is p99 step duration?** Measured at Phase 1 exit by
+  `walking-skeleton-evidence`: p99 0.087431 s over 30 completed steps, page
+  threshold 0.262293 s derived from that same sample, `step_deadline`
+  configured at 0.174862 s and asserted strictly between the two. **This is
+  not a fleet number.** The sample ran on a local container substrate with no
+  provider call, so it measures executor path and database round-trips and
+  excludes inference time and provider network latency; the page threshold
+  multiplies that same local estimate. Remeasurement on a deployed fleet
+  remains owed. Recorded in
+  [`../pydantic-ai-worker-runtime/operations.md`](../pydantic-ai-worker-runtime/operations.md).
 - **Does the cancellation token abort an in-flight provider stream promptly?**
-  Answerable by measurement at Phase 1. If it only lands at the next await
-  point, the hard task timeout is what bounds the step.
+  Measured at Phase 1 exit (2026-10-01) against a real Bedrock stream
+  generating a long reply, with this process's reader checked to be still
+  running at the close: closing the response body was observed as
+  `terminated` at 0.000364 s, classified from the reader outcome rather than
+  supplied. A sample whose reader had already finished is refused, so the
+  stream being in flight is observed rather than assumed. **The observation is local**, and so the hard task timeout remains
+  the functional bound on a step. Both limits of that measurement — what a
+  local observation does not establish, and why the `abandoned` outcome is
+  unreachable against a real provider — are recorded once in
+  [`../pydantic-ai-worker-runtime/operations.md`](../pydantic-ai-worker-runtime/operations.md)
+  § Cancellation measurement, which this bullet cites rather than restates.
 - **What triggers admitting a second principal, and what lands when it does?**
   The target is structural isolation in one database — row-level security with
   `FORCE ROW LEVEL SECURITY`, an owner-scope column, scope-qualified keys, and

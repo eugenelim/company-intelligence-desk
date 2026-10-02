@@ -58,6 +58,14 @@ dev = [
     # fragment rather than behaviour at chosen values. No `src/` code imports
     # it.
     "hypothesis==6.168.1",
+    # Test-only. T1 of walking-skeleton-evidence drives the same-origin
+    # browser surface through Playwright's direct Python API. The test suite
+    # defines its own browser, browser_context, and page fixtures and does not
+    # use the fixtures pytest-playwright provides; the direct package keeps the
+    # harness without pulling in an unused plugin layer.  pytest-playwright
+    # could be adopted by swapping this pin; the suite's custom fixtures would
+    # continue to take precedence.
+    "playwright==1.61.0",
 ]
 
 [project.scripts]
@@ -67,9 +75,15 @@ ced-worker = "ced.worker.main:run"
 # Liveness probe: exits 0 when healthy, 1 when stalled. Run by the container
 # healthcheck; no database connection, no framework import.
 ced-liveness = "ced.worker.liveness:run"
+# Phase 1 evidence commands: step-duration measurement, cancellation, quota.
+# Recorded in docs/specs/walking-skeleton-evidence/plan.md § T2 Touches.
+ced-evidence = "ced.worker.evidence:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"ced.api" = ["static/index.html", "static/assets/*"]
 
 [tool.ruff]
 line-length = 96

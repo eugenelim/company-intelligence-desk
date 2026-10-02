@@ -98,6 +98,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import signal
 import threading
@@ -149,6 +150,13 @@ DEFAULT_POOL_CLASS = "default"
 #: legible at startup rather than at first claim.
 DEFAULT_LIMITS_VAR = "CED_POOL_DEFAULT_LIMITS"
 ALLOWED_MODEL_IDS_VAR = "CED_POOL_ALLOWED_MODEL_IDS"
+
+#: AC-0306 / AC-0307: the measured and calibrated step deadline. **Optional**
+#: with a ``None`` default — unset means no deadline, and a worker that has
+#: never been calibrated starts without one rather than with a wrong one.
+#: When set, ``validate_pool_config`` accepts only a positive finite value;
+#: a negative, zero, infinite, or non-numeric value is refused.
+STEP_DEADLINE_VAR = "CED_STEP_DEADLINE_SECONDS"
 
 #: AC-0275's carve-out, and **optional where the two above are required**: an
 #: unset variable declares no id, which is the fail-closed direction — the
@@ -366,6 +374,30 @@ def _parse_allowed_model_ids(env: Mapping[str, str]) -> tuple[str, ...]:
     )
 
 
+def _parse_step_deadline(env: Mapping[str, str]) -> float | None:
+    """Decode ``CED_STEP_DEADLINE_SECONDS``, or return ``None`` when absent.
+
+    Absence is intentional: an uncalibrated worker starts without a deadline
+    rather than with a wrong one. A present value must be a positive finite
+    number — negative, zero, infinite, and non-numeric values are all refused
+    with the variable name.
+    """
+    raw = env.get(STEP_DEADLINE_VAR)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError as err:
+        raise ValueError(
+            f"{STEP_DEADLINE_VAR} must be a positive finite number in seconds, got {raw!r}"
+        ) from err
+    # Reject zero, negative, NaN, and infinity. `math.isfinite` covers the
+    # last two; the `> 0` check covers zero and negative.
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{STEP_DEADLINE_VAR} must be positive and finite, got {value!r}")
+    return value
+
+
 def _parse_non_provider_model_ids(env: Mapping[str, str]) -> tuple[str, ...]:
     """Decode `CED_POOL_NON_PROVIDER_MODEL_IDS`, which may be absent entirely.
 
@@ -399,6 +431,7 @@ def validate_pool_config(env: Mapping[str, str]) -> PoolConfig:
         allowed_model_ids=_parse_allowed_model_ids(env),
         non_provider_model_ids=_parse_non_provider_model_ids(env),
         pool_class=env.get("CED_POOL_CLASS", DEFAULT_POOL_CLASS),
+        step_deadline=_parse_step_deadline(env),
     )
 
 

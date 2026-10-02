@@ -933,3 +933,119 @@ found and repaired during the work, and the ones that cost most were those
 whose weakness nobody had written down — which is why
 `docs/specs/walking-skeleton-step-lifecycle/notes/verification-ledger.md`
 records the checks that remain weak alongside the mutations that pin the rest.
+
+## Phase 1 — evidence
+
+Not a spike either. `walking-skeleton-evidence` is delivered code with an
+acceptance suite, recorded here for the same reason the foundation is: this is
+where the repository keeps the answer to *what do we actually know*. Hypothesis
+results are reported apart from setup, and every automated check counted as
+coverage below was first observed red against a named break — the breaks,
+their failure witnesses and their restored results are in
+[`verification-ledger.md`](../docs/specs/walking-skeleton-evidence/notes/verification-ledger.md).
+
+Unlike the foundation, this delivery **does** call a model provider and **does**
+use a cloud credential. Spend was a single short Bedrock inference and one
+Service Quotas read, far below the approved ceiling. Both calls were read-only,
+so no AWS resource was created and none remains.
+
+### What this established
+
+| Claim | Criterion | Evidence |
+| --- | --- | --- |
+| A browser follows a run's committed events and stops at the terminal one | AC-0304 | Real Chromium loading the page from the shipped `ced-api`, with the history and stream requests fulfilled by the test: no further stream request is issued after the terminal frame. The events are fixture-supplied, so what this reaches is the shipped page and client, not the shipped stream route |
+| Continuity survives disconnection, reload and sleep | AC-0305 | One run forcing 100 transport disconnects with a writer committing concurrently, plus a tab reload and a simulated sleep. The sink holds every sequence once. The original URL keeps a deliberately stale `after=0`, and a mini HTTP server on the receiving end captures the real `Last-Event-ID` header, so what the browser *sends* is proved **on the wire** rather than by client de-duplication. That run is routed to the fixture server and so does not reach the shipped route; the route's own preference for `Last-Event-ID` over `after` is proved separately by `tests/api/test_event_stream.py::test_last_event_id_precedes_query_cursor` |
+| Model- and caller-authored strings never become markup or links | AC-0322 | Markup and link targets injected through every external envelope field render literally; a DOM search for HTML-interpreting and link-constructing sinks finds none built from an external value. `payload_ref` stays inert |
+| An out-of-range or malformed cursor is refused, not coerced | AC-0323 | `422` from either source. Proved by this delivery's own checks: coercible spellings `int()` would accept (`+1`, `0_2` on the header; `0_1`, `1.0`, `+1` on `after`), a non-ASCII digit that does reach the server (`²`), a malformed `after` outranked by a valid header, and a value ahead of the highest committed sequence — each with a mutation that reds it. A negative or wholly non-numeric `after` is refused too, but **first by FastAPI's typed `Query(ge=0)`**, before this delivery's code runs; the lexical check is a second layer behind it, so those two cases pin the 422 rather than any one layer |
+| The surface is same-origin, and confined | AC-0326, AC-0335 | No CORS middleware; a foreign `Origin` is refused on the class of state-changing routes discovered from the router, not from a copied list. Plain and percent-encoded traversal and an in-root symlink to an out-of-root file are all refused |
+| The page holds up as a page | AC-0336, AC-0337 | Every applicable state-matrix row driven to its named outcome. An axe-core scan runs in **every supported state** — Loading, Unavailable, Waiting, Terminal and Offline in `test_accessibility_and_reflow`, Streaming in `test_streaming_state_is_scanned`, which holds it open on the real routes, and Reconnecting in `test_reconnecting_status_is_announced`, the only check that holds it open — and each evaluates **all 69 rules carrying a WCAG A or AA tag**, by explicit rule list. A bare `axe.run()` would skip eight of them, `target-size` (2.5.8) among them; the scan asserts every listed rule was evaluated, so that cannot recur silently. Result: no A/AA violation in any state. Focus, status semantics, reflow and reduced motion are pinned by their own breaks. What no automated scan reaches is in `docs/ux/walking-skeleton-evidence/evidence.md` § Accessibility Result |
+| Phase 1 read access is unauthenticated **by decision, not by omission** | AC-0338 | Run existence and cursor bounds are validated before the stream opens, an unknown run is `404` — the page's `404` carries the browser client, so the page shows Unavailable for it — and `ced-api` keeps its loopback default |
+| The step deadline sits strictly inside the measured band | AC-0306, AC-0307, AC-0308 | p99 0.087431 s over 30 completed steps, page threshold 0.262293 s derived from that same sample, configured deadline 0.174862 s — which `deploy/compose.yaml` carries on both worker services, and the check reads both sources so a drift on either reds it |
+| Cancellation is classified from what was observed | AC-0309, AC-0310 | A real Bedrock response stream generating a long reply, closed while this process's reader was **checked** to be still running (`in_flight_at_close: true`), then observed: the reader completed inside the window, recorded `terminated` at 0.000364 s on 2026-10-01. A sample whose reader had already finished is refused rather than recorded, so the in-flight premise is observed, not assumed. The outcome is derived from the observation and cannot be supplied by the operator. An earlier 2026-09-29 value is kept as unverified history; see `docs/architecture/pydantic-ai-worker-runtime/operations.md` § Cancellation measurement |
+| The regional token budget is recorded with its identity | AC-0311 | Service Quotas `L-58BE175A`, 5 000 000 tokens per minute, `us-east-1`, Region taken from the resolved client |
+| The analytical comparison separates its two costs | AC-0312, AC-0313 | Narrowing the admitted vocabulary drops three of eight observations; enforcing the anchor boundary then drops the remaining five, each with its unresolved anchor named. Two different comparisons sharing a midpoint, serialized independently |
+
+### What was substituted
+
+Each is a real stand-in. None is a weaker version of the same thing.
+
+- **Step duration is executor overhead, not step duration.** The sample runs
+  against a local Docker substrate with no provider call, so it measures
+  executor path and database round-trips and excludes inference time and
+  provider network latency entirely. A deployed fleet would establish the
+  tail that an operator's deadline actually has to survive; this does not.
+  The page threshold multiplies that same local estimate, so it inherits the
+  substitution rather than correcting it.
+- **Cancellation is observed locally, and both of that measurement's limits
+  are recorded where AC-0310 names them** —
+  [`docs/architecture/pydantic-ai-worker-runtime/operations.md`](../docs/architecture/pydantic-ai-worker-runtime/operations.md)
+  § `Cancellation measurement` → *What this measurement does not establish*,
+  beside the measured value. This record cites that one rather than restating
+  it: a copy here drifted the first time, carrying the local-observation limit
+  and dropping the unreachable `abandoned` branch.
+- **The regional token quota is a live read, and substitutes in a different
+  way.** No platform stands in for anything — it is the real Service Quotas
+  API — but the value belongs to the account and Region the measuring
+  credentials resolved to, not to a deployed fleet, and a quota is a ceiling
+  rather than a consumption measurement. Both limits are recorded beside the
+  value in
+  [`docs/architecture/pydantic-ai-worker-runtime/operations.md`](../docs/architecture/pydantic-ai-worker-runtime/operations.md)
+  § `Quota measurement` → *What this measurement does not establish*, which
+  this record cites rather than restates.
+- **The browser evidence runs against loopback with no authentication.** It
+  establishes nothing about behaviour behind a deployed ingress, and r7 puts
+  OIDC there.
+- **High zoom is observed as a narrow viewport, not as zoom.** The reflow check
+  sets a 640 px viewport, which is what 1280 px yields at 200% zoom and is the
+  standard reflow technique, but the browser's own zoom is never set. The
+  state matrix's High-zoom trigger is therefore met by equivalence rather than
+  driven; text-only zoom is not observed at all.
+- **The analytical rerun reuses a recorded 10-Q fixture**, not a live filing —
+  deliberately, since a live fetch is forbidden here. Fixture drift is
+  therefore invisible to it.
+
+### What this did NOT establish
+
+- **The step-duration sample floor is too small to license a production tail
+  estimate.** Thirty completed steps is a floor the command refuses to go
+  under, not a sample size that makes a p99 meaningful, and the page
+  threshold is a multiple of that same under-powered estimate.
+- **Neither dependency tree is scanned for vulnerabilities by any repository
+  gate** — not the Python manifest, not the browser manifest. The lockfile
+  and the frozen install buy repeatability, which is not assurance. The
+  browser runtime itself is downloaded by `playwright install` and sits
+  outside both lockfiles entirely.
+- **Nothing here establishes how many browsers the stream route can carry, and
+  its per-stream cost is higher than it looks.** `committed_event_stream` is a
+  synchronous generator, so Starlette advances it on the anyio threadpool that
+  every other `def` route shares, and each poll spends `POLL_SECONDS` sleeping
+  inside that worker. The generator also opens a fresh connection per poll —
+  `_connection` deliberately does not pool — so **each opened stream holds a
+  threadpool worker and opens roughly five connections a second until the
+  next event commits, whether or not its client is still connected.**
+  Starlette advances the generator with a `next()` call that a disconnect
+  cannot cancel, so closing the page frees nothing until the generator next
+  yields. A stream opened on a terminal run at its highest sequence — a
+  cursor `selected_cursor` admits — never yields again, so it holds its worker
+  until the process restarts. Streams approaching the default thread limit
+  would starve the other synchronous routes, and a client can reach that
+  limit by opening and abandoning streams rather than by keeping pages open.
+  No check here drives concurrent or abandoned streams, so the ceiling is unmeasured
+  as well as unbounded. Phase 1 is a loopback single-operator surface where
+  that cost is invisible; a deployed ingress is where it would not be, and
+  bounding it is deployment-side work.
+- **Nothing here establishes behaviour under deployed authentication or
+  object-level authorization.** Any caller that can reach the API and names an
+  existing run id may read it. That is Phase 1's recorded posture, and the
+  deployment work that changes it is not in this delivery.
+- **The residuals `walking-skeleton-run-state` left open are still open.**
+  They are enumerated in
+  [`docs/architecture/README.md`](../docs/architecture/README.md)
+  § `walking-skeleton-run-state` residuals, and this record cites that
+  subsection rather than restating it — a copy here would drift from the list
+  it duplicates the first time that list changed.
+- **A device name reached three files and the identifier gate did not catch
+  it.** `tools/lint-no-identifiers.py` returned clean on the staged content;
+  the hostname was found by reading. The rule in `AGENTS.md` § Security
+  considerations is therefore enforced by review, not mechanically, for
+  identifiers of that shape.

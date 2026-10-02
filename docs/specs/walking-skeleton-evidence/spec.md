@@ -1,200 +1,351 @@
 # Spec: Walking skeleton — evidence
 
-- **Status:** Draft <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Status:** Shipped <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** eugenelim
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0001](../../adr/0001-pydantic-ai-as-the-agent-framework.md)
 - **Brief:** none
 - **Descends from:** `runtime-architecture.md` § 10 Rollout, Phase 1
 - **Discovery:** none
-- **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — created by the foundation spec, and gaining **the stream operation** here. This spec asserts no global route total: `walking-skeleton-run-state` adds the approval operation and ships first, so a number pinned here would be false before this spec started. What is fixed is that the stream is a *new* operation rather than an upgrade — `/runs/{run_id}/events` is a paged JSON `EventPage` read, not a stream: there is no `text/event-stream` anywhere in the file or in `src/ced/api/`. An earlier revision of this line called the change "the stream's reconnect semantics", which described an upgrade to something that does not exist. The new operation serves `text/event-stream`, prefers `Last-Event-ID` over `after=` under AC-0323's bounds, and closes the connection on a terminal event — which is what AC-0304 means by reaching the terminal event with the stream closed, and has no meaning on the paging route. The paged read stays as it is
+- **Contract:** [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml) — adds `GET /runs/{run_id}/events/stream` as `text/event-stream`; the paged JSON operation at `GET /runs/{run_id}/events` remains unchanged
 - **Shape:** mixed
 
 > **Spec contract:** this document defines what "done" means. The implementing
 > PR must match this spec, or update it. Verification must be derivable from it.
 >
-> **Not every section is contract.** `Boundaries`, `Testing Strategy` and
-> `Acceptance Criteria` are what a completion gate reads, and an amendment
-> changes them. `Objective`, `Durable Outputs`, `Follow-ons` and `Assumptions`
-> are working material, corrected in place without an amendment.
+> **Not every section is contract.** `Browser Surface`, `Boundaries`,
+> `Testing Strategy`, and `Acceptance Criteria` are what a completion gate
+> reads, and an amendment changes them. `Objective`, `Durable Outputs`,
+> `Follow-ons`, and `Assumptions` are working material, corrected in place
+> without an amendment.
 
 ## Objective
 
-The last of the seven specs delivering the Phase 1 walking skeleton, and the
-one that turns a working system into recorded evidence.
+A browser follows a run's committed events as they arrive, resumes after a
+lost connection, and closes the stream at a terminal event. Phase 1 also
+leaves reproducible measurements for step duration, its derived operating
+limits, model-stream cancellation, the regional token quota, and analytical
+quality.
 
-A browser watches a run live and survives losing the connection. The four
-numbers Phase 1 exists to produce get measured rather than guessed: p99 step
-duration, the `step_deadline` derived from it, how long cancellation actually
-takes on an in-flight stream, and the account's token-per-minute budget. And
-the record says what all of it did and did not establish.
+The repository state used for this contract is dated 2026-09-29.
+`walking-skeleton-run-state` already owns and ships transitions, approval,
+publication, bounded reject-and-resume cycles, and the clean-run path. This
+spec consumes those outcomes; it does not reopen or duplicate them.
 
-**The run state machine left this spec on 2026-09-27.** Publication, the
-approval gate and the two append paths they need are
-[`walking-skeleton-run-state`](../walking-skeleton-run-state/spec.md)'s, after
-four pre-EXECUTE review rounds found that layer failing repeatedly here while
-the measurement and record tasks converged. It is a hard dependency: the p99
-needs completed steps only publication produces, and the browser criteria need
-the terminal event that closes a stream.
-
-Two of these outputs are uncomfortable by design. The cancellation measurement
-may report that the provider call was merely *abandoned* rather than
-terminated, which is a worse operational story than the design hopes for. And
-the analytical re-baseline may be falsified a second time, as spike 4 was. Both
-are results to record, not bars to clear, and this spec is written so that a
-bad number is a successful outcome.
-
-Success is that Phase 1's exit criteria are met and that the record says
-plainly what was established, what was substituted, and what was not
-established at all.
-
-**Its siblings.** `walking-skeleton-foundation`,
-`walking-skeleton-role-compilation`, `walking-skeleton-authority-containment`,
-`walking-skeleton-policy-decision-point` and `walking-skeleton-step-lifecycle`
-are all hard dependencies: this spec measures a system they build.
+An unflattering result is still a result. The analytical comparison may remain
+falsified, and it does. Cancellation is classified from what this process can
+observe, and AC-0310 records which outcome that leaves unreachable rather than
+implying both were live. The first honest run is recorded with its limits
+instead of being repeated until it looks better.
 
 ## Durable Outputs
 
 | Semantic role | Applicability | Destination | Owner | Expected evidence | Closeout condition |
 | --- | --- | --- | --- | --- | --- |
-| Operations | Applicable — `step_deadline`, the page threshold and the token budget are operator-owned and derive from measurements taken here | `docs/architecture/pydantic-ai-worker-runtime/operations.md` | work-loop | Each recorded value with the sample size behind it and the platform it was measured on | Values satisfy the ordering invariant and cite their sample size |
-| Reusable learning | Applicable — Phase 1's whole purpose is the evidence Phase 2 plans against | `spikes/README.md` | work-loop | A Phase 1 section stating what was established, what was substituted, and what was not | Hypothesis checks reported separately from setup and teardown |
-| Current architecture | Applicable — r8's STATUS header still names the authorization boundary and the provider call as unbuilt, and `docs/architecture/README.md` § What is built records both as shipped, so the header is already stale before this spec changes anything. This spec is the last of the seven and is where the remaining clauses clear | `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md`, `docs/architecture/README.md` | work-loop | The header's unbuilt list re-derived from § What is built as it stands, then reduced to what is still unbuilt after this spec, with the residue named rather than dropped. r8 § 10's schema table is corrected in the same pass: it marks the partial unique index, `pool_class` and `owner_scope` `Owed` though revision 0002 creates all three | Status header matches the repository, and names what the document still specifies that nobody has built |
-| Recorded decisions | Applicable — this spec adds a sixth top-level directory and two `src/ced` layers, both of which ADR-0003 makes Ask-first boundaries | `docs/adr/` | work-loop | One ADR superseding ADR-0003 D1: `ui/` admitted, the `ops/` and `eval/` layers recorded, and a console script named as outside D3's two deployables | The record exists before anything tracks a file under `ui/`, and the layout test is green against the widened set |
-| Interface compatibility | Applicable — a new operation joins those already contracted, because no stream exists to extend; the total is the last-landing spec's to state | `contracts/openapi/runs.yaml` | work-loop | The new operation documented with its media type (`text/event-stream`), its `Last-Event-ID` preference and bounds, its refusal status, and its terminal-close semantics — each asserted by test | Contract and implementation agree under test, and the generated document matches the hand-authored one |
-| User-facing promise | Not applicable — the browser client here is a test harness, not a product surface; the real experience belongs to the experience companion | — | — | — | — |
+| Operations | Applicable | `docs/architecture/pydantic-ai-worker-runtime/operations.md` | work-loop | Step-duration sample, derived thresholds, cancellation result, and regional quota, each with platform and method | Recorded values agree with the shipped configuration and their verification artifacts |
+| Reusable learning | Applicable | `spikes/README.md` | work-loop | Phase 1 results, substitutions, and limits | Hypothesis results are distinct from setup and teardown |
+| Current architecture | Applicable | `docs/architecture/README.md`, `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md` | work-loop | Browser stream and Phase 1 measurement state re-derived from the tree | Both maps describe what is built and retain what is not |
+| Interface compatibility | Applicable | `contracts/openapi/runs.yaml` | work-loop | Stream media type, cursor precedence and refusal, and terminal-close behavior | Contract and runtime checks agree |
+| User-facing evidence | Applicable to the internal evaluation surface | `docs/ux/direction/walking-skeleton-evidence.md`, `docs/ux/walking-skeleton-evidence/evidence.md` | work-loop | Selected direction plus route, state, viewport, interaction, accessibility, and exception evidence | The manifest points to the browser artifacts that establish each claim and the built surface follows the selected direction |
+| Recorded decisions | Not applicable | — | — | The UI stays below `src/ced/api/`; measurement and evaluation code stay within existing package layers | No top-level directory or architectural layer is added |
+
+## Browser Surface
+
+### Screen contract
+
+| Field | Decision |
+| --- | --- |
+| Target user | An engineer evaluating the reference implementation |
+| Primary job | Inspect a run's event history while new events arrive |
+| Primary action | Open `/runs/{run_id}` and keep the page visible through completion |
+| Expected outcome | Every committed event appears once, the connection state is clear, and a terminal run stops reconnecting |
+| Next action | Inspect the final event and the recorded run state |
+| First-screen hierarchy | Run identity and state; connection status; ordered event rows; cursor detail |
+| Product proof | The visible sequence and cursor advance from committed data rather than a decorative activity indicator |
+| Read/write character | Read-only |
+| Critical states | Loading, waiting for the first worker event, streaming, reconnecting, terminal, unavailable, and offline |
+| Responsive behavior | One readable column; metadata wraps without horizontal page scroll; rows remain distinguishable at narrow widths and high zoom |
+| Accessibility | Semantic headings and status text, visible focus, non-color status labels, reduced-motion support, and literal rendering of untrusted event fields |
+| Measurement event | No product analytics. Browser checks observe stream requests, rendered sequence values, and connection-state transitions locally |
+
+### Aesthetic and design inputs
+
+- **Aesthetic reference:** Raycast — dark surface, compact data rows, clear
+  hierarchy, restrained accents, and no gradients.
+- **Frontend mechanism:** a nested Vite and React project under
+  `src/ced/api/ui/`; the API serves its built assets from the same origin.
+- **Design handoff:**
+  [`docs/ux/direction/walking-skeleton-evidence.md`](../../ux/direction/walking-skeleton-evidence.md)
+  records the selected direction. This spec and plan provide the screen
+  contract, state matrix, and seed tokens; no separate screen or token artifact
+  exists.
+- **Experience-design routing:** skipped because the experience-design pack is
+  absent from this workspace.
+
+### State matrix
+
+| State | Trigger | Visible outcome |
+| --- | --- | --- |
+| Loading | Initial snapshot and stream setup have not completed | Named loading status and stable row placeholders |
+| Waiting | Only the initial run event is available | Run identity remains visible and the page says it is waiting for work |
+| Streaming | A live connection is delivering events | Ordered rows and cursor update without moving keyboard focus |
+| Reconnecting | The stream ends before a terminal event | Existing rows remain; status announces reconnection; resume uses the last applied sequence |
+| Terminal | A terminal event arrives | Final state is announced and the stream closes without reconnecting |
+| Unavailable | The run is missing or the initial request fails | Error names the failed action and exposes a retry control |
+| Offline | The browser reports loss of network | Existing rows remain; offline status and retry control are visible |
+| Keyboard only | A user tabs through interactive controls | Focus is visible and retry can be invoked without a pointer |
+| High zoom | The page is viewed at 200% zoom in a desktop viewport | Content reflows without two-dimensional scrolling |
+| Reduced motion | The operating system requests reduced motion | State changes use no non-essential animation |
+| Empty or no results | Not applicable: a valid run begins with `run.requested` | Covered by Unavailable for an invalid run |
+| Permission denied | Not applicable: ingress authentication is outside Phase 1 | Named as a deployment residual |
+| Forms and destructive actions | Not applicable: the surface is read-only | No form or destructive-action state exists |
 
 ## Boundaries
 
 ### Always do
 
-- Treat r8 and r5 as ratified. Implement what they specify; where implementation shows one wrong, stop and say so rather than designing around it.
-- Record what a check does **not** establish alongside what it does. This spec is the one where that rule does the most work, because it is the one making claims from measurements taken on a substituted platform.
-- Record a measurement's sample size and the platform it was taken on, beside the value.
+- Treat r8 and r5 as ratified. Stop and surface a conflict instead of silently
+  designing around one.
+- Record what a check does not establish beside what it establishes.
+- Record each measurement's sample size, platform, Region when applicable,
+  method, and first observed result.
+- Render every external event-envelope string as text. Display `payload_ref`
+  as an inert identifier; do not dereference it or turn it into a link.
 
 ### Ask first
 
-- Any change to a ratified decision. The plan gives each DR decision this spec constructs a disposition.
-- Adding a dependency beyond those in the plan's § Dependencies & integration.
-- Any spend above the Phase 0 order of magnitude. The re-baseline cost $0.022 the first time; a task that would cost more than $5 stops and asks.
-- Relaxing a criterion because its number came back unflattering.
+- Any change to a ratified decision.
+- A dependency beyond those named in the plan.
+- Provider spend above $5.
+- A weaker criterion because the observed result is unfavorable.
 
 ### Never do
 
-- **No unconditional approval gate.** Making publication statically approval-gated silently reverses a ratified charter amendment, and a clean run must reach publication with no human in the path.
-- **No re-running a measurement until it looks better.** A recorded figure is the first honest one, with its sample size.
-- **No agent-authored text rendered as markdown, HTML, or a link.** A model-authored link target must not become clickable; typed domain artifacts render through the application's own components from structured fields.
-- **No token deltas in the event log.** The log records semantic events; the stream is a cursor-served projection over it, and appending token deltas would make the reconstruction goal's byte-matching meaningless.
-- **No live SEC fetch.** The re-baseline runs against the recorded fixture.
+- Reintroduce an unconditional approval gate or alter the shipped run-state
+  transition system.
+- Repeat a measurement to select a better-looking value.
+- Render model- or caller-authored content as markup or a navigable link.
+- Append token deltas to the semantic event log.
+- Fetch a live filing for the analytical comparison.
+- Add permissive cross-origin access to make the development server work.
 
 ## Testing Strategy
 
-Every criterion sits in exactly one group.
+Every acceptance criterion belongs to one verification group.
 
-- **TDD (AC-0306, AC-0323, AC-0326)** — the compressible invariants, decided against the stream and HTTP surfaces.
+- **Construction tests:** AC-0306, AC-0323, AC-0326, AC-0335, AC-0336,
+  AC-0337, and AC-0338. Each check is mutation-proved before it is accepted as
+  coverage.
+- **Browser tests:** AC-0304, AC-0305, and AC-0322. A real browser provides the
+  page, request, reconnect, and DOM observations.
 
-  **No criterion in this group is the delivery's measurement failure surface, and an earlier revision claimed one was.** AC-0306 was described as "the only measurement-adjacent criterion that can red"; it cannot red here at all, because the deadline it orders is derived from the p99 it orders against. Its own entry now says so. What this group does carry is every control whose absence a mutation can demonstrate — which is the property that matters and is not the same claim.
-- **Visual / manual QA (AC-0304, AC-0305, AC-0322)** — the browser. An assertion over an HTTP response body does not establish that the client reconnected with `Last-Event-ID`, that the page did not double-render, or that untrusted markup reached the reader as characters rather than as elements. Driven by a real browser, with the observed result recorded. **AC-0305 is the exception within this group**: its distinguishing observation is what the server sent, which is read from the wire rather than from the page, for the reason the criterion itself states.
-- **Measurement (AC-0307, AC-0308, AC-0309, AC-0310, AC-0311, AC-0312, AC-0313)** — the criteria whose outcome is a number nobody yet knows. A measurement is not a pass/fail test, so each names the sample size that makes the number mean something and where it is recorded. The ordering those numbers must satisfy is AC-0306, in the TDD group, which is the part that can fail.
-- **Record review (AC-0314)** — checked by reading, because its subject is whether the record names what the delivery did *not* establish. No machine can decide that a stated limitation is the right one. It is a criterion rather than working material because its failure state is concrete: a Phase 1 record that lists results and names no substitution fails it.
+  **AC-0305's 100-disconnect run observes the client half.** Its stream
+  requests are routed to a local fixture server so the `Last-Event-ID` header
+  can be read off a real socket, which the browser does not expose to the test
+  harness. That run therefore establishes that the browser resumes from the
+  last applied sequence and reapplies nothing; it does not exercise the shipped
+  route's cursor selection. Server-side precedence of `Last-Event-ID` over
+  `after` is established separately by
+  `tests/api/test_event_stream.py::test_last_event_id_precedes_query_cursor`
+  against the real route.
+- **Measurements:** AC-0307 through AC-0313. Commands refuse invalid samples
+  and emit machine-readable evidence; the observed values are not pass/fail
+  targets except where a criterion fixes an invariant.
+- **Record review:** AC-0314. A reviewer checks that results, substitutions,
+  residuals, and references are present without inferring completeness from a
+  search pattern built from the listed items.
+
+Mutation proofs, commands, witnesses, and the claim each establishes are
+recorded in `notes/verification-ledger.md`. Review-round narrative is not
+verification evidence.
 
 ## Acceptance Criteria
 
-**The sources, cited as they actually read.** `runtime-architecture.md` § 10
-Rollout numbers nothing: its Phase 1 entry sentence is an unnumbered
-semicolon list, and the exit-criteria paragraph after it names nine items. Of
-those, **this spec sources five** — calibrate the p99 page threshold and
-`step_deadline`; record the account token-per-minute quota; measure
-cancellation latency on an in-flight stream; confirm a clean run publishes
-with zero human interaction; re-baseline analytical quality under the current
-stack. From the entry sentence it sources **one**: stream to a browser. The
-other four exit criteria and the remaining entry clauses belong to the sibling
-specs. `worker-runtime.md` § 10 Rollout, Migration, and Reversal **does**
-number its eight criteria, and this spec sources 1, 2, 4 and 7.
+The source obligations are r8's Phase 1 browser stream and its exit
+measurements for step duration, derived limits, cancellation, regional token
+quota, and analytical quality. This spec carries r5 rollout criteria 1, 2,
+and 7. The clean-publication obligation in r5 criterion 4 is already delivered
+by `walking-skeleton-run-state` and is not repeated here.
 
-An earlier revision of this line cited "Phase 1 criterion 4 and its three named
-exit criteria", which resolves to nothing in § 10 and made AC-0305 and AC-0314
-read as sourced when neither appears in either list. Every criterion **beyond**
-those sources is tabled below, and the approval gate rules on each.
+Criteria that refine those sources add the reconnect observation, complete
+plain-text rendering boundary, cursor validation, same-origin boundary,
+static-file confinement, declared Phase 1 read posture, browser state
+coverage, accessibility checks, producer identity, and honest residual record
+needed to make the source obligations verifiable.
 
-| Obligation | Criteria | Why it is here | If cut |
-| --- | --- | --- | --- |
-| Ten forced disconnects, and an observation that separates preference from de-duplication | AC-0305 | § 10 names "stream to a browser" and stops there; surviving reconnection is the property that makes a stream usable, and the idempotent sink hides the failure unless the criterion looks at the wire | The reconnect semantics this spec adds to the published contract are never established |
-| Record the producer tuple on the re-baseline run | AC-0312 | The comparison has no identity without it, and a figure nobody can reproduce is not a baseline | The re-baseline produces a number that cannot be compared to a later one |
-| Say what the delivery did not establish | AC-0314 | Phase 1's whole output is evidence, and evidence whose limits are unstated overclaims. No § 10 item asks for it | Phase 2 plans against measurements it believes carry further than they do |
-| Check the plain-text rendering rule rather than stating it | AC-0322 | § Never do forbids agent-authored text rendered as markdown, HTML or a link, and AC-0304 is satisfied by a client that interpolates markup. A boundary with no criterion is not verifiable from this document, which § Spec contract requires | Filing text authored by the entity under analysis reaches the operator's browser as live markup |
-| Bound the cursor the server is told to prefer | AC-0323 | The contract extension makes `Last-Event-ID` outrank `after=`, and `after` carries a type and a lower bound while the header carries neither. Validation is not cuttable at a trust boundary | The one input the server prefers is the one nothing validates |
-| Fix the browser client's origin | AC-0326 | T3 introduces a browser origin against an API that authenticates nobody, and AC-0322's threat argument already assumes same-origin without the contract taking that decision | A permissive cross-origin allowance is added at the keyboard to make the dev server work, and every run becomes readable from any page the operator visits |
+### Watching from a browser
 
-**Watching from a browser**
+- [x] **AC-0304.** A browser at `/runs/{run_id}` renders each event as it
+  commits and, after the terminal event appears, observes that the stream has
+  closed and does not reconnect.
+- [x] **AC-0305.** Across 100 forced disconnects while a writer remains active,
+  including tab reload and simulated sleep, the browser misses and reapplies
+  no event. On native transport reconnects, the original URL keeps a
+  deliberately stale `after=0`; the wire observation shows that the first
+  emitted event follows the request's `Last-Event-ID`, and no such reconnect
+  emits an event already held by the client.
+- [x] **AC-0322.** A browser run containing markup and link targets in every
+  caller- or model-controlled string exposed by the Event envelope, including
+  `principal`, `agent_role`, `payload_ref`, and `idempotency_key`, displays
+  those characters literally. `payload_ref` remains an inert identifier and
+  is not dereferenced. A DOM search for the class of HTML-interpreting and
+  link-constructing sinks finds no element or navigable target created from an
+  external value.
+- [x] **AC-0323.** The selected stream cursor — `Last-Event-ID` when present,
+  otherwise `after` — must be an integer, non-negative, and no greater than
+  the run's highest committed sequence. A violation from either source
+  returns `422` rather than coercing the value or opening a stream.
+- [x] **AC-0326.** The API serves the built browser client from its own origin,
+  no permissive CORS policy is configured, and every state-changing route
+  refuses a request whose `Origin` names another origin.
+- [x] **AC-0335.** Every request path resolved by the static route remains
+  beneath the built bundle root. Plain traversal, percent-encoded traversal,
+  and an in-root symlink to an out-of-root file are refused; the page fallback
+  serves only the fixed `index.html`.
+- [x] **AC-0336.** For every applicable row in the Browser Surface state
+  matrix, a browser check drives the named trigger and observes the named
+  visible outcome. Reconnection and error states preserve already-rendered
+  events.
+- [x] **AC-0337.** The page has no automated WCAG 2.2 A or AA violation in its
+  supported states, exposes a visible keyboard focus indicator and status
+  text, reflows at 200% zoom without two-dimensional page scrolling, and
+  suppresses non-essential motion when reduced motion is requested.
+- [x] **AC-0338.** Phase 1 read access is intentionally unauthenticated: any
+  caller that can reach the API and names an existing run id may read
+  `/runs/{run_id}` and `/runs/{run_id}/events/stream`, with no caller-to-run
+  ownership check. The server validates run existence and the selected cursor
+  before opening a stream, returns `404` for an unknown run, and retains
+  `ced-api`'s loopback-only default bind. Authentication and object-level
+  authorization at deployed ingress remain outside this delivery and are
+  named under AC-0314.
 
-- [ ] **AC-0304.** A browser at the run's page renders each event as it commits, and reaches the terminal event with the stream closed.
-- [ ] **AC-0305.** Across ten forced disconnects with a writer active, the browser applies every event exactly once, with the client sending a deliberately stale `after=0` on each reconnect. **The check is what the server sent, not only what the page shows:** on each reconnect the first event the server emits has the sequence after the client's `Last-Event-ID`, and no reconnect re-emits an event the client already holds.
+### Calibrating the deadline
 
-  **The page-level assertion alone cannot fail.** The client sink is idempotent on the run-and-sequence pair, so a server that ignored `Last-Event-ID` entirely and replayed from sequence 1 on every reconnect would have its whole replay dropped by the sink, leaving "applies every event exactly once" green and the `Last-Event-ID` preference — the interface-compatibility output this spec adds to `contracts/openapi/runs.yaml` — never established. Reading the wire is what separates *preference honoured* from *replay de-duplicated*, and the two are indistinguishable from the page by construction.
+- [x] **AC-0307.** The step-duration p99 is recorded from at least 30 completed
+  real steps. The measurement command refuses a smaller sample and emits the
+  sample size, platform, and method beside the value.
+- [x] **AC-0308.** The primary page threshold is recorded as `p99 × 3`, computed
+  from the same sample as AC-0307.
+- [x] **AC-0306.** A construction test reads the recorded p99, configured
+  `step_deadline`, and page threshold and asserts
+  `p99 < step_deadline < page_threshold`.
 
-- [ ] **AC-0322.** **No value originating outside the application reaches an HTML-interpreting or link-constructing sink anywhere in `ui/`.** Driven by a run whose agent-authored text, typed-artifact field values, and envelope fields each contain markup and a link target, and asserted against the rendered page: those characters are shown literally, no element is created from them, and the page holds no navigable anchor the model or a caller authored.
+### Measuring cancellation
 
-  **The class, not the instance.** An earlier revision of this criterion covered agent-authored text and then exempted the typed-artifact path — "that is a different path and this criterion does not narrow it". That carve-out exempted the path the model's strings actually travel: r5 makes the typed artifact the vehicle for published output, and *structured* does not mean *trusted* when the field values are strings the model wrote over filing text. Uncovered with it were `principal`, `agent_role` and `payload_ref`, which are caller-supplied free text on every append path. § Never do forbids the rendering with no path exception, so the criterion states no exception either.
+- [x] **AC-0309.** Cancellation latency on an in-flight model stream is
+  measured from the cancellation request to the observed outcome AC-0310
+  names — the reader completing after the response body is closed — and
+  recorded as a wall-clock value with Region, model id, and method. The
+  endpoint is the same locally observed property in both criteria: no
+  connection-level outcome is observed by this measurement.
+- [x] **AC-0310.** The measurement command emits `terminated` when it observes
+  that this process stopped reading the provider stream within its observation
+  window — the reader completing after the response body is closed — and
+  `abandoned` otherwise. The outcome is derived from that observation and not
+  supplied by the operator.
 
-  The reachable path is r8's own indirect-injection boundary: filing text is authored by the entity under analysis, crosses the quarantine boundary, and lands in a page that AC-0326 makes same-origin with an API this Phase deliberately leaves unauthenticated.
+  **The observation is local, and the record says so.** It does not establish
+  that the provider stopped generating or stopped billing. Because closing the
+  body locally always ends the reader promptly, the `abandoned` branch is not
+  reachable against a real provider by this measurement, so that branch ships
+  unobserved rather than observed-and-absent. This criterion states both limits, and
+  `docs/architecture/pydantic-ai-worker-runtime/operations.md` § Cancellation
+  measurement records them beside the measured value; the ledger and
+  `spikes/README.md` cite that record rather than restating them. Observing the transport itself is the follow-on named below, and
+  the amendment that narrowed this criterion to what a check reaches was the
+  owner's decision of 2026-09-30, not a weakening chosen after an unfavourable
+  result.
 
-- [ ] **AC-0323.** `Last-Event-ID` is parsed under the same type and lower bound the contract fixes for `after=`, **and an upper bound the contract does not give `after=`: a cursor greater than the run's highest committed sequence is refused.** A header failing any of the three is refused with the `422` the contract already documents for a cursor outside its bounds, not coerced and not silently treated as zero.
+### Recording the regional token budget
 
-  The reconnect semantics make the header outrank the query parameter, so the input the server is told to *prefer* is the one carrying no schema while the one it overrides carries `type: integer` and `minimum: 0`. The upper bound is the clause `after=` has no equivalent for and needs one here: a stream is long-lived where a page read is not, so a cursor past the committed log yields a connection that never emits and never closes, held open per caller. A cursor *behind* the log is the ordinary reconnect and is never refused — the distinction is ahead-of-the-log versus stale, and only the first is nonsense.
+- [x] **AC-0311.** The Bedrock tokens-per-minute quota is read from Service
+  Quotas and recorded with the Region and quota identity used for the lookup.
 
-- [ ] **AC-0326.** The page and the API share an origin: the API serves the built browser client, a request carrying an `Origin` header naming any other origin is refused on the state-changing routes, and no permissive cross-origin allowance is configured. **Every path the static route resolves stays under the built bundle root** — a traversal request, its percent-encoded equivalent, and a symlink inside the bundle pointing outside it are each refused, and the single-page fallback serves `index.html` and never a file resolved outside the root.
+### Re-baselining analytical quality
 
-  T3 introduces a browser origin for the first time against an API that authenticates nobody, and the shortest path to a working Vite dev server is a permissive `Access-Control-Allow-Origin` — which would make any page the operator visits a client of every run. **Owner decision 2026-09-26: the API serves the built bundle, so same origin by construction and no CORS middleware at all**; the dev server proxies to the API rather than calling it cross-origin. This is also what makes AC-0322's threat argument true rather than assumed.
+- [x] **AC-0312.** Spike 4's A/B comparison is rerun under the current
+  Pydantic AI stack against the recorded 10-Q fixture. The record identifies
+  the provider, model id, model revision or provider snapshot when exposed,
+  role revision, prompt revision, and fixture revision, and reports the same
+  causality, table-anchor, and selection/legal-exposure loss categories as the
+  original.
+- [x] **AC-0313.** The rerun reports the loss attributable to narrowing the
+  admitted set separately from the loss attributable to crossing the
+  quarantine boundary.
 
-  **The confinement clause is here because the origin decision created the boundary it guards.** Nothing under `src/ced/` serves a file today — there is no `StaticFiles` mount or equivalent anywhere — so this delivery opens the filesystem path rather than inheriting a confined one, and the reachable implementation shape is joining a request path onto a bundle root with a single-page fallback. The API process holds the `app_api` DSN, so an unconfined join is a credential read. Closing the cross-origin hole by opening a traversal one would be a poor trade, and the criterion states both halves so it cannot be made.
+### Saying what Phase 1 did not establish
 
-**Calibrating the deadline**
+<!-- prose-totals:start -->
+- [x] **AC-0314.** The Phase 1 record names each measurement's platform
+  substitution and the property a deployed fleet would establish that the
+  substitute does not. It also names these residuals:
 
-- [ ] **AC-0307.** p99 step duration is recorded from at least 30 completed real steps, an owner-chosen minimum enforced by the measurement command refusing to emit a figure below it, with the sample size and the platform stated beside the value.
-- [ ] **AC-0308.** The page threshold is recorded as `p99 × 3` — the factor `runtime-architecture.md` § Risks fixes for the primary page — computed from the same sample as AC-0307.
-- [ ] **AC-0306.** The configured `step_deadline`, the measured p99 and the recorded page threshold satisfy `p99 < step_deadline < page_threshold`, asserted by a test reading all three recorded values.
+  - The step-duration sample floor is too small to establish a production
+    tail estimate, and the page threshold multiplies that estimate.
+  - Neither the Python nor browser dependency tree has a vulnerability scan
+    in the repository gate, and the browser runtime download is outside the
+    lockfiles.
+  - The browser evidence uses an unauthenticated loopback ingress and does not
+    establish behavior behind deployed authentication.
 
-  **This criterion cannot fail within this delivery, and that is stated rather than implied.** AC-0308 fixes the page threshold at `p99 × 3` and T4 sets `step_deadline` from the same measurement, so any derivation of the form `p99 × k` with `1 < k < 3` makes the ordering hold by construction — the check derives its input from the constant it tests. **Owner decision 2026-09-26: AC-0306 is a regression guard, not this delivery's failure surface.** Its value is that a later configuration change breaking the ordering goes red. The alternative — deriving the deadline from something other than the measured p99 — would make the criterion falsifiable by abandoning the calibration T4 exists to perform, which is the worse trade.
-
-**Measuring cancellation**
-
-- [ ] **AC-0309.** Cancellation latency on an in-flight model stream is measured and recorded as a wall-clock figure.
-- [ ] **AC-0310.** The measurement command emits, from the fixed vocabulary `terminated` or `abandoned`, which of the two occurred, derived from an observation of the connection rather than written by hand.
-
-**Recording the account's token budget**
-
-- [ ] **AC-0311.** The account's Bedrock tokens-per-minute quota is read from Service Quotas and recorded with its Region.
-
-**Re-baselining analytical quality**
-
-- [ ] **AC-0312.** Spike 4's A/B comparison is re-run under the new stack against the recorded 10-Q fixture, labelled with its producer tuple, and recorded against the same three loss categories the original reported.
-- [ ] **AC-0313.** The re-run records what the narrowed admitted set costs separately from what the quarantine boundary costs.
-
-**Saying what Phase 1 did not establish**
-
-- [ ] **AC-0314.** The Phase 1 record names, for each measurement, the platform substitution behind it and the property a deployed fleet would establish that this one does not. It also names these three residuals, each of which is a control this delivery specified and did not fully close:
-
-  1. **p99 rests on a floor of 30 samples**, at which the 99th percentile is the largest or second-largest observation rather than a tail estimate — and AC-0308 multiplies it by three. This is the limit most likely to be over-read, because it is the number Phase 2 plans capacity against.
-  2. **No vulnerability scanner covers either dependency tree.** `ui/`'s packages join a Python tree that already had none, and `playwright` fetches browser binaries at install time from a source neither lockfile resolves.
-  3. **The browser criteria ran against a loopback API with no authentication**, so nothing here establishes the stream's behaviour under an authenticated ingress.
-
-  It also carries forward, rather than restating, **every residual `walking-skeleton-run-state` enumerates under its AC-0329** — cited by reference, not by count and not by listing members here, because an earlier revision of this sentence pinned a number and three items that have since changed. Phase 1's record is one document; it names that spec's list in one place and does not duplicate text that will drift.
-
-  A record that lists results and names no substitution fails this criterion; so does one that names the platform substitutions and drops any of the three above, or any item in the sibling spec's AC-0329 enumeration.
+  The record cites every residual enumerated by
+  `walking-skeleton-run-state` AC-0329 without copying or counting that list.
+  A record that omits any local residual, any cited sibling residual, or any
+  measurement substitution fails this criterion.
+<!-- prose-totals:end -->
 
 ## Follow-ons
 
-- eugenelim: `runtime-architecture.md` § 6 Deployment and Operations — AWS deployment to ECS Fargate. § 6 sizes the services; the load balancer and OIDC authentication at the ingress are § 2 and § 4. Its IaC and the mandatory infra security review are recorded nowhere upstream and rest on the owner's decision of 2026-09-18, which put the deployment out of scope. AC-0314 is the record of what that deployment would establish and this delivery does not.
+- Observing the provider transport itself during cancellation, so the
+  `abandoned` outcome becomes reachable, is deferred. It needs access to the
+  underlying HTTP response or socket that the installed SDK surface does not
+  obviously expose, and is naturally deployment-side work. Recorded in
+  `workspace.toml` `[backlog].open` as
+  `cancellation-observes-local-reader-not-provider-connection`, which also
+  carries the owner authority for the 2026-09-30 amendment of AC-0310.
+
+- AWS deployment to ECS Fargate, including ingress authentication, remains
+  outside Phase 1. The record states which claims require that environment.
+- Calibration of the finite reject-and-resume cycle cap belongs to the
+  `walking-skeleton-run-state` AC-0321 follow-on. The cap already has a finite
+  default and this spec does not absorb its tuning obligation.
+- The role-load or role-compilation failure that can strand a run at
+  `requested`, the unwritten `awaiting_approval` state, and the compiler-guard
+  diagnostic backlog remain run-state or compiler work. This spec may cite
+  them but does not change them.
+- A task-to-`Touches` completeness check remains a separate process proposal.
 
 ## Assumptions
 
-- Technical: p99 step duration is unknowable before real steps run, so `step_deadline` cannot be set before the measurement exists. The criterion is the measurement (source: `worker-runtime.md` § 11 Open Questions).
-- Technical: whether cancellation aborts an in-flight Bedrock stream promptly is unverified, and measuring it is AC-0309 itself. `botocore` is synchronous, so asyncio cancellation may unwind the coroutine while the socket lives; `walking-skeleton-step-lifecycle` supplies the hard timeout that bounds the step regardless, under its own criterion for bounding a hung step (source: `worker-runtime.md` § 9 Decisions, Alternatives, and Risks; `walking-skeleton-step-lifecycle` § Bounding a hung step).
-- Technical: measurements are taken on local containers, not on Fargate. The step is model-bound so p99 should mostly carry, but "mostly" is not measured, which is what AC-0314 records (source: user decision 2026-09-18).
-- Technical: a recorded Apple 10-Q fixture exists under `spikes/phase-0/fixtures/`, so AC-0312 needs no live SEC fetch — which matters because EDGAR returns 403 to this network (source: `spikes/README.md` § Spike 4).
-- Technical: spike 4 cost $0.022 and was **falsified as run**. A second falsification is an acceptable outcome of AC-0312 (source: `spikes/README.md` § Spike 4).
-- Technical: the browser client is Vite and React, deliberately minimal — an event list and a state badge. The real experience surface belongs to the experience companion (source: user decision 2026-09-18).
-- Process: eugenelim approves both the spec and the plan gates (source: user confirmation 2026-09-18). **This is self-approval, labelled rather than presented as review.** The project is single-operator and the author is the approver; what independent scrutiny these artifacts had came from forked-context reviewer agents — a shaping review over two rounds and an adversarial spec-mode review — and not from a second person. `worker-runtime.md` carries the same qualification in its Reviewers field, and it applies here for the same reason.
-- Governance: r8 and r5 are ratified, r8 with its five accepted limits in § 9 open, and the DR decisions settled (source: both documents' Sign-off and Status headers).
-- Technical: **the contract was written before any of its five dependencies existed and has been re-derived from the tree.** The first pre-EXECUTE review found two criteria that could not fail, two append paths the shipped privilege split has no room for, and a sixth top-level directory nothing had admitted. Statements here about what exists are as of 2026-09-26 and were checked against the code rather than against the previous revision of this document.
+- The measurement environment can call the selected non-adaptive model
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0` and query Service Quotas. The
+  implementation task performs one bounded capability probe and stops with a
+  named unmet precondition if either capability is absent.
+- Step duration, cancellation outcome, and analytical loss remain unknown
+  until measured. Their values cannot weaken the criteria.
+- Local containers substitute for Fargate. AC-0314 records the resulting
+  limits instead of claiming platform equivalence.
+- The recorded 10-Q fixture under `spikes/phase-0/fixtures/` remains the input
+  to the analytical comparison; no live filing fetch is required.
+
+## Changelog
+
+- 2026-10-01: Shipped. Every acceptance criterion met and mutation-proved; the
+  review record, every recorded break and the owner decisions taken during
+  review are in `notes/verification-ledger.md`.
+- 2026-09-30: Controlled amendment. AC-0310 restated to the property the
+  measurement reaches, with the unreachable `abandoned` branch recorded and
+  the transport-level observation deferred to a named follow-on; AC-0305's
+  browser scope recorded in Testing Strategy. Owner authority and reason:
+  `workspace.toml` `[backlog].open`
+  `cancellation-observes-local-reader-not-provider-connection`.
+- 2026-09-29: Browser stream, same-origin read surface, Phase 1 exit
+  measurements and the analytical rebaseline implemented; AC-0314's residuals
+  recorded in `spikes/README.md` § Phase 1 — evidence.
+- 2026-09-29: Re-derived the contract from the tree after run-state shipped;
+  removed transition and approval ownership, retained browser and Phase 1
+  measurement work, added explicit browser state and accessibility criteria,
+  and kept the UI below the existing API package boundary.
+- 2026-09-27: Split run-state transitions, approval, publication, and bounding
+  controls into `walking-skeleton-run-state`.
+- 2026-09-18: Drafted the Phase 1 evidence delivery.
