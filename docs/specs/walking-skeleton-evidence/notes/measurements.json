@@ -1,0 +1,31 @@
+{
+  "step_duration": {
+    "p99_seconds": 0.087431,
+    "page_threshold_seconds": 0.262293,
+    "sample_size": 30,
+    "method": "nearest-rank p99, floor 30",
+    "platform": "Darwin (arm64), local Docker Compose substrate",
+    "sample_scope": "Every step.started/step.completed pair in the event log, joined on step_id, with no role, pool-class, principal or time filter. The sample is whatever the event log held at the moment of measurement, so it is reproducible only against that same event-log state; a step a later suite completes enters a later sample.",
+    "platform_note": "Local Docker Compose substrate driven by ced-evidence generate with stub:counting (TestModel, no provider call). The executor writes step.started and step.completed through the full executor path with authentic occurred_at timestamps, so the durations measure executor overhead and database round-trips only: inference time and provider network latency are absent. This is the Phase 1 measurement under the local-container substitution the spec Assumptions accept; AC-0314 names the resulting limits.",
+    "measured": "2026-10-01"
+  },
+  "configured_step_deadline_seconds": 0.174862,
+  "cancellation": {
+    "outcome": "terminated",
+    "latency_seconds": 0.000364,
+    "region": "us-east-1",
+    "model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "method": "long generation; close response body while the reader is still running; observe reader join within 30s window",
+    "in_flight_at_close": true,
+    "measured": "2026-10-01"
+  },
+  "quota": {
+    "region": "us-east-1",
+    "service_code": "bedrock",
+    "quota_code": "L-58BE175A",
+    "quota_name": "Cross-region model inference tokens per minute for Anthropic Claude Haiku 4.5",
+    "value": 5000000.0,
+    "measured": "2026-09-29"
+  },
+  "configured_step_deadline_source": "CED_STEP_DEADLINE_SECONDS in this command's environment, set to the value deploy/compose.yaml carries on both worker services"
+}

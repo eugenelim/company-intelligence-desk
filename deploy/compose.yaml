@@ -138,6 +138,26 @@ services:
       # is what AC-0275 admits past the reasoning-disable guard; a present but
       # malformed value is refused at boot like the other two.
       CED_POOL_NON_PROVIDER_MODEL_IDS: '["stub:counting"]'
+      # AC-0306: the Phase 1 calibrated step deadline, derived from the local
+      # TestModel measurement — the midpoint of [p99 0.087431 s, page
+      # threshold 0.262293 s]. That is its one provenance; a live-Bedrock
+      # measurement would be a different measurement, not a correction of
+      # this one, and AC-0314 records what this substitution does not
+      # establish.
+      #
+      # **Neither service below arms a timer from this value, and that is
+      # worth stating plainly.** `ced-worker` runs `sleep_step_body`, which
+      # reads only `CED_STEP_BODY_SECONDS`; `config.step_deadline` is armed
+      # solely inside `make_step_body` in `src/ced/worker/executor.py`, whose
+      # only non-test caller is `ced-evidence generate`. Both services parse
+      # this variable at boot — `verify_boot` refuses a malformed value — and
+      # then never act on it. It is set here because this is what the
+      # repository deploys and what the calibration record describes, so the
+      # declared and recorded values cannot drift apart unnoticed:
+      # `tests/worker/test_evidence.py` reads every service that sets it and
+      # reds if they disagree with each other or with
+      # `docs/specs/walking-skeleton-evidence/notes/measurements.json`.
+      CED_STEP_DEADLINE_SECONDS: "0.174862"
       # A sleep, not a model call: this suite needs no credential and no spend.
       CED_STEP_BODY_SECONDS: "600"
     depends_on:
@@ -172,4 +192,9 @@ services:
          "count_tokens_before_request": false}
       CED_POOL_ALLOWED_MODEL_IDS: '["stub:counting"]'
       CED_POOL_NON_PROVIDER_MODEL_IDS: '["stub:counting"]'
+      # The second service that declares the calibrated deadline, and like
+      # worker-a it only parses the value — neither arms a timer from it. The
+      # two must agree. See worker-a for the provenance and for which path
+      # does arm it.
+      CED_STEP_DEADLINE_SECONDS: "0.174862"
       CED_STEP_BODY_SECONDS: "600"

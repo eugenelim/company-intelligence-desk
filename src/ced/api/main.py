@@ -14,11 +14,14 @@ import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from ced.adapters.objectstore.client import write_payload
 from ced.adapters.postgres import event_log
@@ -32,6 +35,7 @@ from ced.api.models import (
     StartedRun,
     StartRunRequest,
 )
+from ced.api.stream import committed_event_stream, highest_committed_seq, selected_cursor
 from ced.domain.events import APPROVAL_GRANTED, APPROVAL_REJECTED
 
 #: Environment variable for the require_distinct_approver flag.
@@ -91,6 +95,16 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+_STATIC_ROOT = Path(__file__).resolve().parent / "static"
+_STATIC_INDEX = _STATIC_ROOT / "index.html"
+
+if _STATIC_ROOT.exists():
+    app.mount(
+        "/static",
+        StaticFiles(directory=_STATIC_ROOT, html=False, follow_symlink=False),
+        name="static",
+    )
+
 
 @contextmanager
 def _connection() -> Iterator[psycopg.Connection]:
@@ -119,6 +133,26 @@ def _require_run(conn: psycopg.Connection, run_id: UUID) -> str:
     return str(row[0])
 
 
+def _expected_origin(request: Request) -> str:
+    host = request.headers.get("host", "")
+    scheme = request.url.scheme
+    return f"{scheme}://{host}"
+
+
+def _guard_same_origin(request: Request, *, require_origin: bool) -> None:
+    origin = request.headers.get("origin")
+    if origin is None:
+        if require_origin:
+            raise HTTPException(status_code=400, detail="Origin header is required")
+        return
+    expected_origin = _expected_origin(request)
+    if origin != expected_origin:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Origin {origin!r} does not match {expected_origin!r}",
+        )
+
+
 @app.post(
     "/runs",
     status_code=201,
@@ -129,8 +163,12 @@ def _require_run(conn: psycopg.Connection, run_id: UUID) -> str:
         "Commits the run row, its coordinator step and the `run.requested` "
         "event in one transaction. All three or none."
     ),
+    responses={
+        400: {"description": "A present Origin header does not match the API's origin."}
+    },
 )
-def start_run(request: StartRunRequest, conn: Conn) -> StartedRun:
+def start_run(request: StartRunRequest, raw_request: Request, conn: Conn) -> StartedRun:
+    _guard_same_origin(raw_request, require_origin=False)
     started = event_log.start_run(
         conn,
         run_id=uuid.uuid4(),
@@ -191,6 +229,114 @@ def read_events(
     return EventPage(run_id=run_id, events=[Event.of(envelope) for envelope in envelopes])
 
 
+@app.get(
+    "/runs/{run_id}/events/stream",
+    operation_id="stream_events",
+    summary="Stream a run's committed events in sequence order",
+    # Without this, FastAPI merges its default JSON response into the 200 entry
+    # and the served document lists `application/json` beside
+    # `text/event-stream`, which the committed contract does not.
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": (
+                "Committed events after the selected cursor. The stream closes after "
+                "`run.completed`, `run.failed`, or `run.cancelled`."
+            ),
+            "content": {"text/event-stream": {"schema": {"type": "string"}}},
+        },
+        404: {"description": "No such run."},
+        422: {
+            "description": (
+                "`run_id` is not a UUID; or **any supplied** cursor — `Last-Event-ID` "
+                "or `after`, whether or not it is the one selected — is not a bare "
+                "non-negative decimal integer; or the **selected** cursor is ahead of "
+                "the run's highest committed sequence. A malformed `after` is refused "
+                "even when a valid `Last-Event-ID` outranks it."
+            )
+        },
+    },
+)
+def stream_events(
+    request: Request,
+    run_id: UUID,
+    after: Annotated[
+        int,
+        Query(
+            ge=0,
+            description=(
+                "Emit events with `seq` strictly greater than this cursor when no "
+                "`Last-Event-ID` header is present. The value must not be greater "
+                "than the run's highest committed sequence."
+            ),
+        ),
+    ] = 0,
+    last_event_id: Annotated[
+        str | None,
+        Header(
+            alias="Last-Event-ID",
+            description=(
+                "Preferred resume cursor. It must be a non-negative integer no "
+                "greater than the run's highest committed sequence."
+            ),
+        ),
+    ] = None,
+) -> StreamingResponse:
+    # Validate run existence and cursor on a short-lived connection that is
+    # released *before* the StreamingResponse is constructed.  A generator
+    # dependency (conn: Conn) is closed only after the response completes —
+    # which for a non-terminal run never happens — so using one here would
+    # leave a connection idle in transaction for the stream's whole lifetime.
+    with _connection() as conn:
+        _require_run(conn, run_id)
+        # The typed `after` above is what the generated schema publishes
+        # (`integer, minimum: 0`), but its *value* is already coerced: pydantic's
+        # lax `int` turns `0_1`, `1.0` and `+1` into 1 before this line runs.
+        # The raw query string is what the caller sent, so that is what the
+        # cursor guard judges — one lexical predicate for both sources. Every
+        # `after` value is passed, not only the last: a repeated parameter
+        # binds just its last value, so `?after=x&after=1` would otherwise
+        # escape the check that `?after=1&after=x` fails.
+        raw_after = request.query_params.getlist("after")
+        cursor = selected_cursor(raw_after, last_event_id, highest_committed_seq(conn, run_id))
+    # The connection is closed here; the generator opens its own per-poll.
+    return StreamingResponse(
+        committed_event_stream(_connection, run_id=run_id, after=cursor),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get(
+    "/runs/{run_id}",
+    include_in_schema=False,
+)
+def read_run_page(run_id: str, conn: Conn) -> FileResponse:
+    """Serve the browser client for a run, answering ``404`` when it does not exist.
+
+    An unknown run still receives the page, with status ``404`` (AC-0338). The
+    page's own history request then fails and the client shows the state
+    matrix's Unavailable outcome — an error naming that request and a retry
+    control — instead of a bare JSON body no reader can act on.
+
+    ``run_id`` is taken as a string and parsed here, not by FastAPI, so a
+    malformed id names no run and gets the same ``404`` page rather than the
+    framework's JSON ``422``: the matrix routes an invalid run to Unavailable.
+    """
+    try:
+        _require_run(conn, UUID(run_id))
+        status_code = 200
+    except ValueError:
+        status_code = 404
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        status_code = 404
+    if not _STATIC_INDEX.is_file():
+        raise HTTPException(status_code=503, detail="browser client is not built")
+    return FileResponse(_STATIC_INDEX, status_code=status_code, media_type="text/html")
+
+
 @app.post(
     "/runs/{run_id}/steps/{step_id}/decision",
     status_code=200,
@@ -223,20 +369,9 @@ def record_approval_decision(
     conn: Conn,
 ) -> DecisionResult:
     """AC-0328: receive and commit the approver's decision."""
-    # CSRF defence: the Origin header must match the server's own origin.
-    # A non-browser caller can forge it; that is recorded and out of scope.
-    # A missing Origin is also refused (AC-0328: "so is one carrying no Origin").
-    origin = raw_request.headers.get("origin")
-    if origin is None:
-        raise HTTPException(status_code=400, detail="Origin header is required")
-    host = raw_request.headers.get("host", "")
-    scheme = raw_request.url.scheme
-    expected_origin = f"{scheme}://{host}"
-    if origin != expected_origin:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Origin {origin!r} does not match {expected_origin!r}",
-        )
+    # CSRF defence: a present Origin must match the server's own origin. The
+    # approval path also keeps its stricter shipped policy and refuses absence.
+    _guard_same_origin(raw_request, require_origin=True)
 
     # Verify the run and step exist.
     _require_run(conn, run_id)

@@ -1,0 +1,70 @@
+{
+  "producer": {
+    "provider": "bedrock",
+    "model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "model_revision": null,
+    "model_adapter": "BedrockConverseModel",
+    "framework_version": "2.45.0",
+    "fixture_sha256": "4ad5bea67cedfa7542d623900355cc8d143ef95c1acc135a597f2eedabdb9177",
+    "role_revision": "evaluation-v1",
+    "prompt_revision": "wide:58e8a9d69846a2c4 narrow:e7a965d1335252fa analyst:c43fbc8ac627f90b"
+  },
+  "fixture": {
+    "sha256": "4ad5bea67cedfa7542d623900355cc8d143ef95c1acc135a597f2eedabdb9177",
+    "form": "10-Q",
+    "entity": "Apple Inc.",
+    "filing_date": "2026-07-31",
+    "excerpt_chars": 30000
+  },
+  "platform": "Darwin (arm64)",
+  "prior_claim": {
+    "source": "spikes/README.md \u00a7 Spike 4",
+    "hypothesis": "Does references-only quarantine preserve analytical quality on a real filing? Falsified if closed-vocabulary classification loses distinctions the diligence output depends on.",
+    "original_result": "Falsified: causality, table-anchor, and selection/legal losses identified.",
+    "original_wide_admitted": 6,
+    "original_wide_label_count": 20,
+    "original_narrow_label_count": 3
+  },
+  "comparison": {
+    "A_baseline": "# Three Most Material Changes for Diligence\n\n1. **R&D spending surge for AI infrastructure**: R&D expenses increased 33% year-over-year in the nine-month period ($34.035B vs. $25.684B), driven by \"higher infrastructure-related costs, including investments in artificial intelligence,\" signaling major capital intensity shift.\n\n2. **iPhone revenue acceleration sustains growth**: iPhone sales grew 22% in nine months ($196.515B vs. $160.561B), the largest absolute dollar contributor, primarily from Pro model mix shift, indicating premium product strategy is working.\n\n3. **Gross margin expansion despite cost pressures**: Total gross margin improved 230 basis points to 49.1% (nine months), with product margins up 300bps to 39.9%, despite \"higher costs, including memory,\" due to favorable product mix and tariff refunds offsetting headwinds.",
+    "B_post_boundary": "I cannot identify three material changes because no structured observations crossed the reporting boundary in your source data. Without access to filing prose or quantitative metrics, I lack the figures necessary to support a diligence analysis. Please provide actual financial data, KPIs, or observation records.",
+    "wide_admitted": 5,
+    "narrow_admitted": 0,
+    "figures_baseline_count": 13,
+    "figures_boundary_count": 0,
+    "figures_in_common": 0
+  },
+  "loss": {
+    "narrowing_loss": {
+      "observations_wide_pre": 8,
+      "observations_narrow_pre": 5,
+      "dropped": 3,
+      "categories": {
+        "causality": "Causality cannot cross a closed vocabulary regardless of its size; the finding from the original spike holds for the shipped 3-label set.",
+        "table_anchor": "N/A at the vocabulary-narrowing step \u2014 anchor enforcement is measured separately as boundary_loss.",
+        "selection_legal": "Labels available in the spike vocabulary but absent from the shipped 3-label set include litigation_exposure and regulatory_exposure; observations using those labels are excluded at the label-check step before the boundary is reached."
+      }
+    },
+    "boundary_loss": {
+      "observations_narrow_pre": 5,
+      "observations_narrow_post": 0,
+      "dropped": 5,
+      "drop_reasons": [
+        "anchor not present in source: 'Products gross margin percentage increased during the third '",
+        "anchor not present in source: 'Total gross margin percentage 50.1% compared to 46.5%'",
+        "anchor not present in source: 'Total gross margin percentage 49.1% compared to 46.8%'",
+        "anchor not present in source: 'Effective tax rate 17.9% compared to 16.4%'",
+        "anchor not present in source: 'Effective tax rate for first nine months of 2026 was 17.6%'"
+      ],
+      "categories": {
+        "causality": "Causality is not recoverable at the boundary step; it was already excluded at the vocabulary-narrowing step.",
+        "table_anchor": "Anchor-resolution failures drop observations whose quoted anchors do not appear verbatim in the source \u2014 the structural finding the spike established applies equally to facts assembled from table cells.",
+        "selection_legal": "Legal-exposure labels are absent from the shipped vocabulary, so no boundary-step drop can apply to them in this run."
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 20620,
+    "output_tokens": 2176
+  }
+}
