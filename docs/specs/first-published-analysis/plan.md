@@ -1,7 +1,7 @@
 # Plan: First published analysis
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Executing <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) §§ 4, 5, and 10 for deterministic ingestion, quarantine, evidence, and Phase 2; [`src/ced/domain/quarantine/mint.py`](../../../src/ced/domain/quarantine/mint.py) and [`tests/quarantine/test_mint_constrains_identities.py`](../../../tests/quarantine/test_mint_constrains_identities.py) for the standard-library Inline XBRL parser and its hostile-input checks; [`src/ced/adapters/objectstore/client.py`](../../../src/ced/adapters/objectstore/client.py) for content-addressed writes; [`src/ced/adapters/postgres/event_log.py`](../../../src/ced/adapters/postgres/event_log.py), [`src/ced/worker/executor.py`](../../../src/ced/worker/executor.py), and [`tests/e2e/test_ac_0327_committed_run.py`](../../../tests/e2e/test_ac_0327_committed_run.py) for request, fenced publication, and end-to-end construction; [`src/ced/api/main.py`](../../../src/ced/api/main.py), [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml), and [`tests/api/test_contract_agreement.py`](../../../tests/api/test_contract_agreement.py) for the HTTP contract. Deviation: no ingestion component or local egress proxy exists; this slice adds one serialized SEC acquisition path inside the existing adapter/worker boundaries and records that it does not prove fleet proxy behavior.
 
 > **Plan contract:** this is the implementation strategy. It may change
