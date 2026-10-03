@@ -20,9 +20,10 @@ refinement that the snapshot pins the *universe of retrievable evidence*, not
 which of it a step chooses.
 
 "Material" is defined by
-[`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md)'s
-open question on material claims. Until that resolves, read it as: any claim
-surfaced in a published artifact. This is an assumption, not a settled scope.
+[`evidence-backed-company-diligence.md`](evidence-backed-company-diligence.md)
+§ Outcome: any factual claim published in a user-facing memo or evidence
+manifest. Schema labels, field names, identifiers, and fixed headings are
+structural rather than claims.
 
 ## Boundary
 
@@ -39,6 +40,12 @@ in [`README.md`](README.md).
 - Primary evidence kept distinct from mutable interpretations and summaries.
 - Versioned, inspectable source manifests and context packages.
 - Prevention of later evidence silently entering historical as-of analyses.
+
+For the initial demonstration, retrieval is limited to SEC submission metadata
+and the selected archived primary Inline XBRL filing. Missing, conflicting, or
+ambiguous required facts fail closed, and no fallback source enters the
+snapshot. The broader retrieval model remains a later-slice question rather
+than an implied generalization from this fixed path.
 
 This intent is the **single owner of the evidence and citation contract** —
 what a citation is, how lineage is represented, and what makes a claim
@@ -76,7 +83,6 @@ eugenelim — decides the context and evidence contract.
   context service is an application capability, not the framework's own session
   store; open
   until owner sign-off.*
-- What retrieval model is required for the initial public filings?
 - How are citation locators represented and verified, and do they survive
   evidence re-ingestion or re-indexing? *Proposed in `runtime-architecture.md` § Context,
   evidence, and reproducibility; settled by the **2026-09-18 owner sign-off** recorded in `runtime-architecture.md` § Sign-off.*
@@ -107,16 +113,16 @@ other intents inherit its contract.
 proposes context-service responsibilities, persistence boundaries, evidence
 lineage, temporal rules, and retrieval contracts.
 
-The retrieval model for the initial filing tier is not settled by that sign-off
-and remains open here. Owner: eugenelim; settled by the delivery-brief slicing
-pass at `author-delivery-brief continue`, which is where the first retrieval
-workload is scoped.
+The first retrieval workload is one pre-run immutable snapshot from SEC
+submission metadata and the selected archived primary Inline XBRL filing.
+Broader retrieval remains with the later slice that first needs it.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r8 — replay scoping cited to its ratified origin in charter
-  principle 7, keeping only this intent's refinement, 2026-09-10
+- Revision: r9 — the material-claim definition now cites its settled owner and
+  the initial retrieval workload is fixed to the first MVP calculation slice,
+  2026-10-02
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

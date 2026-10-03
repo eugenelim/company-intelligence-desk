@@ -14,11 +14,14 @@ not a pass.
 
 Four sub-results, each independently verifiable:
 
-1. **At least one deterministic financial calculation is reported.** Assumed for the
-   initial tier, and open with "What is the minimum viable
-   public-source hierarchy?" below: every periodic
-   filing in it carries computable figures. On that assumption, and unlike its
-   siblings, this sub-result needs no coverage-without-finding escape.
+1. **At least one deterministic financial calculation is reported.** The initial
+   demonstration uses the quarterly net-sales year-over-year percentage from the
+   canonical filing named under § In scope. The broader covered-tier assumption —
+   every periodic filing in the selected source hierarchy carries computable
+   figures — remains unproved; a filing without the required facts fails rather
+   than manufacturing a calculation or falling back to another source. On that
+   assumption, and unlike its siblings, this sub-result needs no
+   coverage-without-finding escape.
    *Falsified by:* an analysis reporting no deterministic financial
    calculation.
 2. **Filing-language comparison is covered, and its result stated.** The result
@@ -37,10 +40,12 @@ Four sub-results, each independently verifiable:
    resolution targets are ratified in [`docs/CHARTER.md`](../../CHARTER.md)
    principle 1. Its *Applied:* rule states the block without qualification; the
    scoping to *material* claims comes from the principle's normative sentence,
-   not from that rule. Pending the material-claim question below,
-   *material claim* is read as any claim published in a user-facing artifact;
-   that is the standing interim reading, matched in
-   [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § Outcome. This intent narrows the evidence target to
+   not from that rule. A *material claim* is any factual claim published in a
+   user-facing memo or evidence manifest. Schema labels, field names,
+   identifiers, and fixed headings are structural rather than claims. This is
+   the owner-set reading consumed by
+   [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md) § Outcome.
+   This intent narrows the evidence target to
    *public* sources — its own scope decision for the initial tier, not an owner
    ratification: the confirmed constraint says evidence *begins with* official
    public sources, which is a starting point rather than a ceiling. *Falsified by:* a published claim with no link
@@ -81,6 +86,17 @@ part of what the owner ratified.
 - Two user-facing deliverables: a human-readable research memo and a
   machine-readable evidence manifest.
 
+The initial demonstration is deliberately narrower than the whole covered tier:
+
+- Apple Inc. Form 10-Q filed 2026-07-31, accession
+  `0000320193-26-000020`, is the canonical company and filing set; the as-of
+  date is 2026-07-31.
+- Quarterly consolidated net-sales year-over-year percentage is the initial
+  deterministic calculation.
+- SEC submission metadata plus the selected archived primary Inline XBRL filing
+  is the minimum public-source hierarchy. Missing, conflicting, or ambiguous
+  required facts fail closed; no fallback source is admitted.
+
 The *definition* of a citation, of evidence lineage, and of what makes a claim
 supported is owned by [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md).
 This intent consumes that contract and does not define it.
@@ -101,13 +117,6 @@ eugenelim — decides domain scope for the diligence surface.
 
 ## Unresolved questions
 
-- Which company and filing set should be the canonical demonstration fixture?
-- What constitutes a "material claim" requiring evidence? This definition is
-  load-bearing for the traceability guarantee in
-  [`scoped-context-and-evidence.md`](scoped-context-and-evidence.md); it is
-  resolved here and cited there.
-- Which financial calculations belong in the initial demonstration?
-- What is the minimum viable public-source hierarchy?
 - How should a restatement be surfaced to a reader comparing periods? This is
   the domain question; its storage counterpart is the next bullet.
 - How are amended filings represented in storage? *Proposed in `runtime-architecture.md`
@@ -121,39 +130,33 @@ eugenelim — decides domain scope for the diligence surface.
 **Feeds:** `multi-workspace-inspectable-experience` (the domain artifacts its
 surfaces present).
 
-**Outstanding obligation to `scoped-context-and-evidence`** — not a settle-order
+**Settled projection to `scoped-context-and-evidence`** — not a settle-order
 edge, and deliberately not a `Feeds:` entry, because asserting one in both
 directions would contradict README § 3's ordering of scoped before this intent.
-That intent was accepted on a labelled interim reading standing in for the
-material-claim definition owned here. Discharging it is a documentation act, not
-a design or slicing product: this intent states the definition, and
-`scoped-context-and-evidence` replaces its interim reading with a citation to
-it. Owner: eugenelim; settled when the material-claim question below is answered
-and both files are updated in the same change.
+That intent's labelled interim reading now cites the material-claim definition
+owned here. No material-claim decision remains open between the two intents.
 
-**Next step.** `architect-design` has run: `runtime-architecture.md` proposes the system
-responsibilities, the deterministic-versus-agentic split, the source pipeline,
-and where the no-unsupported-claim property is enforced. It awaits owner
-sign-off. Slicing this outcome into buildable work happens at
-`author-delivery-brief continue`, not in another architecture run.
+**Next step.** The accepted architecture owns the system responsibilities,
+deterministic-versus-agentic split, source pipeline, and unsupported-claim
+enforcement. The first MVP calculation slice materializes the initial
+deterministic calculation and publication; later domain outcomes remain with
+the MVP brief's unmaterialized slices.
 
 The candidate agent roles named during inception — research coordinator,
 filing-change analyst, fundamentals analyst, positive-case analyst,
 skeptical-case analyst, evidence auditor, report composer — remain inception
-context. Whether each should be an agent, a tool, a workflow node, or a
-deterministic service is **still open**: the design settles the
-deterministic-versus-agentic boundary in principle but does not assign these
-roles. Owner: eugenelim; settled by the slicing pass at
-`author-delivery-brief continue`.
+context. Slice 2 assigns ingestion, its calculation, claim linking, and memo
+composition to deterministic code and creates none of those agent roles.
+Whether later slices need any named role remains open and is settled when the
+slice that needs it is cut.
 
 ## Source
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
-- Revision: r15 — *covered tier* defined for the set of issuers, in prose
-  following the ratified bullet rather than as part of it, because the
-  constraint names a tier of sources rather than of companies and deriving the
-  issuer set is this intent's own inference; sub-result 1's assumption now names the
-  question it is open with, 2026-09-10
+- Revision: r16 — the initial fixture, calculation, public-source hierarchy,
+  and material-claim reading settled for the first published-analysis slice;
+  the broader covered-tier computability assumption remains explicit,
+  2026-10-02
 - Authority: user-authorized inception input; authority explicitly transferred
   in-session to this repository destination

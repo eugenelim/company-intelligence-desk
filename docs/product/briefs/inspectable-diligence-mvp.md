@@ -4,15 +4,15 @@
 - **Received:** 2026-09-09
 - **Owner:** eugenelim
 - **Status:** Executing
-- **Next processor:** `author-delivery-brief continue` — confirm and materialize
-  the next delivery slice; the walking skeleton is mapped and shipped
+- **Next processor:** owner dispatch — `first-published-analysis` is Approved and
+  queued; implementation has not started
 
 ## Source
 
 - Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b10 — the shipped walking-skeleton specs mapped to slice 1 and the
-  companion documents recorded at their current Draft revisions, 2026-10-02
+- Revision: b12 — approved slice 2 mapped and queued; the companion-backed MVP
+  completion remains a later slice, 2026-10-03
 - Review: `Findings @ b7`. Its sole blocking finding was repaired at b8, which
   replaced a reproduction of the charter's two non-boundary disclaimers with a
   pointer to them. The lifecycle owner recorded that repair as **nonmaterial** —
@@ -120,6 +120,10 @@ once.
 Materializing each remaining slice happens through
 `author-delivery-brief continue` after explicit owner confirmation.
 
+Each materialized slice must fit one implementation session. The walking
+skeleton exceeded that appetite and was repeatedly split; later slices keep one
+demonstration path and defer generalization rather than repeating that shape.
+
 ## Constraints
 
 ### Confirmed constraints
@@ -183,8 +187,9 @@ owner of its outcome; this brief coordinates them.
 ## Delivery shape — confirmed cut
 
 Confirmed by eugenelim on 2026-09-10. **This is not the Spec map.** Slice 1 has
-since shipped through the specs recorded in the map below. The remaining slices
-still require a further explicit confirmation before a spec is materialized.
+since shipped through the specs recorded in the map below. The owner confirmed
+slice 2's cut on 2026-10-02; later slices still require their own explicit
+confirmation before a spec is materialized.
 
 Each slice is a vertical through real wiring. Component and layer work — "build
 the API", "build the context service" — is deliberately absent: separable is not
@@ -194,16 +199,18 @@ against an intent.
 | # | Slice | Acceptance rests on |
 | --- | --- | --- |
 | 1 | **Walking skeleton.** Start a run; one Pydantic AI step against a real provider via workload identity; append events; stream to a browser; kill the worker mid-run; attempt a well-typed unauthorised tool call. | `runtime-architecture.md` § Rollout Phase 1's stated exit criteria — reacquisition within 150 s, refusal observed, p99 page threshold calibrated. Not user-facing, which § Appetite authorises. |
-| 2 | **First published analysis, typed scalars only.** One company, one as-of date, at least one deterministic financial calculation, memo plus evidence manifest. | [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) sub-results 1 and 4. |
+| 2 | **First published analysis, typed scalars only.** Apple Inc.'s Form 10-Q filed 2026-07-31, as of that date; quarterly consolidated net-sales year-over-year percentage; SEC submission metadata plus the archived primary Inline XBRL filing; deterministic memo plus evidence manifest through the API. | [`evidence-backed-company-diligence`](../intents/evidence-backed-company-diligence.md) sub-results 1 and 4. |
 | 3 | **Filing-language comparison covered, and its result stated.** | That intent's sub-result 2, in its coverage-not-finding form. |
 | 4 | **Opposed readings covered, and the result stated.** | That intent's sub-result 3. |
+| 5 | **Companion-backed MVP completion, not yet cuttable.** Multi-view workspace, guarded user-visible result, and minimal evaluation receipt after both companion contracts are ratified. | `multi-workspace-inspectable-experience` and `governed-observable-and-evaluable-operation`, through the two companion documents named below. |
 
 **The ordering is a teaching decision, not a convenience.** It escalates
 untrusted-content difficulty rather than deferring it. Slice 2 handles only
 *typed scalars* — one of the three forms
 [`governed-observable-and-evaluable-operation`](../intents/governed-observable-and-evaluable-operation.md)'s
-third outcome admits across the quarantine boundary — so no free prose reaches a
-component holding tool authority. Slice 3 is the first slice where filing prose
+third outcome admits across the quarantine boundary. Its memo is a deterministic
+template and no model or authority-bearing component participates, so no free
+prose reaches one. Slice 3 is the first slice where filing prose
 must cross, which is where references and closed-vocabulary classifications have
 to work. The project's central pattern is therefore demonstrated in two steps
 rather than assumed in one.
@@ -223,6 +230,11 @@ unsettled contract:
   payload inlining, evaluation architecture and fixture versioning are deferred
   to the commissioned *Observability and evaluation* companion.
 
+Slice 2 therefore publishes typed artifacts through the API only. This leaves a
+real MVP coverage gap rather than silently assigning the companion-owned work to
+slices 3 or 4: slice 5 is required after both companions are ratified, and is
+not materialized or buildable before then.
+
 ## Spec map
 
 <!-- Authoritative for delivery rollups. Only confirmed specs enter here. The
@@ -237,6 +249,7 @@ delivery shape above records a confirmed cut, not materialized slices. -->
 | `walking-skeleton-step-lifecycle` | Slice 1 — walking skeleton | `<auto>` |
 | `walking-skeleton-run-state` | Slice 1 — walking skeleton | `<auto>` |
 | `walking-skeleton-evidence` | Slice 1 — walking skeleton | `<auto>` |
+| `first-published-analysis` | Slice 2 — first published analysis | `<auto>` |
 
 ## Items carried forward
 
