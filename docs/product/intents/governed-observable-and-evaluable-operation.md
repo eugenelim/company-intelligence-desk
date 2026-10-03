@@ -210,8 +210,9 @@ boundary owned here, and its unresolved questions defer to this intent's release
 and redaction rules; neither edge appears in either file's authoritative
 `Depends on:` or `Feeds:` lines. Discharging it means adding the citation to an
 **Accepted** file, which is a material edit returning it to Draft. Held for the
-owner's decision, alongside the duplicated interim reading of *material claim*
-recorded in `evidence-backed-company-diligence` § Projection.
+owner's decision. The separate *material claim* reading is settled in
+`evidence-backed-company-diligence` and cited by `scoped-context-and-evidence`;
+it is no longer part of this obligation.
 
 **Next step.** Two settling events, stated in three parts. The split is by which
 artifact proposes an answer, not by outcome: the design doc proposes answers for
@@ -240,6 +241,8 @@ unsettled.
 
 - Mode: chat-direct
 - Locator: none — content supplied inline in-session; no external locator
+- Revision: r16 — the material-claim projection now records the settled reading;
+  the separate untrusted-content-boundary obligation remains open, 2026-10-02
 - Revision: r15 — next-step state corrected after the commissioned
   observability and evaluation companion reached Draft revision c3; its
   unratified questions remain unsettled, 2026-10-02

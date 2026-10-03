@@ -75,7 +75,9 @@ status = "active"
 # evidence spec measures the system its siblings build. The `needs` list below
 # states each spec's own dependencies; the size of the set is the register's,
 # read by the lint rather than restated here.
-queue = []
+queue = [
+  { path = "docs/specs/first-published-analysis/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/product/briefs/inspectable-diligence-mvp.md" }, summary = "Apple quarterly net-sales year-over-year memo and evidence manifest from a pinned SEC Inline XBRL snapshot", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-evidence/spec.md" }] },
+]
 active = []
 shipped = [
   { path = "docs/specs/walking-skeleton-evidence/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/product/briefs/inspectable-diligence-mvp.md" }, summary = "Phase 1 evidence: browser stream and read surface, Phase 1 measurements, and analytical rebaseline", needs = [{ type = "local", kind = "spec", path = "docs/specs/walking-skeleton-foundation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-role-compilation/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-authority-containment/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-policy-decision-point/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-step-lifecycle/spec.md" }, { type = "local", kind = "spec", path = "docs/specs/walking-skeleton-run-state/spec.md" }] },
@@ -91,7 +93,7 @@ shipped = [
 draft     = []
 ready     = []
 executing = [
-  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Executing MVP brief; the walking skeleton is shipped and the next slice awaits owner confirmation", needs = [] },
+  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Executing MVP brief; the walking skeleton is shipped and approved slice 2 is queued", needs = [] },
 ]
 shipped   = []
 withdrawn = []
