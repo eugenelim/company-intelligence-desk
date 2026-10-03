@@ -18,6 +18,10 @@ this client.
 **Key format follows AC-0231 from the first write.** Keys are
 ``<OWNER_SCOPE>/<sha256_hex>`` of the serialized payload bytes. A bare content
 hash is never the key.
+
+**Owner scopes are closed.** The ``owner_scope`` parameter on write helpers
+accepts only the constants defined here. An unrecognised string is refused at
+write time so a typo never silently creates an orphaned scope.
 """
 
 from __future__ import annotations
@@ -35,6 +39,9 @@ from botocore.exceptions import ClientError
 __all__ = [
     "BUCKET_NAME",
     "OWNER_SCOPE",
+    "SNAPSHOT_SCOPE",
+    "READINESS_SCOPE",
+    "head_object",
     "read_payload",
     "read_payload_bytes",
     "write_payload",
@@ -44,8 +51,19 @@ __all__ = [
 #: The object store bucket all CED payload objects share.
 BUCKET_NAME = "ced-payloads"
 
-#: AC-0231's scope qualifier for payloads written by this spec.
+#: AC-0231's scope qualifier for payloads written by the walking-skeleton spec.
 OWNER_SCOPE = "ced-step-lifecycle"
+
+#: Scope for first-published-analysis snapshot manifests (AC-0404/AC-0411).
+SNAPSHOT_SCOPE = "ced-first-published-analysis-snapshot"
+
+#: Scope for the worker readiness sentinel (AC-0418).
+READINESS_SCOPE = "ced-readiness"
+
+#: The complete set of admitted owner scopes. A write to any other string is
+#: refused immediately, before any network call, so a mistyped scope never
+#: silently produces an unreachable object.
+_ADMITTED_SCOPES: frozenset[str] = frozenset({OWNER_SCOPE, SNAPSHOT_SCOPE, READINESS_SCOPE})
 
 _DEFAULT_ENDPOINT = "http://127.0.0.1:59000"
 _DEFAULT_ACCESS_KEY = "local_only_not_a_secret"
@@ -58,10 +76,10 @@ _SECRET_KEY_VAR = "CED_OBJECT_STORE_SECRET_KEY"
 _ENDPOINT_VAR = "CED_OBJECT_STORE_ENDPOINT"
 
 
-def write_payload(data: dict[str, Any]) -> str:
+def write_payload(data: dict[str, Any], *, owner_scope: str = OWNER_SCOPE) -> str:
     """Serialize ``data`` as canonical JSON, write to the object store, and return the key.
 
-    The key is ``<OWNER_SCOPE>/<sha256_hex>`` of the canonical bytes.
+    The key is ``<owner_scope>/<sha256_hex>`` of the canonical bytes.
     Content-addressed: the same data written twice produces the same key, so a
     crash-and-retry leaves one unreferenced object rather than two.
 
@@ -69,22 +87,33 @@ def write_payload(data: dict[str, Any]) -> str:
     it, which is the ordering r5 § 3 requires: a crash between the two writes
     leaves an unreferenced object rather than a dangling reference on a run
     that can never resume.
+
+    ``owner_scope`` must be one of the admitted scope constants. A caller that
+    passes an unrecognised value gets ``ValueError`` before any network call.
     """
     body = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
-    return write_payload_bytes(body)
+    return write_payload_bytes(body, owner_scope=owner_scope)
 
 
-def write_payload_bytes(body: bytes) -> str:
+def write_payload_bytes(body: bytes, *, owner_scope: str = OWNER_SCOPE) -> str:
     """Write raw ``body`` bytes to the object store and return the scope-qualified key.
 
-    The key is ``<OWNER_SCOPE>/<sha256_hex>`` of the bytes. Used for message
+    The key is ``<owner_scope>/<sha256_hex>`` of the bytes. Used for message
     history payloads whose bytes come from ``ModelMessagesTypeAdapter.dump_json``
-    rather than from ``json.dumps``.
+    rather than from ``json.dumps``, and for raw filing bytes stored by SHA-256.
 
     Content-addressed: same bytes → same key, so a crash-and-retry is safe.
+
+    ``owner_scope`` must be one of the admitted scope constants.
     """
+    if owner_scope not in _ADMITTED_SCOPES:
+        raise ValueError(
+            f"owner_scope {owner_scope!r} is not in the admitted set "
+            f"{sorted(_ADMITTED_SCOPES)}; add it to _ADMITTED_SCOPES if "
+            f"this scope is intentional"
+        )
     digest = hashlib.sha256(body).hexdigest()
-    key = f"{OWNER_SCOPE}/{digest}"
+    key = f"{owner_scope}/{digest}"
     client = _s3_client()
     _ensure_bucket(client)
     client.put_object(
@@ -94,6 +123,16 @@ def write_payload_bytes(body: bytes) -> str:
         ContentType="application/octet-stream",
     )
     return key
+
+
+def head_object(key: str) -> None:
+    """Assert that ``key`` exists in the object store.
+
+    Raises ``ClientError`` (NoSuchKey / 404) when the key is absent, and
+    propagates any other boto3 error. Used by the worker readiness check
+    (AC-0418) to verify the sentinel was successfully written.
+    """
+    _s3_client().head_object(Bucket=BUCKET_NAME, Key=key)
 
 
 def read_payload(key: str) -> dict[str, Any]:

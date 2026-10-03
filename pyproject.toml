@@ -78,6 +78,9 @@ ced-liveness = "ced.worker.liveness:run"
 # Phase 1 evidence commands: step-duration measurement, cancellation, quota.
 # Recorded in docs/specs/walking-skeleton-evidence/plan.md § T2 Touches.
 ced-evidence = "ced.worker.evidence:run"
+# SEC ingestion command: acquires an immutable evidence snapshot.
+# Recorded in docs/specs/first-published-analysis/plan.md § T1 Touches.
+ced-ingest = "ced.worker.ingestion:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
