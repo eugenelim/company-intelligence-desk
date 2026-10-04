@@ -962,3 +962,33 @@ Every local link in the guide was opened and resolves:
 `contracts/openapi/runs.yaml`,
 `docs/architecture/pydantic-ai-worker-runtime/operations.md#sec-acquisition`
 and `docs/specs/first-published-analysis/spec.md`.
+
+## T5 — AC-0417: the live SEC access observation (2026-10-04)
+
+The command ran once:
+`SEC_CONTACT=<runtime value> ced-ingest observe --out docs/specs/first-published-analysis/notes/sec-access.json`.
+It exited 0, and `notes/sec-access.json` is its unedited output. It made 60
+requests to `data.sec.gov` for the submissions document, through the
+Postgres request gate.
+
+| Field | Value |
+| --- | --- |
+| Planned / started attempts | 60 / 60 |
+| Target / minimum observed start interval | 1.0 s / 1.00009 s |
+| First-to-last start | 59.26 s |
+| Outcomes | 60 `success`, all `2xx` |
+| Retries | 0 on every attempt |
+| `blocked` | `false` |
+| Largest gate wait / largest request duration | 0.47 s / 0.21 s |
+
+What this does not establish: 60 seconds at one request a second says nothing
+about sustained or fleet-wide access. The record's `statement` field says the
+same.
+
+Redaction proof: the full runtime value, its email address, and that
+address's local part and domain were compared byte-for-byte with the record,
+captured stdout, captured stderr, every tracked or untracked file in the
+working tree, and the full patch history of every branch. None matched. The
+captures and the runtime value's file were then deleted. The value's other
+words also occur in the repository's own text, such as the project name, so
+they cannot discriminate.

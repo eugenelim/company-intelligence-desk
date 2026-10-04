@@ -282,3 +282,13 @@ never retries for a better result. `blocked: false` means 60 requests at one a
 second were all admitted. That is the whole claim. Sixty seconds of traffic do
 not show how SEC treats a sustained or fleet-wide load, and the record says so
 in its `statement` field.
+
+### Recorded observation
+
+The first live run was on 2026-10-04, and its unedited record is
+[`sec-access.json`](../../specs/first-published-analysis/notes/sec-access.json).
+All 60 attempts started, the smallest start interval was 1.00009 s, and every
+attempt returned `2xx` with no retry. `blocked` was `false`. As stated above,
+that covers one minute from one address and is not evidence about sustained
+or fleet-wide access.
+
