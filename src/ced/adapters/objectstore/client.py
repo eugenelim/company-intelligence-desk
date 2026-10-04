@@ -37,6 +37,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 __all__ = [
+    "ANALYSIS_SCOPE",
     "BUCKET_NAME",
     "OWNER_SCOPE",
     "SNAPSHOT_SCOPE",
@@ -60,10 +61,15 @@ SNAPSHOT_SCOPE = "ced-first-published-analysis-snapshot"
 #: Scope for the worker readiness sentinel (AC-0418).
 READINESS_SCOPE = "ced-readiness"
 
+#: Scope for the published analysis artifact (AC-0413).
+ANALYSIS_SCOPE = "ced-first-published-analysis"
+
 #: The complete set of admitted owner scopes. A write to any other string is
 #: refused immediately, before any network call, so a mistyped scope never
 #: silently produces an unreachable object.
-_ADMITTED_SCOPES: frozenset[str] = frozenset({OWNER_SCOPE, SNAPSHOT_SCOPE, READINESS_SCOPE})
+_ADMITTED_SCOPES: frozenset[str] = frozenset(
+    {OWNER_SCOPE, SNAPSHOT_SCOPE, READINESS_SCOPE, ANALYSIS_SCOPE}
+)
 
 _DEFAULT_ENDPOINT = "http://127.0.0.1:59000"
 _DEFAULT_ACCESS_KEY = "local_only_not_a_secret"

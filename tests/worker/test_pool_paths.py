@@ -29,6 +29,7 @@ import psycopg
 import pytest
 
 from ced.adapters.postgres import event_log
+from ced.adapters.postgres.dsn import database_url
 from ced.worker import pool
 
 pytestmark = pytest.mark.substrate
@@ -772,3 +773,91 @@ def test_the_drain_stops_the_body_before_surrendering_the_lease(
         f"still running. Observed {expiry_when_asked_to_stop[0]!r}, which is "
         f"earlier than the claim-time {claimed_expiry!r}"
     )
+
+
+# ── AC-0416 prep: analysis pool class does not claim default-class rows ───────
+
+
+_ANALYSIS_TEST_CLASS = "analysis-pool-paths-test"
+_ANALYSIS_ROLE = "first-published-analysis"
+_DEFAULT_PRINCIPAL = "pool-paths-principal"
+
+
+@pytest.fixture
+def analysis_step_row(require_substrate: None) -> Iterator[tuple[uuid.UUID, uuid.UUID]]:
+    """A runnable step with pool_class='analysis-pool-paths-test'.
+
+    Yields (run_id, step_id); cleans up on exit.
+    """
+    from ced.adapters.objectstore.client import SNAPSHOT_SCOPE, write_payload
+    from ced.adapters.postgres.event_log import start_run
+
+    run_id = uuid.uuid4()
+    step_id = uuid.uuid4()
+    snap_ref = write_payload(
+        {
+            "cik": "0000320193",
+            "as_of_date": "2026-07-31",
+            "snapshot_ref": "ced-first-published-analysis-snapshot/" + "c" * 64,
+        },
+        owner_scope=SNAPSHOT_SCOPE,
+    )
+    with psycopg.connect(database_url("api")) as conn:
+        start_run(
+            conn,
+            run_id=run_id,
+            step_id=step_id,
+            principal=_DEFAULT_PRINCIPAL,
+            agent_role=_ANALYSIS_ROLE,
+            pool_class=_ANALYSIS_TEST_CLASS,
+            payload_ref=snap_ref,
+        )
+    try:
+        yield run_id, step_id
+    finally:
+        with psycopg.connect(database_url("migration")) as conn:
+            conn.execute("DELETE FROM events WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM steps WHERE run_id = %s", (run_id,))
+            conn.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+            conn.commit()
+
+
+def test_analysis_step_pool_class_is_stored(
+    analysis_step_row: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """AC-0416 prep: start_run stores the supplied pool_class on the step.
+
+    Mutation: omitting pool_class from the INSERT would leave it at the
+    column default ('default'), which no analysis worker ever claims.
+    """
+    _run_id, step_id = analysis_step_row
+    with psycopg.connect(database_url("worker")) as conn:
+        row = conn.execute(
+            "SELECT pool_class FROM steps WHERE step_id = %s", (step_id,)
+        ).fetchone()
+    assert row is not None
+    assert row[0] == _ANALYSIS_TEST_CLASS, (
+        f"step pool_class should be {_ANALYSIS_TEST_CLASS!r}, got {row[0]!r}"
+    )
+
+
+def test_default_class_worker_does_not_claim_analysis_step(
+    analysis_step_row: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """AC-0416 prep: a default-class worker poll returns None for an analysis step.
+
+    Mutation: removing the pool_class predicate from claim_one's WHERE clause
+    would let a default-class worker claim any runnable step regardless of
+    its pool partition.
+    """
+    _run_id, step_id = analysis_step_row
+    default_config = _other_worker("default-class-worker", pool_class=pool.DEFAULT_POOL_CLASS)
+    with psycopg.connect(database_url("worker")) as conn:
+        lease = pool.claim_one(conn, default_config)
+
+    # The lease should be None, or it should not have claimed our step.
+    if lease is not None:
+        assert lease.step_id != step_id, (
+            f"default-class worker claimed the analysis step {step_id}; "
+            "the pool_class predicate is not working"
+        )

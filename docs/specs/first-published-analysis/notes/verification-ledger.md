@@ -553,3 +553,140 @@ result and the scale-6 input facts, and a non-increase refuses.
 | --- | --- | --- |
 | `test_memo_sentence_is_rendered_from_the_calculated_values` | sentence restored to the fixed string | red |
 | `test_a_non_increase_has_no_approved_sentence` | sentence restored to the fixed string | red |
+
+---
+
+## T3: An analysis-class worker publishes the deterministic artifact under the lease fence
+
+### AC-0412 — Request pinning: pool_class and payload_ref stored atomically
+
+**Guard: step row carries pool_class='analysis'.**
+Mutation: omit `pool_class` from the `INSERT INTO steps` statement in `start_run`.
+Red: `test_start_run_stores_pool_class_and_payload_ref` — `pool_class` assertion reads `'default'` or NULL.
+
+**Guard: run.requested event carries payload_ref.**
+Mutation: pass `None` instead of `payload_ref` to `append_run_event` in `start_run`.
+Red: `test_start_run_stores_pool_class_and_payload_ref` — `events[0].payload_ref` is `None`.
+
+**Guard: database failure leaves no run with dangling payload_ref.**
+Mutation: separate the step INSERT from the run INSERT with individual commits.
+Red: `test_database_failure_leaves_no_run_with_dangling_payload_ref` — `_counts` returns `(1, 0, 0)` (run row committed, no step or event).
+
+### AC-0413 — Analysis body: event ordering, artifact, and failure paths
+
+**Guard: event sequence is run.requested → step.started → step.completed → run.completed.**
+Mutation: remove the `step.started` append from `_analysis_body`.
+Red: `test_analysis_body_commits_ordered_events_and_artifact` — expected list has four types; actual list has three (step.started absent).
+
+Mutation: swap the `step.completed` and `run.completed` appends.
+Red: same test — list order assertion fails.
+
+**Guard: artifact stored under ANALYSIS_SCOPE.**
+Mutation: use OWNER_SCOPE as the scope for `write_payload_bytes(artifact_bytes, ...)`.
+Red: `test_analysis_artifact_resolves_by_digest` — `artifact_ref.startswith(ANALYSIS_SCOPE + "/")` fails.
+
+**Guard: artifact digest matches the key.**
+Mutation: write `b""` as the artifact bytes.
+Red: `test_analysis_artifact_resolves_by_digest` — SHA-256 of empty bytes disagrees with the hex in the key.
+
+**Guard: step.completed and run.completed share the artifact reference.**
+Mutation: pass different refs to the two appends.
+Red: `test_step_completed_and_run_completed_carry_same_artifact_ref` — equality assertion fails.
+
+**Guard: snapshot digest mismatch triggers step.failed + run.failed.**
+Mutation: remove the `snapshot_sha256 != expected_snapshot_sha256` check.
+Red: `test_snapshot_digest_mismatch_produces_failed_events` — the body proceeds past a corrupted snapshot and either raises an unhandled parse error or appends run.completed instead of run.failed.
+
+**Guard: filing digest mismatch (vs key) triggers step.failed + run.failed.**
+Mutation: remove the `filing_sha256 != expected_filing_key_sha256` check.
+Red: `test_filing_digest_mismatch_against_key_produces_failed_events` — the body proceeds past corrupted filing bytes.
+
+**Guard: manifest CIK mismatch triggers step.failed + run.failed.**
+Mutation: remove the `manifest.get("cik") != cik` check.
+Red: `test_manifest_cik_mismatch_produces_failed_events` — `build_published_analysis` runs against mismatched CIK and either raises or produces an artifact for the wrong company.
+
+**Guard: DiligenceError from build_published_analysis maps to step.failed + run.failed.**
+Mutation: swallow the exception and return without appending failure events.
+Red: `test_domain_error_produces_failed_events` — run stays non-terminal (no run.failed).
+
+**Guard: object-store failure during artifact write maps to step.failed + run.failed.**
+Mutation: swallow the write exception.
+Red: `test_artifact_store_failure_produces_failed_events` — run stays non-terminal.
+
+**Guard: analysis step not claimable by default-class worker.**
+Mutation: remove the `pool_class = %s` predicate from `claim_one`.
+Red: `test_analysis_step_is_not_claimable_by_default_class_worker` — claim_one returns the analysis step for a default-class config.
+
+### AC-0416 preparation — pool class partition
+
+**Guard: start_run stores the supplied pool_class.**
+Mutation: omit pool_class from start_run's step INSERT.
+Red: `test_analysis_step_pool_class_is_stored` — pool_class reads 'default'.
+
+**Guard: default-class worker does not claim analysis steps.**
+Mutation: remove pool_class predicate from claim_one.
+Red: `test_default_class_worker_does_not_claim_analysis_step` — default-class worker claims the analysis step.
+
+### AC-0418 — Object-store readiness: sentinel written and verified before poll
+
+**Guard: ensure_readiness writes the sentinel and calls HeadObject.**
+Mutation: remove the `head_object(key)` call from `ensure_readiness`.
+Red: `test_ensure_readiness_writes_and_heads_sentinel` — no error raised when the head call is absent, but the test also calls `head_object` directly; the real test for the guard is `test_readiness_head_failure_prevents_poll`.
+
+**Guard: HeadObject failure propagates from ensure_readiness.**
+Mutation: catch `ClientError` in `ensure_readiness` and continue.
+Red: `test_readiness_head_failure_prevents_poll` — no exception raised; the poll loop would start with an unverified sentinel.
+
+**Guard: put failure propagates from ensure_readiness.**
+Mutation: catch write failures in `ensure_readiness` and continue.
+Red: `test_readiness_put_failure_prevents_poll` — no exception raised.
+
+**Guard: ensure_readiness is called before run_forever.**
+Mutation: move the `ensure_readiness()` call inside `Worker.run_forever`.
+Red: `test_pool_run_dispatches_readiness_before_poll` — `call_log` shows `["run_forever", "readiness"]` instead of `["readiness", "run_forever"]`.
+
+**Guard: bucket-ensure failure propagates from pool.run() before run_forever.**
+Mutation: catch `ClientError` from `_ensure_bucket` inside `ensure_readiness` and continue.
+Red: `test_pool_run_propagates_bucket_ensure_failure` — no exception propagates from `pool.run()`; the seeded step would be claimed by `run_forever`.
+
+**Guard: put failure propagates from pool.run() before run_forever.**
+Mutation: catch the put `ClientError` inside `ensure_readiness` and continue.
+Red: `test_pool_run_propagates_put_failure` — no exception propagates; the step state advances past `runnable`.
+
+**Guard: HeadObject failure propagates from pool.run() before run_forever.**
+Mutation: catch `ClientError` from `head_object` inside `ensure_readiness` and continue.
+Red: `test_pool_run_propagates_head_failure` — no exception propagates; the step state advances past `runnable`.
+
+### Role dispatch and termination
+
+**Guard: unexpected agent_role commits step.started then appends fenced failure.**
+Mutation: remove the `lease.agent_role != ANALYSIS_ROLE` check.
+Red: `test_unexpected_role_produces_failed_events` — `step.failed` and `run.failed` are absent; the body attempts Phase 3 with the wrong role.
+
+**Guard: BedrockConverseModel is never constructed by the analysis body.**
+Mutation: construct `BedrockConverseModel` inside `_analysis_body`.
+Red: `test_model_executor_not_constructed_for_analysis_role` — the patched `__init__` fires `AssertionError`; the body raises instead of completing.
+
+**Guard: missing payload_ref commits step.started then appends fenced failure.**
+Mutation: restore the silent-return path for missing `payload_ref`.
+Red: `test_missing_payload_ref_produces_failed_events` — `step.failed` and `run.failed` are absent; the run is left in the `requested` state (non-terminal).
+
+### Filing digest vs manifest
+
+**Guard: manifest filing_sha256 mismatch triggers step.failed + run.failed.**
+Mutation: remove the `filing_sha256 != manifest_filing_sha256` check.
+Red: `test_filing_digest_mismatch_against_manifest_produces_failed_events` — the body passes the tampered lineage field to `build_published_analysis` without refusing it.
+
+### Fence and ordering mutations
+
+**Guard: Phase 4 completion appends are fenced on lease_epoch.**
+Mutation: omit `lease_epoch` from the `append_step_event` call in Phase 4, or pass a stale epoch.
+Red: `test_stale_epoch_on_phase4_append_leaves_run_nonterminal` — the injected `Fenced` exception (simulating a stale epoch) must leave `step.completed` absent from events; without the fence argument the DB procedure commits regardless of epoch and the test passes even with a stale epoch, making the guard invisible.
+
+**Guard: step.completed is appended before run.completed.**
+Mutation: swap the `append_step_event("step.completed")` and `append_run_terminal("run.completed")` calls in Phase 4.
+Red: `test_analysis_body_commits_ordered_events_and_artifact` — the exact-order assertion `["run.requested", "step.started", "step.completed", "run.completed"]` fails with the two terminal events swapped.
+
+**Guard: artifact is written before the completion appends.**
+Mutation: move `artifact_ref = write_payload_bytes(...)` to after the `append_step_event("step.completed")` call in Phase 4.
+Red: `test_artifact_store_failure_produces_failed_events` — with the write moved outside Phase 3's try block, a patched `write_payload_bytes` failure fires after `step.completed` is committed; the body propagates without calling `_append_failure`, so events include `step.completed` and `run.completed` — but the test asserts both are absent.

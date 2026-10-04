@@ -143,6 +143,9 @@ CRITERION_REACQUISITION_BOUND_SECONDS = 150
 #: r7 change 3. One class in MVP, so the predicate narrows nothing yet.
 DEFAULT_POOL_CLASS = "default"
 
+#: Pool class for deterministic analysis runs (AC-0413, AC-0418).
+ANALYSIS_POOL_CLASS = "analysis"
+
 #: The two deploy-time variables `role-configuration-seams` § 6 adds. Both are
 #: **required with no in-code default**: § 6 assigns them to deployment-time
 #: configuration whose change alters failure behaviour, and a silent default is
@@ -834,7 +837,21 @@ def run() -> None:
     )
     # Validate, then verify the connections, then construct: a worker is never
     # built from a configuration the boot check has not already admitted.
-    worker = Worker(verify_boot(os.environ))
+    config = verify_boot(os.environ)
+
+    step_body: StepBody | None = None
+    if config.pool_class == ANALYSIS_POOL_CLASS:
+        # AC-0418: object-store readiness check runs after DB boot and before
+        # the poll loop. A failure here prevents the loop from starting.
+        # The import is local so pool.py carries no top-level boto3 dependency;
+        # the fault-injection workers (pool_class='fault-injection') never reach
+        # this branch and remain unchanged.
+        from ced.worker.analysis import ensure_readiness, make_analysis_step_body
+
+        ensure_readiness()
+        step_body = make_analysis_step_body()
+
+    worker = Worker(config, step_body)
     worker.install_signal_handlers()
     try:
         worker.run_forever()
