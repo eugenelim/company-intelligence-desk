@@ -1137,9 +1137,9 @@ later slices.
 | --- | --- | --- |
 | Two append paths and three definer functions | The privilege split | **Built** |
 | `fence_step` owned by a `NOLOGIN` role | Possession-proving fence | **Built** |
-| Partial unique index on `(run_id, idempotency_key)` over `tool.invoked` | Additive index over an existing payload field | Owed |
-| Nullable `steps.pool_class`, plus one claim predicate | Narrows the candidate set, does not reorder locks | **Built** |
-| Nullable `owner_scope` on four tables | Inert, read by nothing | Owed |
+| Partial unique index on `(run_id, idempotency_key)` over `tool.invoked` | Additive index over an existing payload field | **Built** |
+| `steps.pool_class`, `NOT NULL DEFAULT 'default'`, plus one claim predicate | Narrows the candidate set, does not reorder locks | **Built** |
+| `owner_scope` on four tables, `NOT NULL DEFAULT 'default'` | Additive; no authorization check reads it yet | **Built** |
 | `awaiting_input` state with its two events | No stored state to migrate; states derive from events | Owed |
 
 **No downgrade path is offered, by policy.** Migrations are expand-then-contract,

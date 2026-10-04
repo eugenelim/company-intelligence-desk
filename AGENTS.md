@@ -380,7 +380,9 @@ SEC_CONTACT='<declared client>' ./.venv/bin/ced-ingest            # live SEC fet
 SEC_CONTACT='<declared client>' ./.venv/bin/ced-ingest observe --out <path>
 ```
 
-Both live forms refuse without `SEC_CONTACT`. The value is sent only as the
+`--offline-fixture` reads the two committed files under `tests/fixtures/`, so it
+works only from a source checkout; an installed package, including the worker
+image, refuses it. Both live forms refuse without `SEC_CONTACT`. The value is sent only as the
 request's declared client, and the command never writes it to a log, record or
 stored object. `observe` sends 60 live requests, one a second, and writes the
 access record described in

@@ -669,3 +669,247 @@ def test_stable_fragment_selection_among_identical_duplicates() -> None:
     facts_by_context = {f.context: f for f in artifact.evidence_manifest.facts}
     assert facts_by_context["c-18"].source_fragment == "#f-381"
     assert facts_by_context["c-19"].source_fragment == "#f-382"
+
+
+# ---------------------------------------------------------------------------
+# Sustained finding guards — filing-derived value validation
+#
+# Each test feeds a modified fixture and asserts DiligenceError.
+# Mutation→red: removing the guard causes build_published_analysis to
+# succeed, so the pytest.raises block raises Failed instead.
+# ---------------------------------------------------------------------------
+
+
+def test_fact_id_missing_raises_diligence_error() -> None:
+    """Guard: ix:nonFraction id is required.
+
+    Mutation — remove the id-required check: fact id becomes empty string,
+    source_fragment becomes '#', build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(b' id="f-56"', b"", 1)
+    with pytest.raises(DiligenceError, match="id"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_fact_id_invalid_pattern_raises_diligence_error() -> None:
+    """Guard: ix:nonFraction id must match [A-Za-z_][A-Za-z0-9_.-]{0,127}.
+
+    Mutation — remove the pattern check: id '0invalid' is accepted,
+    source_fragment '#0invalid' still fails _SOURCE_FRAGMENT_PATTERN in
+    the lineage validator, but build_published_analysis itself succeeds.
+    """
+    modified = recorded_filing().replace(b'id="f-56"', b'id="0invalid"', 1)
+    with pytest.raises(DiligenceError, match="pattern"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_fact_id_duplicate_raises_diligence_error() -> None:
+    """Guard: ix:nonFraction ids must be unique in the filing.
+
+    Mutation — remove the duplicate check: two facts share id 'f-56',
+    _extract_fact still selects the lexically-minimum id for each context,
+    build_published_analysis succeeds with valid source fragments.
+    """
+    # Change c-19's first fact id from f-57 to f-56 (already used by c-18).
+    modified = recorded_filing().replace(b'id="f-57"', b'id="f-56"', 1)
+    with pytest.raises(DiligenceError, match="duplicate"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_fact_sign_attribute_raises_diligence_error() -> None:
+    """Guard: ix:nonFraction must not carry a sign attribute.
+
+    Mutation — remove the sign check: sign='-' is silently ignored, the
+    parser does not negate the value, build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(
+        b'format="ixt:num-dot-decimal" scale="6" id="f-56"',
+        b'format="ixt:num-dot-decimal" scale="6" id="f-56" sign="-"',
+        1,
+    )
+    with pytest.raises(DiligenceError, match="sign"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_fact_wrong_format_raises_diligence_error() -> None:
+    """Guard: ix:nonFraction format must be exactly 'ixt:num-dot-decimal'.
+
+    Mutation — remove the format check: a fact with format='ixt:num-comma-decimal'
+    is accepted and build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(
+        b'format="ixt:num-dot-decimal"',
+        b'format="ixt:num-comma-decimal"',
+        1,
+    )
+    with pytest.raises(DiligenceError, match="format"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_fact_missing_format_raises_diligence_error() -> None:
+    """Guard: ix:nonFraction format is required (None != 'ixt:num-dot-decimal').
+
+    Mutation — remove the format check: a fact with no format attribute
+    is accepted and build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(b' format="ixt:num-dot-decimal"', b"", 1)
+    with pytest.raises(DiligenceError, match="format"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_context_start_date_not_iso_raises_diligence_error() -> None:
+    """Guard: xbrli:startDate must match YYYY-MM-DD before fromisoformat.
+
+    Mutation — skip _parse_iso_date for start date: '26-03-29' is copied
+    raw into Period.start_date and build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(
+        b"<xbrli:startDate>2026-03-29</xbrli:startDate>",
+        b"<xbrli:startDate>26-03-29</xbrli:startDate>",
+        1,
+    )
+    with pytest.raises(DiligenceError, match="YYYY-MM-DD"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_context_start_date_wrong_value_raises_diligence_error() -> None:
+    """Guard: startDate must equal the canonical expected start for each context.
+
+    Mutation — remove the value check: '2026-03-30' parses as a valid ISO
+    date and build_published_analysis succeeds, silently accepting a wrong
+    period that could misidentify the quarter.
+    """
+    modified = recorded_filing().replace(
+        b"<xbrli:startDate>2026-03-29</xbrli:startDate>",
+        b"<xbrli:startDate>2026-03-30</xbrli:startDate>",
+        1,
+    )
+    with pytest.raises(DiligenceError, match="period start"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_context_with_segment_raises_diligence_error() -> None:
+    """Guard: xbrli:segment inside a context entity marks non-consolidated — refused.
+
+    Mutation — remove the segment check: a segmented (non-consolidated)
+    context is accepted and build_published_analysis succeeds.
+    """
+    # Insert <xbrli:segment/> inside c-18's entity before </xbrli:entity>.
+    modified = recorded_filing().replace(
+        b"0000320193</xbrli:identifier>\n      </xbrli:entity>",
+        b"0000320193</xbrli:identifier>\n        <xbrli:segment/>\n      </xbrli:entity>",
+        1,
+    )
+    with pytest.raises(DiligenceError, match="segment"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_fact_value_with_non_numeric_characters_raises_diligence_error() -> None:
+    """Guard: display value must contain only digits and commas.
+
+    Mutation — remove the _DISPLAY_VALUE_RE.fullmatch check: '109e3' passes
+    Decimal() as 109000, which is still a positive increase, and
+    build_published_analysis succeeds with the wrong computed value.
+    Replace all three identical copies to avoid the conflicting-duplicate
+    guard firing first.
+    """
+    # '109e3' contains 'e' — fails ^[0-9,]+$ but parses as Decimal(109000).
+    modified = recorded_filing().replace(b">109,417<", b">109e3<")
+    with pytest.raises(DiligenceError, match="display value"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_fragment_only_hash_makes_claim_unresolved() -> None:
+    """Guard: source_fragment must match '#' + valid id pattern in lineage validator.
+
+    '#' alone is non-empty but does not match _SOURCE_FRAGMENT_PATTERN.
+    Mutation — revert to 'if not fact.source_fragment': '#' is truthy and
+    the claim would not be flagged, so unresolved_claim_ids() returns ().
+    """
+    artifact = build_published_analysis(
+        filing_html=recorded_filing(),
+        filing_sha256=FILING_CONTENT_HASH,
+        source_url=_SOURCE_URL,
+        as_of_date=_AS_OF_DATE,
+    )
+    old_fact = artifact.evidence_manifest.facts[0]
+    bad_fact = dataclasses.replace(old_fact, source_fragment="#")
+    bad_manifest = dataclasses.replace(
+        artifact.evidence_manifest,
+        facts=(bad_fact, artifact.evidence_manifest.facts[1]),
+    )
+    bad = dataclasses.replace(artifact, evidence_manifest=bad_manifest)
+
+    assert bad.unresolved_claim_ids() != ()
+    with pytest.raises(DiligenceError):
+        canonical_bytes(bad)
+
+
+def test_canonical_bytes_digest_matches_pinned_value() -> None:
+    """All guards remain open for canonical inputs: artifact digest is stable.
+
+    Verifies that the filing-derived validation changes do not alter the
+    canonical artifact bytes.  A changed digest here means a guard altered
+    output for valid input, which would break AC-0410 replay equivalence.
+    """
+    artifact = build_published_analysis(
+        filing_html=recorded_filing(),
+        filing_sha256=FILING_CONTENT_HASH,
+        source_url=_SOURCE_URL,
+        as_of_date=_AS_OF_DATE,
+    )
+    raw = canonical_bytes(artifact)
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "9aaf1714a11e183c5cc4b8534872779f9e6a895fe2b494aeb4669b09ced3896f"
+    )

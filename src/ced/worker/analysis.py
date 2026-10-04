@@ -148,15 +148,14 @@ def _analysis_body(lease: Lease, stop: threading.Event) -> None:
     with psycopg.connect(database_url("worker")) as conn:
         try:
             principal = read_run_principal(conn, run_id=lease.run_id)
-        except Exception:
-            # Cannot read the principal: no event can be built without it.
-            # The pool still records the step as failed via release; the run
-            # is left non-terminal, which is unavoidable without a principal.
+        except Exception as exc:
+            # No event can be built without the principal, so the run stays
+            # non-terminal. Raising makes the pool record the step as failed.
             log.error(
                 "analysis: could not read principal for run %s — abandoning",
                 lease.run_id,
             )
-            return
+            raise _AnalysisBodyFailed("principal unreadable") from exc
 
         row = conn.execute(
             "SELECT payload_ref FROM events"

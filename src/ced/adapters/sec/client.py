@@ -312,11 +312,18 @@ class _GatedSecConnection(http_client.HTTPSConnection):
         # Retain the original SEC hostname for TLS certificate verification.
         try:
             self.sock = self._wrap(raw_sock, server_hostname=self._sec_host)
-        except ssl.SSLError as exc:
+        except (ssl.SSLError, TimeoutError, OSError) as exc:
             try:
                 raw_sock.close()
             except Exception:
                 pass
+            # TimeoutError from wrap_socket is a handshake timeout; map to
+            # connect_timeout.  ssl.SSLError is a TLS verification failure.
+            if isinstance(exc, TimeoutError):
+                raise SecClientError(
+                    "TLS handshake timeout",
+                    no_response_class="connect_timeout",
+                ) from exc
             raise SecClientError(
                 "TLS verification failed",
                 no_response_class="tls",
@@ -498,7 +505,7 @@ def fetch_url(
             cls = _http_status_class(status)
             http_status_class = cls
 
-            if status in (301, 302, 303, 307, 308):
+            if 300 <= status <= 399:
                 stop_condition = "redirect"
                 raise SecRedirectError(
                     f"server returned HTTP {status} (redirect); this client follows no redirect"
@@ -604,7 +611,7 @@ def _real_fetch(
                 "read timeout",
                 no_response_class="read_timeout",
             ) from exc
-        except OSError as exc:
+        except (OSError, http_client.HTTPException) as exc:
             raise SecClientError(
                 "request failed",
                 no_response_class="read_timeout",
@@ -644,6 +651,11 @@ def _real_fetch(
             except TimeoutError as exc:
                 raise SecClientError(
                     "read timeout during body",
+                    no_response_class="read_timeout",
+                ) from exc
+            except (OSError, http_client.HTTPException) as exc:
+                raise SecClientError(
+                    "read error during body",
                     no_response_class="read_timeout",
                 ) from exc
             if not chunk:

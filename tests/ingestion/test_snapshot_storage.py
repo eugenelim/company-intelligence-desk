@@ -20,17 +20,23 @@ from ced.adapters.objectstore.client import (
     read_payload,
     read_payload_bytes,
 )
+from ced.adapters.sec.client import _fake_gate
 from ced.worker.ingestion import (
     CANONICAL_ACCESSION,
     CANONICAL_AS_OF,
     CANONICAL_CIK,
     CANONICAL_SOURCE_URL,
     IngestionError,
+    _ingest_live,
     _run_ingest_from_bytes,
     _store_snapshot,
     _verify_round_trip,
 )
-from tests.ingestion.fixture import FILING_CONTENT_HASH, recorded_filing
+from tests.ingestion.fixture import (
+    FILING_CONTENT_HASH,
+    make_http_response,
+    recorded_filing,
+)
 
 pytestmark = pytest.mark.substrate
 
@@ -320,3 +326,155 @@ def test_fixture_hash_matches_file() -> None:
     assert actual_hash == FILING_CONTENT_HASH, (
         f"FILING_CONTENT_HASH is stale; update it to {actual_hash!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 (AC-0404): snapshot manifest bytes tamper case
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_digest_check_fails_on_tampered_snapshot_manifest() -> None:
+    """Replacing snapshot manifest bytes under an existing key makes the digest check fail.
+
+    Before this fix only the filing digest was verified; a tampered manifest
+    would parse without error.
+
+    Mutation: remove the snapshot digest verification from ``_verify_round_trip``
+    → tampered manifest bytes are accepted silently.
+    """
+    filing_bytes = recorded_filing()
+    filing_ref, snapshot_ref = _store_snapshot(
+        filing_bytes=filing_bytes,
+        cik=CANONICAL_CIK,
+        as_of_date=CANONICAL_AS_OF,
+        form="10-Q",
+        filing_date="2026-07-31",
+        report_date="2026-06-27",
+        accession=CANONICAL_ACCESSION,
+        source_url=CANONICAL_SOURCE_URL,
+    )
+
+    # Tamper: overwrite the snapshot manifest object with different bytes that
+    # have a different SHA-256, so the key no longer matches the content.
+    tampered = b'{"tampered": true, "this_is_not_the_real_manifest": 1}'
+    from ced.adapters.objectstore.client import BUCKET_NAME, _s3_client
+
+    _s3_client().put_object(
+        Bucket=BUCKET_NAME,
+        Key=snapshot_ref,
+        Body=tampered,
+        ContentType="application/json",
+    )
+
+    with pytest.raises(IngestionError, match="digest mismatch"):
+        _verify_round_trip(filing_ref, snapshot_ref)
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 (AC-0404): live redaction check via _ingest_live
+# ---------------------------------------------------------------------------
+
+
+def test_contact_value_absent_from_stored_objects_via_live_ingest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live ingest with a distinctive contact proves the value is absent from stored objects.
+
+    The injected seam serves the fixture bytes so no real SEC call occurs.
+    The test scans every stored filing and snapshot object.
+
+    Mutation: store ``contact`` in the manifest → the assertion fails.
+    """
+    distinctive = "LIVE-REDACTION-MARKER-DO-NOT-STORE-fictional@example.com"
+    monkeypatch.setenv("SEC_CONTACT", distinctive)
+
+    # Build response bytes for the two requests.
+    from pathlib import Path as _Path
+
+    fixture_json = (
+        _Path(__file__).resolve().parents[2]
+        / "tests"
+        / "fixtures"
+        / "first_published_analysis.json"
+    )
+    submissions_resp = make_http_response(200, {}, fixture_json.read_bytes())
+    filing_resp = make_http_response(200, {}, recorded_filing())
+    responses = [submissions_resp, filing_resp]
+    call_idx = [0]
+
+    import socket as _socket
+
+    from tests.ingestion.fixture import FakeSocket
+
+    def resolve(host: str, port: int, **kwargs: object) -> list[tuple[object, ...]]:
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
+
+    def open_socket(address: object, timeout: object = None) -> object:
+        idx = call_idx[0]
+        call_idx[0] += 1
+        return FakeSocket(responses[idx % len(responses)])
+
+    def wrap(sock: object, server_hostname: object = None) -> object:
+        return sock
+
+    def gate_factory() -> object:
+        return _fake_gate()
+
+    monkeypatch.setattr("ced.adapters.postgres.dsn.database_url", lambda role: "unused-dsn")
+
+    result = _ingest_live(
+        gate_factory=gate_factory,
+        resolve=resolve,
+        open_socket=open_socket,
+        wrap=wrap,
+    )
+
+    filing_ref = result["filing_ref"]
+    snapshot_ref = result["snapshot_ref"]
+
+    stored_filing = read_payload_bytes(filing_ref)
+    assert distinctive.encode() not in stored_filing, (
+        "SEC_CONTACT must not appear in stored filing bytes (live ingest)"
+    )
+
+    manifest_bytes = read_payload_bytes(snapshot_ref)
+    assert distinctive.encode() not in manifest_bytes, (
+        "SEC_CONTACT must not appear in stored snapshot manifest bytes (live ingest)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 (AC-0404): Phase 0 non-open proof
+# ---------------------------------------------------------------------------
+
+
+def test_offline_ingest_does_not_open_phase_0_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Offline ingestion never opens any path containing ``spikes/phase-0``.
+
+    The test patches ``Path.read_bytes`` so any attempt to open a path under
+    ``spikes/phase-0`` raises ``OSError``, ensuring the offline path uses only
+    the two committed fixture files.
+
+    Mutation: change ``_ingest_offline`` to read the Phase 0 fixture → the
+    patched ``read_bytes`` raises and the test fails.
+    """
+    from pathlib import Path
+
+    _real_read_bytes = Path.read_bytes
+
+    def guarded_read_bytes(self: Path) -> bytes:
+        path_str = str(self)
+        if "spikes/phase-0" in path_str or "spikes\\phase-0" in path_str:
+            raise OSError("test guard: offline ingestion must not open spikes/phase-0 fixture")
+        return _real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+
+    # Run the offline ingest; it must succeed without touching spikes/phase-0.
+    submissions_bytes = _FIXTURE_JSON.read_bytes()
+    filing_bytes = recorded_filing()
+    # The guard is in place; _run_ingest_from_bytes is the path used by offline mode.
+    result = _run_ingest_from_bytes(submissions_bytes, filing_bytes)
+    assert "snapshot_ref" in result

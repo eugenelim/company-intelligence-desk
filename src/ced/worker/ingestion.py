@@ -21,8 +21,12 @@ Two modes:
     ``SEC_CONTACT``.  Do not edit the output — its fields are generated.
 
 Both ingest modes print one JSON line to stdout:
-    ``{"snapshot_ref": "<scope>/<hex>", "cik": "...", "accession": "...",
-       "form": "...", "filing_date": "...", "as_of_date": "..."}``
+    ``{"snapshot_ref": "<scope>/<hex>", "filing_ref": "<scope>/<hex>",
+       "cik": "...", "accession": "...", "form": "...",
+       "filing_date": "...", "as_of_date": "..."}``
+
+Live mode additionally includes ``"attempts": [...]`` — a list of redacted
+``AttemptRecord`` dicts, one per SEC request made (submissions then filing).
 
 AC-0401, AC-0404, AC-0405.
 """
@@ -49,6 +53,9 @@ __all__ = [
     "CANONICAL_SOURCE_URL",
     "PRIMARY_DOC_PATTERN",
     "IngestionError",
+    "_normalize_cik",
+    "_validate_submissions_cik",
+    "_validate_accession_filer_prefix",
     "ingest",
     "run",
 ]
@@ -103,7 +110,7 @@ class IngestionError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def _validate_primary_doc(doc: str, cik: str, accession: str) -> str:
+def _validate_primary_doc(doc: str) -> str:
     """Validate and return the normalised primary-document basename (AC-0401).
 
     Refuses an absolute URL, userinfo, dot segment, path separator, traversal,
@@ -143,10 +150,60 @@ def _validate_primary_doc(doc: str, cik: str, accession: str) -> str:
     return doc
 
 
+def _normalize_cik(raw: str) -> str:
+    """Normalise a CIK to its zero-padded 10-digit canonical form.
+
+    SEC submissions JSON may return a bare integer string ("320193") or the
+    padded form ("0000320193"); both normalise to the same value so they can
+    be compared.
+    """
+    stripped = raw.strip()
+    # Strip leading zeros, then re-pad to 10 digits.
+    return stripped.lstrip("0").zfill(10)
+
+
+def _validate_submissions_cik(submissions: dict[str, object], required_cik: str) -> None:
+    """Refuse when the submissions document's own CIK disagrees with required_cik.
+
+    Normalises zero-padding before comparing so "320193" == "0000320193".
+    Raises ``IngestionError`` before any filing request or write (AC-0401).
+    """
+    raw_cik = submissions.get("cik")
+    if raw_cik is None:
+        raise IngestionError(
+            "submissions document has no 'cik' field: refusing before any filing request"
+        )
+    found_norm = _normalize_cik(str(raw_cik))
+    required_norm = _normalize_cik(required_cik)
+    if found_norm != required_norm:
+        raise IngestionError(
+            "submissions document CIK does not match the canonical CIK: "
+            "refusing before any filing request"
+        )
+
+
+def _validate_accession_filer_prefix(accession: str, required_cik: str) -> None:
+    """Refuse when the accession's filer prefix differs from the canonical CIK.
+
+    The accession format is ``XXXXXXXXXX-YY-ZZZZZZ``; the first segment is the
+    zero-padded 10-digit CIK of the filer.  Raises ``IngestionError`` before
+    any filing request or write (AC-0401).
+    """
+    # Use the dashed form; if no dash, reconstruct.
+    if "-" in accession:
+        filer_prefix = accession.split("-")[0]
+    else:
+        filer_prefix = accession[:10]
+    if _normalize_cik(filer_prefix) != _normalize_cik(required_cik):
+        raise IngestionError(
+            "accession filer prefix does not match the canonical CIK: "
+            "refusing before any filing request"
+        )
+
+
 def _select_filing(
     recent: dict[str, list[Any]],
     as_of_date: str,
-    required_cik: str,
     required_accession: str,
 ) -> dict[str, str]:
     """Select the target filing from the submission metadata parallel arrays.
@@ -166,7 +223,7 @@ def _select_filing(
     bare_acc = required_accession.replace("-", "")
 
     n = len(recent["accessionNumber"])
-    found: dict[str, str] | None = None
+    matches: list[dict[str, str]] = []
 
     for i in range(n):
         acc_raw = str(recent["accessionNumber"][i])
@@ -194,20 +251,26 @@ def _select_filing(
         else:
             acc_dashed = acc_raw
 
-        found = {
-            "accession": acc_dashed,
-            "filing_date": filing_date,
-            "report_date": report_date,
-            "form": form,
-            "primary_doc": primary_doc,
-        }
-        break
+        matches.append(
+            {
+                "accession": acc_dashed,
+                "filing_date": filing_date,
+                "report_date": report_date,
+                "form": form,
+                "primary_doc": primary_doc,
+            }
+        )
 
-    if found is None:
+    if len(matches) == 0:
         raise IngestionError(
             f"accession {required_accession!r} not found in submission metadata"
         )
-    return found
+    if len(matches) > 1:
+        raise IngestionError(
+            f"accession {required_accession!r} matched {len(matches)} entries in "
+            f"submission metadata; refusing ambiguous selection before any filing request"
+        )
+    return matches[0]
 
 
 # ---------------------------------------------------------------------------
@@ -328,15 +391,23 @@ def ingest(
 
 def _ingest_offline() -> dict[str, str]:
     """Read from committed fixture files; validate selection; store snapshot."""
-    # Read fixture files.
+    # Read fixture files.  The fixtures live in the source tree and are not
+    # installed with the package; refuse with a path-free message so the
+    # absolute source-tree path does not appear in any error output.
     try:
         submissions_bytes = _FIXTURE_JSON.read_bytes()
     except OSError as exc:
-        raise IngestionError(f"cannot read offline submissions fixture: {exc}") from exc
+        raise IngestionError(
+            "error: --offline-fixture needs a source checkout; "
+            "the fixture is not installed with the package"
+        ) from exc
     try:
         filing_bytes = _FIXTURE_HTML.read_bytes()
     except OSError as exc:
-        raise IngestionError(f"cannot read offline filing fixture: {exc}") from exc
+        raise IngestionError(
+            "error: --offline-fixture needs a source checkout; "
+            "the fixture is not installed with the package"
+        ) from exc
 
     return _run_ingest_from_bytes(submissions_bytes, filing_bytes)
 
@@ -344,10 +415,21 @@ def _ingest_offline() -> dict[str, str]:
 def _ingest_live(
     *,
     gate_factory: Any = None,
+    resolve: Any = None,
+    open_socket: Any = None,
+    wrap: Any = None,
 ) -> dict[str, str]:
-    """Fetch from SEC, validate selection, store snapshot."""
+    """Fetch from SEC, validate selection, store snapshot.
+
+    Returns the result dict including ``"attempts"`` (list of redacted
+    ``AttemptRecord`` dicts, one per SEC request made).  Raises
+    ``IngestionError`` for validation failures or ``SecClientError`` for
+    transport/configuration failures; in both cases the caller can inspect
+    ``attempt_records`` on the raised exception when set.
+    """
     from ced.adapters.postgres.dsn import database_url
     from ced.adapters.sec.client import (
+        SecClientError,
         acquire_contact,
         fetch_filing,
         fetch_submissions,
@@ -363,45 +445,72 @@ def _ingest_live(
         def gate_factory() -> Any:
             return open_postgres_gate(dsn)
 
-    # Fetch submissions — no injectable transport; live path only.
-    submissions_bytes, _sub_record = fetch_submissions(
-        CANONICAL_CIK,
-        contact,
-        gate_factory(),
-    )
+    attempt_records: list[dict[str, object]] = []
 
-    # Parse and select filing.
     try:
-        submissions = json.loads(submissions_bytes)
-    except json.JSONDecodeError as exc:
-        raise IngestionError(f"submissions JSON is not valid: {exc}") from exc
-
-    recent = submissions.get("filings", {}).get("recent", {})
-    filing_info = _select_filing(recent, CANONICAL_AS_OF, CANONICAL_CIK, CANONICAL_ACCESSION)
-    primary_doc = _validate_primary_doc(
-        filing_info["primary_doc"],
-        CANONICAL_CIK,
-        filing_info["accession"],
-    )
-
-    # Validate the primary document matches the canonical one.
-    if primary_doc != CANONICAL_PRIMARY_DOC:
-        raise IngestionError(
-            f"primary document from submissions {primary_doc!r} does not match "
-            f"the canonical {CANONICAL_PRIMARY_DOC!r}: refusing"
+        # Fetch submissions.
+        submissions_bytes, sub_record = fetch_submissions(
+            CANONICAL_CIK,
+            contact,
+            gate_factory(),
+            resolve=resolve,
+            open_socket=open_socket,
+            wrap=wrap,
         )
+        attempt_records.append(sub_record.to_dict())
 
-    # Fetch the filing — no injectable transport; live path only.
-    filing_bytes, _fil_record = fetch_filing(
-        CANONICAL_SOURCE_URL,
-        contact,
-        gate_factory(),
-    )
+        # Parse and select filing.
+        try:
+            submissions = json.loads(submissions_bytes)
+        except json.JSONDecodeError as exc:
+            raise IngestionError(f"submissions JSON is not valid: {exc}") from exc
 
-    return _store_and_return(
+        # Refuse submissions whose CIK disagrees with the canonical CIK (AC-0401).
+        _validate_submissions_cik(submissions, CANONICAL_CIK)
+
+        recent = submissions.get("filings", {}).get("recent", {})
+        filing_info = _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+        # Refuse if the selected accession's filer prefix does not match (AC-0401).
+        _validate_accession_filer_prefix(filing_info["accession"], CANONICAL_CIK)
+
+        primary_doc = _validate_primary_doc(filing_info["primary_doc"])
+
+        # Validate the primary document matches the canonical one.
+        if primary_doc != CANONICAL_PRIMARY_DOC:
+            raise IngestionError(
+                f"primary document from submissions {primary_doc!r} does not match "
+                f"the canonical {CANONICAL_PRIMARY_DOC!r}: refusing"
+            )
+
+        # Fetch the filing.
+        filing_bytes, fil_record = fetch_filing(
+            CANONICAL_SOURCE_URL,
+            contact,
+            gate_factory(),
+            resolve=resolve,
+            open_socket=open_socket,
+            wrap=wrap,
+        )
+        attempt_records.append(fil_record.to_dict())
+
+    except (IngestionError, SecClientError) as exc:
+        # If a SecClientError carries its own attempt_record (singular), include it.
+        single = getattr(exc, "attempt_record", None)
+        if single is not None and single.to_dict() not in attempt_records:
+            attempt_records.append(single.to_dict())
+        # Attach the gathered list so the CLI can emit it before the error line.
+        # attempt_records is a dynamic field added only on the live path; both
+        # IngestionError and SecClientError allow __dict__ assignment.
+        exc.attempt_records = attempt_records  # type: ignore[union-attr]
+        raise
+
+    result = _store_and_return(
         filing_bytes=filing_bytes,
         filing_info=filing_info,
     )
+    result["attempts"] = attempt_records  # type: ignore[assignment]
+    return result
 
 
 def _run_ingest_from_bytes(
@@ -415,13 +524,16 @@ def _run_ingest_from_bytes(
     except json.JSONDecodeError as exc:
         raise IngestionError(f"submissions JSON is not valid: {exc}") from exc
 
+    # Refuse submissions whose CIK disagrees with the canonical CIK (AC-0401).
+    _validate_submissions_cik(submissions, CANONICAL_CIK)
+
     recent = submissions.get("filings", {}).get("recent", {})
-    filing_info = _select_filing(recent, CANONICAL_AS_OF, CANONICAL_CIK, CANONICAL_ACCESSION)
-    _validate_primary_doc(
-        filing_info["primary_doc"],
-        CANONICAL_CIK,
-        filing_info["accession"],
-    )
+    filing_info = _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+    # Refuse if the selected accession's filer prefix does not match (AC-0401).
+    _validate_accession_filer_prefix(filing_info["accession"], CANONICAL_CIK)
+
+    _validate_primary_doc(filing_info["primary_doc"])
 
     return _store_and_return(
         filing_bytes=filing_bytes,
@@ -572,9 +684,18 @@ def run() -> None:
         sys.exit(_cmd_observe(args))
 
     # Default: ingest mode.
+    from ced.adapters.sec.client import SecClientError
+
     try:
         result = ingest(offline=args.offline_fixture)
-    except IngestionError as exc:
+    except (IngestionError, SecClientError) as exc:
+        # On live failures the exception may carry attempt records gathered
+        # before the failure; write them as one JSON line before the message.
+        attempt_records: list[dict[str, object]] | None = getattr(exc, "attempt_records", None)
+        if attempt_records:
+            sys.stderr.write(json.dumps({"attempts": attempt_records}) + "\n")
+        # The message must never contain the contact value; the contact is
+        # never included in IngestionError or SecClientError messages.
         sys.stderr.write(f"error: {exc}\n")
         sys.exit(1)
 

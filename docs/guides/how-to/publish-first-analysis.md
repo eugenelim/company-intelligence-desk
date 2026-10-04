@@ -45,6 +45,10 @@ structured facts, so this step makes no network call:
 ./.venv/bin/ced-ingest --offline-fixture | tee snapshot.json
 ```
 
+The fixture lives in the source tree under `tests/fixtures/` and is not
+installed with the package, so this mode needs a source checkout. Elsewhere
+the command refuses with `error: --offline-fixture needs a source checkout`.
+
 It prints one JSON line. `snapshot_ref` names the stored snapshot. The other
 fields name the filing: CIK `0000320193`, form `10-Q`, accession
 `0000320193-26-000020`, filed and as of `2026-07-31`.

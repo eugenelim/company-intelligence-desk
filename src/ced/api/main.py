@@ -19,12 +19,12 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from ced.adapters.objectstore.client import (
@@ -41,6 +41,7 @@ from ced.api.models import (
     DecisionResult,
     Event,
     EventPage,
+    PublishedAnalysis,
     Snapshot,
     StartedRun,
     StartRunRequest,
@@ -371,6 +372,7 @@ _TERMINAL_TYPES: frozenset[str] = frozenset({"run.completed", "run.failed"})
         "a run id may read it. The response omits initiating-principal and "
         "SEC-contact values."
     ),
+    response_model=PublishedAnalysis,
     openapi_extra={
         "x-spec": (
             "docs/specs/first-published-analysis/spec.md"
@@ -378,10 +380,7 @@ _TERMINAL_TYPES: frozenset[str] = frozenset({"run.completed", "run.failed"})
         ),
     },
     responses={
-        200: {
-            "description": "The complete analysis artifact.",
-            "content": {"application/json": {"schema": {"type": "object"}}},
-        },
+        200: {"description": "The complete typed analysis artifact."},
         404: {"description": "No such run."},
         409: {
             "description": (
@@ -392,7 +391,7 @@ _TERMINAL_TYPES: frozenset[str] = frozenset({"run.completed", "run.failed"})
         },
     },
 )
-def read_analysis(run_id: UUID, conn: Conn) -> Any:
+def read_analysis(run_id: UUID, conn: Conn) -> Response:
     """AC-0414/0415: return the typed artifact for a completed analysis run."""
     # 404 for unknown run.
     _require_run(conn, run_id)
@@ -470,8 +469,10 @@ def read_analysis(run_id: UUID, conn: Conn) -> Any:
         )
         raise HTTPException(status_code=409, detail="artifact schema invalid") from None
 
-    # Return the artifact as JSON. The artifact bytes are already canonical JSON.
-    return json.loads(artifact_bytes)
+    # Return the canonical bytes directly so the response is byte-identical to
+    # the stored artifact. FastAPI does not re-serialise a Response object even
+    # when response_model is set, so byte-identity is preserved (AC-0410).
+    return Response(content=artifact_bytes, media_type="application/json")
 
 
 @app.get(

@@ -323,6 +323,7 @@ components:
 
     PublishedAnalysis:
       type: object
+      additionalProperties: false
       description: >
         The complete deterministic analysis artifact. Contains a fixed-format
         memo and a machine-readable evidence manifest. Decimal values are
@@ -332,6 +333,170 @@ components:
         and SEC-contact values (AC-0415).
       x-spec: >
         docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+      required: [schema_version, cik, as_of_date, source_url, filing_digest, memo, evidence_manifest]
+      properties:
+        schema_version:
+          type: string
+        cik:
+          type: string
+        as_of_date:
+          type: string
+        source_url:
+          type: string
+        filing_digest:
+          type: string
+        memo:
+          $ref: "#/components/schemas/Memo"
+        evidence_manifest:
+          $ref: "#/components/schemas/EvidenceManifest"
+
+    Memo:
+      type: object
+      additionalProperties: false
+      description: The fixed-format research memo.
+      required: [title, claims]
+      properties:
+        title:
+          type: string
+        claims:
+          type: array
+          items:
+            $ref: "#/components/schemas/Claim"
+
+    Claim:
+      type: object
+      additionalProperties: false
+      description: One factual claim in the analysis memo.
+      required: [claim_id, text, evidence_refs]
+      properties:
+        claim_id:
+          type: string
+        text:
+          type: string
+        evidence_refs:
+          type: array
+          items:
+            type: string
+
+    EvidenceManifest:
+      type: object
+      additionalProperties: false
+      description: Machine-readable evidence manifest for one analysis artifact.
+      required: [sources, facts, calculations, claim_links]
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceSource"
+        facts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilingFact"
+        calculations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Calculation"
+        claim_links:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimLink"
+
+    EvidenceSource:
+      type: object
+      additionalProperties: false
+      description: One archived SEC source referenced by the evidence manifest.
+      required: [source_id, archived_url, digest, source_ref]
+      properties:
+        source_id:
+          type: string
+        archived_url:
+          type: string
+        digest:
+          type: string
+        source_ref:
+          type: string
+
+    FilingFact:
+      type: object
+      additionalProperties: false
+      description: >
+        One validated XBRL numeric fact extracted from the filing.
+        decimal_value is a string because canonical JSON serialises Decimal
+        fields via str().
+      required: [evidence_id, concept, context, period, unit, scale, decimal_value, source_id, source_fragment]
+      properties:
+        evidence_id:
+          type: string
+        concept:
+          type: string
+        context:
+          type: string
+        period:
+          $ref: "#/components/schemas/Period"
+        unit:
+          type: string
+        scale:
+          type: integer
+        decimal_value:
+          type: string
+        source_id:
+          type: string
+        source_fragment:
+          type: string
+
+    Period:
+      type: object
+      additionalProperties: false
+      description: XBRL duration context period (start and end date strings).
+      required: [start_date, end_date]
+      properties:
+        start_date:
+          type: string
+        end_date:
+          type: string
+
+    Calculation:
+      type: object
+      additionalProperties: false
+      description: >
+        Lineage record for one deterministic arithmetic claim.
+        numerator, denominator, and value are strings because canonical JSON
+        serialises Decimal fields via str().
+      required: [evidence_id, operation, input_fact_refs, formula, numerator, denominator, rounding_rule, output_scale, unit, value]
+      properties:
+        evidence_id:
+          type: string
+        operation:
+          type: string
+        input_fact_refs:
+          type: array
+          items:
+            type: string
+        formula:
+          type: string
+        numerator:
+          type: string
+        denominator:
+          type: string
+        rounding_rule:
+          type: string
+        output_scale:
+          type: integer
+        unit:
+          type: string
+        value:
+          type: string
+
+    ClaimLink:
+      type: object
+      additionalProperties: false
+      description: One entry linking a claim id to its calculation.
+      required: [claim_id, calculation_ref]
+      properties:
+        claim_id:
+          type: string
+        calculation_ref:
+          type: string
 
     StartRunRequest:
       type: object
@@ -365,7 +530,7 @@ components:
           description: >
             Optional analysis parameters. Required when agent_role is
             first-published-analysis; refused for every other role (AC-0411).
-          oneOf:
+          anyOf:
             - $ref: "#/components/schemas/AnalysisRequest"
             - type: "null"
 

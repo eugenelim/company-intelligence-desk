@@ -1144,3 +1144,25 @@ def test_stale_epoch_on_phase4_append_leaves_run_nonterminal(
         )
     finally:
         _cleanup(run_id)
+
+
+def test_an_unreadable_principal_makes_the_pool_record_failure(require_substrate: None) -> None:
+    """With no principal no event can be built, but the step must not read as done.
+
+    The pool records ``completed`` when a body returns and ``failed`` when it
+    raises. Mutation: return instead of raising on this path. No exception
+    escapes, and this check reds.
+    """
+    from ced.worker import analysis
+
+    lease = Lease(
+        step_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        epoch=1,
+        agent_role="first-published-analysis",
+    )
+    with mock.patch.object(
+        analysis, "read_run_principal", side_effect=RuntimeError("unreadable")
+    ):
+        with pytest.raises(analysis._AnalysisBodyFailed):
+            analysis._analysis_body(lease, threading.Event())

@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import ssl
 from collections.abc import Generator
+from http import client as http_client
 from typing import Any
 
 import pytest
@@ -926,3 +927,210 @@ def test_gate_exits_after_tls_failure() -> None:
             wrap=wrap,
         )
     assert exited == [True]
+
+
+# ---------------------------------------------------------------------------
+# Finding 9: every 3xx is refused as a redirect (not only 301/302/303/307/308)
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_url_refuses_300_multiple_choices() -> None:
+    """HTTP 300 (Multiple Choices) raises SecRedirectError.
+
+    Before this fix only the five listed codes were refused; 300 passed as a
+    success-class response.
+
+    Mutation: restore the explicit list ``status in (301, 302, 303, 307, 308)``
+    → 300 is not refused and no SecRedirectError is raised.
+    """
+    resp = make_http_response(300, {}, b"")
+    with pytest.raises(SecRedirectError):
+        _fetch(response=resp)
+
+
+def test_fetch_url_refuses_304_not_modified() -> None:
+    """HTTP 304 (Not Modified) raises SecRedirectError.
+
+    Mutation: restore the explicit list → 304 is not refused.
+    """
+    resp = make_http_response(304, {}, b"")
+    with pytest.raises(SecRedirectError):
+        _fetch(response=resp)
+
+
+def test_fetch_url_refuses_305_use_proxy() -> None:
+    """HTTP 305 (Use Proxy) raises SecRedirectError.
+
+    Mutation: restore the explicit list → 305 is not refused.
+    """
+    resp = make_http_response(305, {}, b"")
+    with pytest.raises(SecRedirectError):
+        _fetch(response=resp)
+
+
+# ---------------------------------------------------------------------------
+# Finding 6: transport failures escape fetch_url without an AttemptRecord
+# ---------------------------------------------------------------------------
+
+
+def test_tls_handshake_timeout_produces_attempt_record() -> None:
+    """A TimeoutError from wrap_socket maps to connect_timeout and keeps an AttemptRecord.
+
+    Before this fix the TimeoutError escaped connect() and was not caught in
+    fetch_url, so no AttemptRecord was attached to the raised exception.
+
+    Mutation: remove the TimeoutError branch from the TLS wrap except block
+    → the TimeoutError propagates uncaught and exc.attempt_record is None.
+    """
+
+    def wrap_timeout(sock: Any, server_hostname: str | None = None) -> Any:
+        raise TimeoutError("TLS handshake timed out")
+
+    resolve, open_socket, _ = make_seam(_OK_RESPONSE)
+
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _SUBMISSIONS_CAP,
+            "submissions",
+            _CONTACT,
+            _make_gate(),
+            resolve=resolve,
+            open_socket=open_socket,
+            wrap=wrap_timeout,
+        )
+
+    exc = exc_info.value
+    assert exc.attempt_record is not None, (
+        "a TLS handshake timeout must produce an AttemptRecord on the exception"
+    )
+    # Handshake timeout is a connect-phase failure.
+    assert exc.attempt_record.no_response_class == "connect_timeout", (
+        f"expected connect_timeout, got {exc.attempt_record.no_response_class!r}"
+    )
+
+
+def test_http_exception_during_request_produces_attempt_record() -> None:
+    """A non-OSError HTTPException during request maps to read_timeout with a record.
+
+    ``http.client.BadStatusLine`` is not a subclass of ``OSError``; before this
+    fix it escaped the ``except OSError`` block in ``_real_fetch`` and propagated
+    uncaught, leaving no AttemptRecord on the exception.
+
+    Mutation: remove the ``http_client.HTTPException`` branch from the request
+    except block → BadStatusLine propagates uncaught.
+    """
+    _fake = FakeSocket(_OK_RESPONSE)
+
+    class _BadSocket:
+        """Socket that raises BadStatusLine on sendall to exercise the request path."""
+
+        def makefile(self, mode: str, buffering: int = -1) -> Any:
+            return _fake.makefile(mode, buffering)
+
+        def sendall(self, data: bytes) -> None:
+            raise http_client.BadStatusLine("bad")
+
+        def settimeout(self, t: float | None) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    def open_bad_socket(address: Any, timeout: Any = None) -> Any:
+        return _BadSocket()
+
+    resolve, _, wrap = make_seam(_OK_RESPONSE)
+
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _SUBMISSIONS_CAP,
+            "submissions",
+            _CONTACT,
+            _make_gate(),
+            resolve=resolve,
+            open_socket=open_bad_socket,
+            wrap=wrap,
+        )
+
+    exc = exc_info.value
+    assert exc.attempt_record is not None, (
+        "an HTTPException during request must produce an AttemptRecord"
+    )
+    assert exc.attempt_record.no_response_class == "read_timeout"
+
+
+def test_http_exception_during_body_read_produces_attempt_record() -> None:
+    """A non-OSError HTTPException during body read maps to read_timeout with a record.
+
+    ``http.client.IncompleteRead`` is not a subclass of ``OSError``; before
+    this fix it escaped the except block in the body-read loop and propagated
+    uncaught.
+
+    Mutation: remove the ``http_client.HTTPException`` branch from the body-read
+    loop → IncompleteRead propagates uncaught.
+    """
+    import io
+
+    class _IncompleteSocket:
+        """Socket whose file object raises IncompleteRead after the headers."""
+
+        def makefile(self, mode: str, buffering: int = -1) -> Any:
+            # Build a valid response header + truncated body that triggers
+            # IncompleteRead when read.
+            header = b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n"
+            # Return a file object that raises IncompleteRead on read.
+            return _IncompleteReadIO(header)
+
+        def sendall(self, data: bytes) -> None:
+            pass
+
+        def settimeout(self, t: float | None) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class _IncompleteReadIO(io.RawIOBase):
+        def __init__(self, header: bytes) -> None:
+            self._data = header
+            self._pos = 0
+            self._header_done = False
+
+        def read(self, n: int = -1) -> bytes:
+            # Return the header bytes first, then raise IncompleteRead.
+            if self._pos < len(self._data):
+                chunk = self._data[self._pos : self._pos + n]
+                self._pos += len(chunk)
+                return chunk
+            raise http_client.IncompleteRead(b"partial", 100)
+
+        def readable(self) -> bool:
+            return True
+
+    def open_incomplete_socket(address: Any, timeout: Any = None) -> Any:
+        return _IncompleteSocket()
+
+    resolve, _, wrap = make_seam(_OK_RESPONSE)
+
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _SUBMISSIONS_CAP,
+            "submissions",
+            _CONTACT,
+            _make_gate(),
+            resolve=resolve,
+            open_socket=open_incomplete_socket,
+            wrap=wrap,
+        )
+
+    exc = exc_info.value
+    assert exc.attempt_record is not None, (
+        "an HTTPException during body read must produce an AttemptRecord"
+    )
+    assert exc.attempt_record.no_response_class == "read_timeout"

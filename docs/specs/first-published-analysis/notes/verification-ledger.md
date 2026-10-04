@@ -14,9 +14,12 @@ in this file.
 ### AC-0401 — CIK and as-of date gate; primary document validation
 
 **Guard: wrong CIK is refused.**
-Mutation: replace `CANONICAL_CIK` equality with any string in `_select_filing`.
-Red: `test_ingest_refuses_unsupported_cik` — `IngestionError` is not raised and
-the assertion `pytest.raises(IngestionError, match="not found")` fails.
+Mutation: remove the `_validate_submissions_cik` call. Red:
+`test_run_ingest_from_bytes_refuses_wrong_submissions_cik` and the live-path
+`test_a_live_metadata_refusal_makes_no_filing_request_and_no_write[other-company-cik]`.
+The first version of this entry named a check inside `_select_filing` that
+did not exist; review round 1 found that, and the guard now exists and has
+been proven.
 
 **Guard: post-as-of filing date is refused.**
 Mutation: remove the `filing_date > as_of_date` check in `_select_filing`.
@@ -363,12 +366,9 @@ Red: `test_write_payload_bytes_default_uses_owner_scope_in_key` — key prefix a
 
 ## Live observation (AC-0417 goal-based)
 
-The `ced-ingest observe --out notes/sec-access.json` command is implemented and
-the observation module is fully unit-tested above. The command-produced record
-is created by the controller's live run (T5). This ledger entry is a placeholder
-for the controller to record: planned/started counts, per-attempt zero retries,
-minimum interval, first-to-last duration, outcome counts, blocked result, and
-all-stream redaction pass/fail.
+The `ced-ingest observe --out notes/sec-access.json` command is unit-tested
+above. Its live run and redaction proof are recorded in
+[§ T5 — AC-0417](#t5--ac-0417-the-live-sec-access-observation-2026-10-04).
 
 ---
 
@@ -992,3 +992,104 @@ working tree, and the full patch history of every branch. None matched. The
 captures and the runtime value's file were then deleted. The value's other
 words also occur in the repository's own text, such as the project name, so
 they cannot discriminate.
+
+## Review round 1 repairs
+
+### Finding 8 — an unreadable principal no longer reads as a completed step
+
+`_analysis_body` now raises `_AnalysisBodyFailed` when the run's principal
+cannot be read, so the pool records the step as `failed`. The run stays
+non-terminal, because no event can be built without a principal.
+`docs/architecture/README.md` now says so rather than claiming every failed
+analysis run is terminal.
+
+| Check | Mutation | Observed |
+| --- | --- | --- |
+| `test_an_unreadable_principal_makes_the_pool_record_failure` | `return` instead of raising | red |
+
+### Finding 10 — the schema-status table matches migration 0002
+
+Migration 0002 adds the `tool.invoked` idempotency index,
+`steps.pool_class` and `owner_scope`. The last two are both
+`NOT NULL DEFAULT 'default'`. All three rows now read **Built** with that
+shape.
+
+### Finding 1 — every filing value in the artifact has a closed shape (AC-0406, AC-0408, AC-0409)
+
+`ced.domain.diligence` now refuses each of the following before publication:
+
+- a fact without an `id`;
+- a fact `id` outside `[A-Za-z_][A-Za-z0-9_.-]{0,127}`;
+- a fact `id` that is not unique in the filing;
+- a `sign` attribute;
+- a `format` other than `ixt:num-dot-decimal`;
+- a display value that is anything but digits and commas;
+- a context `startDate` that is not an ISO date or is not the expected
+  quarter start (`2026-03-29` or `2025-03-30`);
+- a context carrying a segment, since such a context is not consolidated.
+
+Period dates are serialized from the parsed date, never from the raw text. The
+lineage check now requires every fragment to be `#` followed by a valid id.
+The canonical fixture's artifact bytes are unchanged.
+
+| Guard removed | Red |
+| --- | --- |
+| fact id required | `pytest.raises(DiligenceError)` for an id-less fact |
+| fact id pattern | id `0invalid` accepted |
+| fact id unique | duplicate id accepted |
+| `sign` refused | `sign="-"` accepted |
+| `format` checked | wrong and missing `format` accepted |
+| start date parsed | `26-03-29` stored as the period start |
+| start date value | `2026-03-30` accepted |
+| segment refused | segmented context accepted |
+| digits-only value | `109e3` accepted, giving 15.9% |
+| fragment shape | `#` passes `unresolved_claim_ids()` |
+
+The controller re-ran the `sign` and segment mutations, and each produced one
+red.
+
+### Findings 2, 3, 4, 6, 7, 9, 11 — ingestion and the SEC client
+
+| Finding | Guard | Mutation | Red |
+| --- | --- | --- | --- |
+| 2 (AC-0405) | duplicate canonical accession refused | first-match `break` restored | `test_select_filing_refuses_duplicate_accession_entries`; live `[duplicate-accession]` case |
+| 3 (AC-0401) | submissions CIK, normalised for zero padding | call removed; normalisation removed | `test_validate_submissions_cik_refuses_wrong_cik`; `test_validate_submissions_cik_accepts_short_form` |
+| 3 (AC-0401) | accession filer prefix | call removed | `test_validate_accession_filer_prefix_refuses_wrong_prefix` |
+| 3 (AC-0401) | live refusal makes one request and no write | CIK check or duplicate check removed | `test_a_live_metadata_refusal_makes_no_filing_request_and_no_write` (controller-run) |
+| 4 (AC-0404) | snapshot bytes re-hashed on read-back | snapshot digest check removed | `test_round_trip_digest_check_fails_on_tampered_snapshot_manifest` |
+| 4 (AC-0404) | declared client absent on the live path | contact stored in the manifest | `test_contact_value_absent_from_stored_objects_via_live_ingest` |
+| 4 (AC-0404) | offline path never opens Phase 0 | a Phase 0 read added | `test_offline_ingest_does_not_open_phase_0_fixture` |
+| 6 (AC-0417) | TLS handshake timeout recorded | `TimeoutError` dropped from the wrap handler | `test_tls_handshake_timeout_produces_attempt_record` |
+| 6 (AC-0417) | protocol errors recorded | `HTTPException` dropped from the request and read handlers | `test_http_exception_during_request_produces_attempt_record`; `…_during_body_read_…` |
+| 7 | SEC refusals print one `error:` line | `SecClientError` dropped from `run()` | `test_run_catches_sec_client_error_and_writes_to_stderr` |
+| 7 | live attempts printed | `attempts` key removed | `test_ingest_live_includes_attempts_in_result` |
+| 9 | every `3xx` refused | explicit five-code list restored | `test_fetch_url_refuses_300_…`, `…_304_…`, `…_305_…` |
+| 11 | path-free refusal without a checkout | raw `OSError` propagated | `test_offline_ingest_refuses_with_path_free_message_when_fixture_absent` |
+
+The unused `cik` and `accession` parameters of `_validate_primary_doc`, and
+`required_cik` of `_select_filing`, were removed.
+
+### Finding 5 — the served and committed contracts agree on this slice's schemas (AC-0411, AC-0414)
+
+The 200 response of `GET /runs/{run_id}/analysis` is now the typed
+`PublishedAnalysis` model, with `extra="forbid"` throughout, on both sides.
+The route still returns the stored canonical bytes. The agreement test
+compares the following, served against committed:
+
+- the read operation's `x-spec` and response set;
+- the resolved 200 schema;
+- `AnalysisRequest`;
+- `StartRunRequest.analysis`;
+- the start operation's response set;
+- the 503 `x-spec`.
+
+| Break | Red |
+| --- | --- |
+| analysis operation removed | `test_analysis_view_notices_removed_analysis_operation` |
+| `snapshot_ref` removed from `AnalysisRequest` | `test_analysis_view_notices_removed_request_field` |
+| `memo` removed from `PublishedAnalysis` | `test_analysis_view_notices_removed_artifact_property` |
+| 200 or 409 removed | `…_removed_200_response`, `…_removed_409_response` |
+| read `x-spec` removed | `test_analysis_view_notices_removed_x_spec` |
+| `memo` dropped from the served schema | `test_analysis_view_notices_dropped_served_property` |
+| `StartRunRequest.analysis` removed or made non-nullable; start 503 or its `x-spec` removed | `test_analysis_view_notices_start_run_changes` |
+| committed `analysis` field written as `oneOf` rather than the served `anyOf` | served-vs-committed agreement test (controller-run) |

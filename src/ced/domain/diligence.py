@@ -19,7 +19,9 @@ Standard library only: ``html.parser``, ``decimal``, ``hashlib``, ``json``,
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import json
+import re
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from html.parser import HTMLParser
@@ -92,6 +94,12 @@ _CURRENT_PERIOD_END: Final = "2026-06-27"
 #: Required period end date for the prior context.
 _PRIOR_PERIOD_END: Final = "2025-06-28"
 
+#: Required period start date for the current context (c-18).
+_CURRENT_PERIOD_START: Final = "2026-03-29"
+
+#: Required period start date for the prior context (c-19).
+_PRIOR_PERIOD_START: Final = "2025-03-30"
+
 # --- Fixed memo text (AC-0408) -------------------------------------------
 
 #: Memo title — structural, not a factual claim.
@@ -107,6 +115,22 @@ _MEMO_SENTENCE_FORM: Final = (
 #: Scale 6 is millions; one billion is 10^3 of those, so billions keep three places.
 _BILLIONS_PER_SCALED_UNIT: Final = Decimal("0.001")
 
+# --- Closed-shape validation patterns ------------------------------------
+
+#: Fact element id must match this pattern (XML NCName-ish ASCII).
+#: A missing or non-matching id prevents a resolvable source fragment.
+_FACT_ID_PATTERN: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_.\-]{0,127}$")
+
+#: Context dates must be exactly YYYY-MM-DD before ``datetime.date.fromisoformat``.
+_ISO_DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+#: Fact display values must contain only digits and commas (dot-decimal, no markup).
+#: Anything else — scientific notation, a dot, nested text — is refused.
+_DISPLAY_VALUE_RE: Final = re.compile(r"^[0-9,]+$")
+
+#: Source fragment must be '#' followed by a valid fact id to resolve uniquely.
+_SOURCE_FRAGMENT_PATTERN: Final = re.compile(r"^#[A-Za-z_][A-Za-z0-9_.\-]{0,127}$")
+
 
 def _render_memo_sentence(current: Decimal, prior: Decimal, result: Decimal) -> str:
     """Render the approved sentence from Decimal values, never from floats.
@@ -120,6 +144,27 @@ def _render_memo_sentence(current: Decimal, prior: Decimal, result: Decimal) -> 
         prior=f"{prior * _BILLIONS_PER_SCALED_UNIT:.3f}",
         current=f"{current * _BILLIONS_PER_SCALED_UNIT:.3f}",
     )
+
+
+# --- Date validation helper -----------------------------------------------
+
+
+def _parse_iso_date(text: str, label: str) -> datetime.date:
+    """Parse *text* as an ISO-8601 calendar date ``YYYY-MM-DD``.
+
+    Requires exactly the ``YYYY-MM-DD`` format before delegating to
+    ``datetime.date.fromisoformat``, so truncated forms, time components,
+    and other ISO variants are all refused.  Raises ``DiligenceError`` on
+    format or calendar invalidity.
+    """
+    if not _ISO_DATE_RE.fullmatch(text):
+        raise DiligenceError(
+            f"{label}: date {text!r} does not match required YYYY-MM-DD format"
+        )
+    try:
+        return datetime.date.fromisoformat(text)
+    except ValueError as exc:
+        raise DiligenceError(f"{label}: date {text!r} is not a valid calendar date") from exc
 
 
 # --- Internal evidence IDs — stable across builds -------------------------
@@ -294,13 +339,15 @@ class PublishedAnalysis:
             if not all_facts_ok:
                 continue
 
-            # 6. Each fact must resolve to a source with a non-empty fragment.
+            # 6. Each fact must resolve to a source with a valid resolvable fragment.
+            #    A fragment must be '#' + a valid id so it names exactly one element.
+            #    An empty string or bare '#' is refused — it does not name anything.
             for fref in calc.input_fact_refs:
                 fact = fact_by_id[fref]
                 if fact.source_id not in source_by_id:
                     unresolved.add(cid)
                     break
-                if not fact.source_fragment:
+                if not _SOURCE_FRAGMENT_PATTERN.fullmatch(fact.source_fragment):
                     unresolved.add(cid)
                     break
 
@@ -396,6 +443,8 @@ class _FilingReader(HTMLParser):
         self._ctx_cik: str | None = None
         self._ctx_start: str | None = None
         self._ctx_end: str | None = None
+        # Guard: no xbrli:segment or xbrli:scenario in the current context.
+        self._ctx_has_segment: bool = False
 
         # --- Unit parsing state ---
         self._unit_id: str | None = None
@@ -404,6 +453,11 @@ class _FilingReader(HTMLParser):
         # --- Fact parsing state ---
         self._fact_attrs: list[tuple[str, str | None]] | None = None
         self._fact_parts: list[str] = []
+
+        # --- Fact id uniqueness tracking ---
+        # Every ix:nonFraction element id must be unique in the filing so that
+        # a source fragment (#id) names exactly one element.  AC-0409.
+        self._fact_ids: set[str] = set()
 
         # --- Generic text accumulator ---
         # Used for identifier/startdate/enddate/measure text.
@@ -437,6 +491,13 @@ class _FilingReader(HTMLParser):
             self._ctx_cik = None
             self._ctx_start = None
             self._ctx_end = None
+            self._ctx_has_segment = False  # reset for each new context
+
+        elif tag in ("xbrli:segment", "xbrli:scenario"):
+            # A segment or scenario element marks a non-consolidated context.
+            # Set the flag so handle_endtag for xbrli:context can refuse it.
+            if self._ctx_id is not None:
+                self._ctx_has_segment = True
 
         elif tag == "xbrli:identifier":
             self._ctx_scheme = _read_attr(attrs, "scheme") or ""
@@ -473,6 +534,11 @@ class _FilingReader(HTMLParser):
             if self._ctx_id is None:
                 return
             cid = self._ctx_id
+            if self._ctx_has_segment:
+                raise DiligenceError(
+                    f"context {cid!r} contains a segment or scenario element — "
+                    f"non-consolidated contexts are not admitted"
+                )
             if cid in self.contexts:
                 raise DiligenceError(f"duplicate context id {cid!r} in filing")
             self.contexts[cid] = _RawContext(
@@ -483,6 +549,7 @@ class _FilingReader(HTMLParser):
                 end_date=self._ctx_end or "",
             )
             self._ctx_id = None
+            self._ctx_has_segment = False
 
         elif tag == "xbrli:measure":
             self._unit_measure = self._end_collect()
@@ -502,9 +569,47 @@ class _FilingReader(HTMLParser):
             if fa is None:
                 return
             display = "".join(self._fact_parts).strip()
+
+            # Guard: refuse any sign attribute (negation must not be implicit).
+            sign_val = _read_attr(fa, "sign")
+            if sign_val is not None:
+                raise DiligenceError(
+                    f"ix:nonFraction element carries a sign attribute {sign_val!r}; "
+                    f"negated facts are not admitted"
+                )
+
+            # Guard: require format exactly ixt:num-dot-decimal.
+            fmt_val = _read_attr(fa, "format")
+            if fmt_val != "ixt:num-dot-decimal":
+                raise DiligenceError(
+                    f"ix:nonFraction element has format {fmt_val!r}; "
+                    f"expected exactly 'ixt:num-dot-decimal'"
+                )
+
+            # Guard: id is required and must match the closed pattern.
+            fact_id = _read_attr(fa, "id")
+            if not fact_id:
+                raise DiligenceError(
+                    "ix:nonFraction element is missing required id attribute; "
+                    "a missing id yields an unresolvable source fragment"
+                )
+            if not _FACT_ID_PATTERN.fullmatch(fact_id):
+                raise DiligenceError(
+                    f"ix:nonFraction id {fact_id!r} does not match the required "
+                    f"pattern [A-Za-z_][A-Za-z0-9_.-]{{0,127}}"
+                )
+
+            # Guard: id must be unique in the filing so the fragment names one element.
+            if fact_id in self._fact_ids:
+                raise DiligenceError(
+                    f"duplicate element id {fact_id!r} in filing; "
+                    f"a source fragment must name exactly one element"
+                )
+            self._fact_ids.add(fact_id)
+
             self.raw_facts.append(
                 _RawFact(
-                    id=_read_attr(fa, "id") or "",
+                    id=fact_id,
                     name=_require_attr(fa, "name", "ix:nonfraction"),
                     context_ref=_require_attr(fa, "contextref", "ix:nonfraction"),
                     unit_ref=_read_attr(fa, "unitref") or "",
@@ -539,17 +644,38 @@ def _require_context(
     reader: _FilingReader,
     ctx_id: str,
     expected_period_end: str,
+    expected_period_start: str,
 ) -> _RawContext:
-    """Return the validated context, or raise ``DiligenceError``."""
+    """Return the validated context, or raise ``DiligenceError``.
+
+    Validates identity, then parses both period dates as ISO-8601 calendar
+    dates and checks them against the canonical expected values.  Mutates
+    *ctx* in place to store the normalized ``date.isoformat()`` strings,
+    ensuring the artifact never carries a raw filer-supplied date string.
+    """
     ctx = reader.contexts.get(ctx_id)
     if ctx is None:
         raise DiligenceError(f"required XBRL context {ctx_id!r} is absent from filing")
     _validate_context_identity(ctx)
-    if ctx.end_date != expected_period_end:
+
+    # Validate end date: parse, then compare canonical value.
+    end_date = _parse_iso_date(ctx.end_date, f"context {ctx_id!r} endDate")
+    if end_date.isoformat() != expected_period_end:
         raise DiligenceError(
-            f"context {ctx_id!r}: period end {ctx.end_date!r} "
+            f"context {ctx_id!r}: period end {end_date.isoformat()!r} "
             f"does not match expected {expected_period_end!r}"
         )
+    ctx.end_date = end_date.isoformat()  # canonical; already equal to expected
+
+    # Validate start date: parse, then compare canonical value.
+    start_date = _parse_iso_date(ctx.start_date, f"context {ctx_id!r} startDate")
+    if start_date.isoformat() != expected_period_start:
+        raise DiligenceError(
+            f"context {ctx_id!r}: period start {start_date.isoformat()!r} "
+            f"does not match expected {expected_period_start!r}"
+        )
+    ctx.start_date = start_date.isoformat()  # canonical
+
     return ctx
 
 
@@ -562,10 +688,21 @@ def _find_unit_by_measure(reader: _FilingReader, target_measure: str) -> str | N
 
 
 def _parse_display_value(display: str) -> Decimal:
-    """Parse a dot-decimal XBRL display value to ``Decimal``.  Fail closed."""
-    normalized = display.strip().replace(",", "")
-    if not normalized:
+    """Parse a dot-decimal XBRL display value to ``Decimal``.  Fail closed.
+
+    Requires that the stripped value contains only digits and commas so that
+    nested markup, scientific notation, or other filer-controlled content is
+    refused rather than silently concatenated into a different number.
+    """
+    stripped = display.strip()
+    if not stripped:
         raise DiligenceError("empty display value for XBRL fact")
+    if not _DISPLAY_VALUE_RE.fullmatch(stripped):
+        raise DiligenceError(
+            f"display value {display!r} contains characters other than digits and "
+            f"commas — nested markup or non-decimal notation is not admitted"
+        )
+    normalized = stripped.replace(",", "")
     try:
         return Decimal(normalized)
     except Exception as exc:
@@ -856,9 +993,13 @@ def build_published_analysis(
     reader.feed(html_text)
     reader.close()
 
-    # 3. Validate required contexts (identity + period end).
-    current_ctx = _require_context(reader, _CURRENT_CONTEXT_ID, _CURRENT_PERIOD_END)
-    prior_ctx = _require_context(reader, _PRIOR_CONTEXT_ID, _PRIOR_PERIOD_END)
+    # 3. Validate required contexts (identity + period end + period start).
+    current_ctx = _require_context(
+        reader, _CURRENT_CONTEXT_ID, _CURRENT_PERIOD_END, _CURRENT_PERIOD_START
+    )
+    prior_ctx = _require_context(
+        reader, _PRIOR_CONTEXT_ID, _PRIOR_PERIOD_END, _PRIOR_PERIOD_START
+    )
 
     # 4. Validate required unit.
     usd_unit_id = _find_unit_by_measure(reader, _TARGET_UNIT_MEASURE)
