@@ -1,9 +1,8 @@
 # Application/System Design — Company Intelligence Desk runtime
 
-**STATUS: PARTIALLY BUILT.** The event log, the privilege split, the HTTP
-surface, the worker pool and the agent layer ship; the authorization boundary
-and the provider call do not. [`../README.md`](../README.md) § What is built is
-the current map.
+**STATUS: PARTIALLY BUILT.** Phase 1 and the first Phase 2 slice ship.
+[`../README.md`](../README.md) § What is built is the current map, and says
+what is built so this line does not have to.
 
 **Decision sought:** accept the ownership split, the structural injection
 defence that follows from it, and the identity model that bounds agent
@@ -1120,7 +1119,17 @@ forced append failure; prove a byte-identical round trip over a realistic
 message history; re-baseline analytical quality under the current stack; and run
 the containment property test with interpreted arguments.
 
-**Phase 2 — the MVP slice.**
+**Phase 2 — the MVP slice.** The first slice ships as
+[`first-published-analysis`](../../specs/first-published-analysis/spec.md). It
+covers one company, one filing and one deterministic calculation, published as
+a memo with an evidence manifest through the API. Ingestion runs before the
+run, as § 4 Evidence acquisition requires. Its request spacing is a Postgres
+advisory lock on one local substrate, not the central egress proxy and token
+bucket specified above, which remain owed.
+[`operations.md` § SEC acquisition](../pydantic-ai-worker-runtime/operations.md#sec-acquisition)
+records the client's bounds and its access observation. The filing-language
+comparison, the opposed readings, and the companion-backed experience remain
+later slices.
 
 ### Schema changes, all expand-only
 
@@ -1129,7 +1138,7 @@ the containment property test with interpreted arguments.
 | Two append paths and three definer functions | The privilege split | **Built** |
 | `fence_step` owned by a `NOLOGIN` role | Possession-proving fence | **Built** |
 | Partial unique index on `(run_id, idempotency_key)` over `tool.invoked` | Additive index over an existing payload field | Owed |
-| Nullable `steps.pool_class`, plus one claim predicate | Narrows the candidate set, does not reorder locks | Owed |
+| Nullable `steps.pool_class`, plus one claim predicate | Narrows the candidate set, does not reorder locks | **Built** |
 | Nullable `owner_scope` on four tables | Inert, read by nothing | Owed |
 | `awaiting_input` state with its two events | No stored state to migrate; states derive from events | Owed |
 

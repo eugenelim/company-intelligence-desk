@@ -335,3 +335,99 @@ def test_observation_records_http_status_class_on_5xx() -> None:
         clock=clock,
     )
     assert record["started_attempts"] == 1
+
+
+# ---------------------------------------------------------------------------
+# AC-0417: spacing survives a slow response, and failed attempts keep their
+# real record
+# ---------------------------------------------------------------------------
+
+
+class _FakeTime:
+    """A monotonic clock that only moves when a test or ``time.sleep`` moves it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += max(seconds, 0.0)
+
+
+def _timed_run(
+    monkeypatch: pytest.MonkeyPatch,
+    response: bytes,
+    durations: list[float],
+    gate_wait: float = 0.0,
+) -> dict[str, Any]:
+    """Run the observation with per-attempt response durations and gate waits."""
+    import contextlib
+    from collections.abc import Iterator
+
+    import ced.adapters.sec.client as client
+
+    fake = _FakeTime()
+    monkeypatch.setattr(client.time, "sleep", fake.sleep)
+    resolve, open_socket, wrap = make_seam(response)
+    remaining = list(durations)
+
+    def slow_open_socket(*args: Any, **kwargs: Any) -> Any:
+        fake.now += remaining.pop(0)
+        return open_socket(*args, **kwargs)
+
+    @contextlib.contextmanager
+    def waiting_gate() -> Iterator[float]:
+        fake.now += gate_wait
+        yield fake.now
+
+    return run_observation(
+        _CONTACT,
+        waiting_gate,
+        n_attempts=len(durations),
+        interval_seconds=1.0,
+        resolve=resolve,
+        open_socket=slow_open_socket,
+        wrap=wrap,
+        clock=fake,
+    )
+
+
+def test_a_slow_response_delays_later_starts_instead_of_bunching_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 2.5 s response must not let the next starts catch up early.
+
+    Mutation: schedule each start only from the origin (drop the
+    previous-start floor). The starts after the slow one then bunch together,
+    the minimum interval drops below 1 s, and the observation raises.
+    """
+    record = _timed_run(monkeypatch, _OK_RESPONSE, [0.1, 2.5, 0.1, 0.1, 0.1])
+    assert record["started_attempts"] == 5
+    assert record["min_observed_start_interval_seconds"] >= 1.0
+
+
+def test_a_blocked_attempt_keeps_its_real_gate_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 403 is recorded with the gate wait fetch_url measured, not zero.
+
+    Mutation: rebuild the blocked record in the observation with
+    ``gate_wait_seconds=0.0``. This equality reds.
+    """
+    blocked = make_http_response(403, {}, b"")
+    record = _timed_run(monkeypatch, blocked, [0.1, 0.1], gate_wait=0.25)
+    assert record["blocked"] is True
+    for attempt in record["per_attempt"]:
+        assert attempt["stop_condition"] == "blocked"
+        assert attempt["gate_wait_seconds"] == pytest.approx(0.25)
+
+
+def test_an_over_cap_attempt_is_recorded_as_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refusal with no network class must not be recorded as a success.
+
+    Mutation: drop the ``refused`` fallback in fetch_url. The stop condition
+    stays ``success`` and this check reds.
+    """
+    oversized = make_http_response(200, {"Content-Length": str(6 * 1024 * 1024)}, b"")
+    record = _timed_run(monkeypatch, oversized, [0.1, 0.1])
+    assert record["outcome_counts"] == {"refused": 2}

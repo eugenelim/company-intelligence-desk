@@ -14,6 +14,7 @@ goes stale, and current state recorded as a decision never gets updated.
 | [`CHARTER.md`](CHARTER.md) | Mission, domain, scope, principles — the why. Stable for years | living, changed only by RFC |
 | [`architecture/`](architecture/) | How the code is organized today — the map you read to find things, and the golden path new work conforms to | living |
 | [`product/`](product/) | What the product is doing today: direction, release history, the intents and briefs behind in-flight work, and answered research | living |
+| [`guides/`](guides/) | How to use what ships today, organized by Diátaxis | living |
 | [`specs/`](specs/) | The engineering contract for one feature, with its implementation plan | living while building, frozen once shipped |
 | [`knowledge/`](knowledge/) | Practitioner residue — patterns, gotchas and antipatterns scoped to a file glob | living |
 | [`adr/`](adr/) | Why we chose X over Y, one decision per record | frozen |

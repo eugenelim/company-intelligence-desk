@@ -119,6 +119,9 @@ class SecClientError(Exception):
     def __init__(self, msg: str, *, no_response_class: str | None = None) -> None:
         super().__init__(msg)
         self.no_response_class: str | None = no_response_class
+        #: The attempt as ``fetch_url`` recorded it, so a caller keeps the real
+        #: gate wait and stop condition of a failed attempt.
+        self.attempt_record: AttemptRecord | None = None
 
 
 class SecRedirectError(SecClientError):
@@ -532,6 +535,10 @@ def fetch_url(
                 no_response_class = nrc
                 if nrc is not None and stop_condition == "success":
                     stop_condition = nrc
+            if stop_condition == "success":
+                # Over-cap, malformed-length and similar refusals carry no
+                # network class, but the attempt still did not succeed.
+                stop_condition = "refused"
             duration = _clock() - budget_start
             record = AttemptRecord(
                 request_class=request_class,
@@ -543,6 +550,7 @@ def fetch_url(
                 no_response_class=no_response_class,
                 blocked=blocked,
             )
+            exc.attempt_record = record
             raise
 
 
@@ -758,8 +766,12 @@ def run_observation(
     t_schedule_start = _clock()
 
     for i in range(n_attempts):
-        # Scheduled start time for attempt i (relative to schedule origin).
+        # Start on the schedule, but never sooner than one interval after the
+        # previous start: a slow response delays the rest rather than letting
+        # the next start catch up early.
         scheduled_at = t_schedule_start + i * interval_seconds
+        if start_times:
+            scheduled_at = max(scheduled_at, start_times[-1] + interval_seconds)
         now = _clock()
         wait = scheduled_at - now
         if wait > 0:
@@ -781,37 +793,15 @@ def run_observation(
                 clock=_clock,
             )
             stop = record.stop_condition
-        except SecBlockedError:
-            # Blocked is a valid outcome; record it and continue.
-            duration = _clock() - start_times[-1]
-            record = AttemptRecord(
-                request_class=_OBSERVATION_REQUEST_CLASS,
-                gate_wait_seconds=0.0,
-                duration_seconds=duration,
-                retry_count=0,
-                stop_condition="blocked",
-                http_status_class="4xx",
-                no_response_class=None,
-                blocked=True,
-            )
-            stop = "blocked"
-            any_blocked = True
         except SecClientError as exc:
-            duration = _clock() - start_times[-1]
-            # Use the typed no_response_class attribute rather than parsing
-            # the exception message.
-            nrc = exc.no_response_class or "other"
-            record = AttemptRecord(
-                request_class=_OBSERVATION_REQUEST_CLASS,
-                gate_wait_seconds=0.0,
-                duration_seconds=duration,
-                retry_count=0,
-                stop_condition=nrc,
-                http_status_class=None,
-                no_response_class=nrc,
-                blocked=False,
-            )
-            stop = nrc
+            # A failed attempt is an observed outcome, blocked or not. Keep the
+            # record fetch_url made, with its real gate wait; an error raised
+            # before any attempt was recorded is a configuration fault.
+            if exc.attempt_record is None:
+                raise
+            record = exc.attempt_record
+            stop = record.stop_condition
+            any_blocked = any_blocked or record.blocked
 
         outcome_counts[stop] = outcome_counts.get(stop, 0) + 1
         attempts.append(record.to_dict())

@@ -892,3 +892,73 @@ Red: `test_request_object_write_failure_returns_503` — the exception propagate
 - `_is_snapshot_manifest` reduced to its former CIK and as-of check reds three
   checks in `tests/api/test_start_and_read_a_run.py`: the filing-key,
   request-shaped and extra/missing-key cases.
+
+## T5 — AC-0416: the real local flow on a clean substrate (2026-10-04)
+
+Run from a wiped volume (`docker-compose -f deploy/compose.yaml down -v`),
+then `up -d --build postgres minio`, `alembic upgrade head` (exit 0), and
+`up -d --build worker-analysis`. No test helper, direct event append or
+in-process worker took part.
+
+| Step | Command | Result |
+| --- | --- | --- |
+| Ingest | `ced-ingest --offline-fixture` | exit 0; `snapshot_ref` `ced-first-published-analysis-snapshot/b8caf66f…2560c7`; filing digest `23e47d33…2316f1` |
+| Start | `POST /runs` with role `first-published-analysis` and the `analysis` object | `201`; one run and one step |
+| Publish | Compose `worker-analysis` (pool class `analysis`) | events `run.requested`, `step.started`, `step.completed`, `run.completed` |
+| Read | `GET /runs/{run_id}/analysis` | `200` about 10 s after the start |
+| Unknown run | `GET /runs/<zero uuid>/analysis` | `404` |
+
+What the read returned:
+
+- The memo's one claim reads: "Quarterly net sales increased 16.36% year over
+  year, from USD 94.036 billion to USD 109.417 billion."
+- The calculation is `16.36` percent, `ROUND_HALF_UP`, output scale 2, with
+  numerator `15381` and denominator `94036`. Its inputs are facts `c-18`
+  (`109417`, period ending 2026-06-27) and `c-19` (`94036`, period ending
+  2025-06-28), both USD at scale 6.
+- Each fact resolves to the archived source
+  `https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/aapl-20260627.htm`
+  at fragments `#f-381` and `#f-382`. Re-parsing the response leaves
+  `unresolved_claim_ids()` empty.
+- The response bytes hash to `72329a90…5450b1a`, which is the digest in the
+  `run.completed` payload reference.
+- The initiating principal is absent from the response.
+
+### T5 controller correction — the observation keeps its spacing and its records (AC-0417)
+
+Found while reading the observation command before its live run:
+
+- **Slow responses bunched later starts.** Each start was scheduled from a
+  fixed origin. One response slower than 1 s let the following starts catch
+  up early, which broke the 1 s minimum, so a slow SEC response would have
+  failed the observation. Each start now also waits at least one interval
+  after the previous start.
+- **Failed attempts lost their gate wait.** A blocked or failed attempt was
+  re-recorded with `gate_wait_seconds=0.0`. `fetch_url` now attaches its own
+  record to the error, and the observation keeps it.
+- **Refusals looked like success.** Over-cap and malformed-length refusals
+  left `stop_condition` at `success`. They now record `refused`.
+
+| Check | Mutation | Observed |
+| --- | --- | --- |
+| `test_a_slow_response_delays_later_starts_instead_of_bunching_them` | previous-start floor dropped | red |
+| `test_a_blocked_attempt_keeps_its_real_gate_wait` | blocked record rebuilt with zero gate wait | red |
+| `test_an_over_cap_attempt_is_recorded_as_refused` | `refused` fallback dropped | red |
+
+### T5 — the how-to guide, run as written (2026-10-04)
+
+Every command in `docs/guides/how-to/publish-first-analysis.md` was pasted in
+order on a wiped volume, and each one exited 0. The `POST /runs` returned
+`201`. `GET /runs/{run_id}/analysis` returned `200` within 20 s with the
+approved memo sentence. Clean-up (`down -v`, `rm snapshot.json`) left no
+file behind.
+
+This second ingestion stored a different snapshot reference (`d31fc9ef…`),
+because its retrieval time differed. The artifact it produced was still
+byte-identical to the first run's (`72329a90…`). Retrieval time does not enter
+the published bytes, as AC-0410 requires.
+
+Every local link in the guide was opened and resolves:
+`contracts/openapi/runs.yaml`,
+`docs/architecture/pydantic-ai-worker-runtime/operations.md#sec-acquisition`
+and `docs/specs/first-published-analysis/spec.md`.

@@ -28,8 +28,8 @@ a date is released, so it sits at the top level directly beneath
 - **What we're proposing to change** → [`../rfc/`](../rfc/) (governance).
 - **What an individual feature does** → [`../specs/<feature>/spec.md`](../specs/).
 - **The mission and scope of the project** → [`../CHARTER.md`](../CHARTER.md).
-- **How users actually use the product** → `guides/`, Diátaxis-organized user
-  docs. Not present yet; it arrives with the first shipped capability.
+- **How users actually use the product** → [`../guides/`](../guides/README.md),
+  Diátaxis-organized user docs.
 
 ## The product/ layer is *living*
 

@@ -2,7 +2,9 @@
 
 This file carries the operational measurements for the worker runtime. Values
 recorded here drive the `CED_STEP_DEADLINE_SECONDS` configuration and supply
-the evidence for AC-0306 through AC-0311.
+the evidence for AC-0306 through AC-0311. [§ SEC acquisition](#sec-acquisition)
+covers how live SEC ingestion is configured, bounded and observed, for
+`first-published-analysis`.
 
 See
 [`docs/specs/walking-skeleton-evidence/spec.md`](../../specs/walking-skeleton-evidence/spec.md)
@@ -202,3 +204,81 @@ which Phase 1 does not run.
 
 **It is a point-in-time read.** AWS quota values change on request and by
 service update; the date above is part of the value.
+
+## SEC acquisition
+
+`ced-ingest` is the only code that reads from SEC. It stores one snapshot
+before a run starts, and no run or API request ever fetches from SEC. The
+acceptance criteria are AC-0401 through AC-0405 and AC-0417 in
+[`first-published-analysis`](../../specs/first-published-analysis/spec.md).
+Their test and mutation record is in that spec's
+[verification ledger](../../specs/first-published-analysis/notes/verification-ledger.md).
+
+### Configuration
+
+`SEC_CONTACT` holds the declared client that SEC asks automated clients to
+send, usually a name and a contact email. It is required for live ingestion
+and for `observe`; `--offline-fixture` does not read it. The value is sent
+only as the request's `User-Agent`. It never appears in an exception, log,
+attempt record, stored object, or command output.
+
+Each live request also takes a Postgres advisory lock, so the local substrate
+must be up. See [§ Request gate](#request-gate).
+
+### Request bounds
+
+All bounds are fixed in `src/ced/adapters/sec/client.py`; none is
+configurable.
+
+| Bound | Value |
+| --- | --- |
+| Hosts | `data.sec.gov` and `www.sec.gov`, HTTPS only |
+| Address | Resolved once. Only an address Python's `ipaddress` calls global and not multicast is used, and the connection goes to that address while TLS still verifies the SEC hostname |
+| TLS | Certificate and hostname verification always on |
+| Redirects | None followed; any `3xx` is refused |
+| Connect timeout | 5 s |
+| Read timeout | 15 s per read, cut to whatever remains of the total budget |
+| Total budget | 30 s, counted from when the request gate admits the request |
+| Submissions response | 5 MiB cap |
+| Filing response | 10 MiB cap; a declared or streamed length over the cap is refused |
+| Retries | None |
+
+A refused or failed request stores nothing and releases the request gate.
+
+### Request gate
+
+Every SEC request, from any `ced-ingest` process sharing the substrate, takes
+one Postgres session-level advisory lock. The holder keeps the lock for at
+least 0.125 s after its request starts, so request starts are at least 0.125 s
+apart. That is at most 8 a second, below SEC's published ceiling of 10 a
+second.
+
+The interval holds only while the holder's database session stays alive. If a
+holder process dies, Postgres releases the lock at once, and the next request
+can start sooner. This gate is not crash-safe quota accounting, and it is not
+the fleet egress proxy the architecture calls for. It covers one local
+substrate.
+
+### Access observation
+
+`SEC_CONTACT=<declared client> ced-ingest observe --out <path>` sends 60
+requests for the Apple submissions document, one start per second. Each start
+waits at least 1 s after the previous one, so a slow response delays the rest
+rather than bunching them. The command writes a JSON record with:
+
+- planned and started counts, which must both be 60;
+- the target interval and the smallest interval observed, which must be at
+  least 1 s;
+- the time from first to last start;
+- the count of each outcome;
+- whether any `403` or `429` blocked the client;
+- one record per attempt: gate wait, duration, zero retries, stop condition,
+  and either an HTTP status class or one of `dns`, `tls`, `connect_timeout`,
+  `read_timeout` or `total_timeout`.
+
+**How to read it.** `blocked: true` means SEC refused the declared client at
+least once. That is a valid observation, not a failed command, and the command
+never retries for a better result. `blocked: false` means 60 requests at one a
+second were all admitted. That is the whole claim. Sixty seconds of traffic do
+not show how SEC treats a sustained or fleet-wide load, and the record says so
+in its `statement` field.

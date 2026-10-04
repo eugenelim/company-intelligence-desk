@@ -77,6 +77,7 @@ a rule that activates only when you already know it applies never activates.
 | What belongs where in `docs/` | [`docs/README.md`](docs/README.md) | Repository |
 | Mission, domain, scope, principles | [`docs/CHARTER.md`](docs/CHARTER.md) | Repository |
 | How the code is organized today | [`docs/architecture/README.md`](docs/architecture/README.md) | Repository and subsystem |
+| How to use what ships today | [`docs/guides/README.md`](docs/guides/README.md) | Shipped capability |
 | Durable feature contracts | [`docs/specs/README.md`](docs/specs/README.md) | Feature, when present |
 | Product direction, intents and history | [`docs/product/README.md`](docs/product/README.md) | Repository |
 | Practitioner patterns and gotchas | [`docs/knowledge/README.md`](docs/knowledge/README.md) | File glob |
@@ -367,6 +368,35 @@ That defect is invisible to a split run. Running `-m 'not substrate'` and
 outlives nothing. **Run the whole suite in one process**, as § Gates says, and
 read `pytest`'s own exit code — a gate judged through `tail` or `grep` reports
 the filter's status, not the gate's.
+
+### SEC ingestion and the analysis worker
+
+`ced-ingest` is installed by `pyproject.toml` and stores one evidence snapshot
+before an analysis run starts. `--help` is authoritative:
+
+```bash
+./.venv/bin/ced-ingest --offline-fixture       # committed fixture, no network
+SEC_CONTACT='<declared client>' ./.venv/bin/ced-ingest            # live SEC fetch
+SEC_CONTACT='<declared client>' ./.venv/bin/ced-ingest observe --out <path>
+```
+
+Both live forms refuse without `SEC_CONTACT`. The value is sent only as the
+request's declared client, and the command never writes it to a log, record or
+stored object. `observe` sends 60 live requests, one a second, and writes the
+access record described in
+[`operations.md` § SEC acquisition](docs/architecture/pydantic-ai-worker-runtime/operations.md#sec-acquisition).
+No test reaches the network.
+
+Every live request takes a Postgres advisory lock, so ingestion needs the
+local substrate up even though it reads from SEC.
+
+`deploy/compose.yaml` defines a third worker, `worker-analysis`, which claims
+only `analysis`-class steps. **Keep it stopped while the suite runs.** The
+analysis tests seed `analysis`-class steps and expect either an in-process
+worker or no worker to take them. The substrate block above starts only
+`worker-a` and `worker-b` for that reason. Start `worker-analysis` for the
+end-to-end flow in
+[`docs/guides/how-to/publish-first-analysis.md`](docs/guides/how-to/publish-first-analysis.md).
 
 ### Phase 1 evidence commands
 
