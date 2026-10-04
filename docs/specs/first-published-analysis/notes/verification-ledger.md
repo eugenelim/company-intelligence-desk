@@ -690,3 +690,205 @@ Red: `test_analysis_body_commits_ordered_events_and_artifact` — the exact-orde
 **Guard: artifact is written before the completion appends.**
 Mutation: move `artifact_ref = write_payload_bytes(...)` to after the `append_step_event("step.completed")` call in Phase 4.
 Red: `test_artifact_store_failure_produces_failed_events` — with the write moved outside Phase 3's try block, a patched `write_payload_bytes` failure fires after `step.completed` is committed; the body propagates without calling `_append_failure`, so events include `step.completed` and `run.completed` — but the test asserts both are absent.
+
+---
+
+## T4: The REST contract starts and reads a complete analysis without breaking existing runs
+
+### AC-0411 — POST /runs validates the analysis object
+
+**Guard: analysis object required for first-published-analysis role.**
+Mutation: remove the `if request.analysis is None` check.
+Red: `test_start_run_analysis_role_without_analysis_object_is_422` — 422 is not returned; 200 returned instead.
+
+**Guard: analysis object forbidden for other roles.**
+Mutation: remove the `elif request.analysis is not None` check.
+Red: `test_start_run_non_analysis_role_with_analysis_object_is_422` — 422 is not returned.
+
+**Guard: extra fields in analysis object are rejected.**
+Mutation: remove `model_config = ConfigDict(extra="forbid")` from `AnalysisRequest`.
+Red: `test_start_run_analysis_unknown_field_is_422` — 422 is not returned; extra field silently ignored.
+
+**Guard: unsupported CIK is rejected.**
+Mutation: remove the `ana.cik != _CANONICAL_CIK` check.
+Red: `test_start_run_analysis_unsupported_cik_is_422` — 422 not returned for `"0000000001"`.
+
+**Guard: unsupported as_of_date is rejected.**
+Mutation: remove the `ana.as_of_date != _CANONICAL_AS_OF` check.
+Red: `test_start_run_analysis_unsupported_as_of_date_is_422` — 422 not returned for `"2025-01-01"`.
+
+**Guard: snapshot_ref pattern refuses wrong scope prefix.**
+Mutation: drop the `_SNAPSHOT_REF_RE.fullmatch` call or change the pattern.
+Red: `test_start_run_analysis_wrong_scope_in_snapshot_ref_is_422` — a ref with prefix `ced-other-scope/…` is accepted.
+
+**Guard: snapshot_ref pattern refuses uppercase hex.**
+Mutation: change `[0-9a-f]` to `[0-9a-fA-F]` in the compiled regex.
+Red: `test_start_run_analysis_uppercase_hex_in_snapshot_ref_is_422` — uppercase-hex ref accepted.
+
+**Guard: snapshot_ref pattern refuses overlong hex.**
+Mutation: change `{64}` to `{1,}` in the compiled regex.
+Red: `test_start_run_analysis_overlong_hex_in_snapshot_ref_is_422` — hex of length 65 accepted.
+
+**Guard: fullmatch rejects trailing newline.**
+Mutation: use `_SNAPSHOT_REF_RE.match(…)` instead of `_SNAPSHOT_REF_RE.fullmatch(…)`.
+Red: `test_start_run_analysis_trailing_newline_in_snapshot_ref_is_422` — a ref with `\n` appended is accepted because `$` in Python matches before a trailing newline.
+
+**Guard: missing snapshot key returns 422.**
+Mutation: remove the `ObjectNotFoundError` catch or map it to 200.
+Red: `test_start_run_analysis_missing_snapshot_is_422` (substrate) — 422 not returned for a nonexistent key.
+
+**Guard: object store unavailable returns 503.**
+Mutation: map `ObjectStoreError` to 422 instead of 503.
+Red: `test_start_run_analysis_store_unavailable_is_503` (substrate) — 503 not returned when MinIO is unreachable.
+
+### AC-0414 — GET /runs/{run_id}/analysis validates and returns artifact
+
+**Guard: unknown run returns 404.**
+Mutation: remove `_require_run` check.
+Red: `test_read_analysis_unknown_run_is_404` — 409 returned instead of 404 (no events found, terminal is None, `_require_run` guards this path).
+
+**Guard: pending run returns 409.**
+Mutation: remove the `terminal is None` check.
+Red: `test_read_analysis_pending_run_is_409` — 200 attempted on a run with no terminal event.
+
+**Guard: failed run returns 409.**
+Mutation: remove the `terminal.type != "run.completed"` check.
+Red: `test_read_analysis_failed_run_is_409` — failed run returns 200 or proceeds to artifact read.
+
+**Guard: non-analysis run returns 409.**
+Mutation: remove the `terminal.agent_role != ANALYSIS_ROLE` check.
+Red: `test_read_analysis_non_analysis_run_is_409` — a completed default-role run returns 200.
+
+**Guard: missing artifact ref returns 409.**
+Mutation: remove the `terminal.payload_ref is None` check.
+Red: `test_read_analysis_missing_artifact_ref_is_409` — None ref passed to `read_payload_bytes`, raising AttributeError.
+
+**Guard: missing artifact object returns 409.**
+Mutation: remove the `except Exception` block around `read_payload_bytes`.
+Red: `test_read_analysis_missing_artifact_is_409` — ClientError propagates as 500.
+
+**Guard: digest mismatch returns 409.**
+Mutation: remove the SHA-256 comparison.
+Red: `test_read_analysis_digest_mismatch_is_409` — bytes with wrong digest returned as 200.
+
+**Guard: invalid JSON bytes return 409.**
+Mutation: remove the `except Exception` block around `json.loads`.
+Red: `test_read_analysis_invalid_json_is_409` — json.JSONDecodeError propagates as 500.
+
+**Guard: schema-invalid artifact returns 409.**
+Mutation: remove the `parse_published_analysis` call.
+Red: `test_read_analysis_schema_invalid_artifact_is_409` — schema-invalid JSON returned as 200.
+
+### AC-0415 — No identity header required to read analysis
+
+**Guard: no Authorization header is needed.**
+Mutation: add `Authorization: Header` to the `read_analysis` signature.
+Red: `test_read_analysis_requires_no_identity_header` — 422 returned for request without header.
+
+**Guard: response omits initiating-principal values.**
+Mutation: include `run.requested` event's payload in the response.
+Red: `test_read_analysis_response_omits_principal_values` — principal value appears in response body.
+
+### AC-0416 partial — HTTP API start and read e2e
+
+**Guard: POST /runs with analysis creates a step with analysis role.**
+Mutation: remove `agent_role` from the run row or pass wrong role.
+Red: `test_http_api_start_run_creates_analysis_run` — `agent_role` in the step row does not equal `first-published-analysis`.
+
+**Guard: GET /runs/{run_id}/analysis returns complete artifact after worker completes.**
+Mutation: remove the `parse_published_analysis` call in `read_analysis`.
+Red: `test_http_api_read_analysis_returns_complete_artifact` — response returns unvalidated bytes that may not conform to the schema.
+
+### Contract agreement
+
+**Guard: read_analysis operation is in the committed YAML.**
+Mutation: remove `GET /runs/{run_id}/analysis` from `runs.yaml`.
+Red: `test_the_contract_file_includes_the_analysis_operation` — assertion fires immediately (offline).
+
+**Guard: POST /runs has 503 in the committed YAML.**
+Mutation: remove 503 from `runs.yaml` POST /runs responses.
+Red: `test_the_contract_file_includes_503_on_start_run` — assertion fires immediately (offline).
+
+**Guard: read_analysis carries x-spec link.**
+Mutation: remove `x-spec` from the GET /runs/{run_id}/analysis entry.
+Red: `test_the_analysis_operation_carries_an_x_spec_link` — assertion fires immediately (offline).
+
+**Guard: StartRunRequest schema includes analysis field.**
+Mutation: remove `analysis` from the `StartRunRequest` schema.
+Red: `test_the_start_run_schema_includes_the_analysis_field` — assertion fires immediately (offline).
+
+**Guard: AnalysisRequest schema is documented.**
+Mutation: remove `AnalysisRequest` from `components/schemas`.
+Red: `test_the_analysis_request_schema_is_documented` — assertion fires immediately (offline).
+
+**Guard: route table comparison detects removed analysis operation.**
+Mutation: remove `GET /runs/{run_id}/analysis` from `runs.yaml`.
+Red: `test_the_comparison_notices_a_removed_analysis_operation` — assertion fires (substrate).
+
+**Guard: route table comparison detects removed 503.**
+Mutation: remove 503 from POST /runs responses in `runs.yaml`.
+Red: `test_the_comparison_notices_a_removed_503_on_start_run` — assertion fires (substrate).
+
+**Guard: route table comparison detects renamed operationId.**
+Mutation: rename `operationId` on GET /runs/{run_id}/analysis in `runs.yaml`.
+Red: `test_the_comparison_notices_a_renamed_analysis_operation_id` — assertion fires (substrate).
+
+### AC-0411 object-store cases (substrate, tests/api/test_start_and_read_a_run.py)
+
+**Guard: request object stores exactly {cik, as_of_date, snapshot_ref}.**
+Mutation: write the request object with additional keys (e.g., `principal`).
+Red: `test_positive_control_request_object_has_three_keys` — set equality on `stored.keys()` fails.
+
+**Guard: missing snapshot object returns 422, detail-free, no run created.**
+Mutation: remove the `ObjectNotFoundError` catch or map it to 200.
+Red: `test_absent_snapshot_returns_422_detail_free` — status is not 422, or the runs count increases.
+
+**Guard: digest mismatch returns 422, no run created.**
+Mutation: remove the `hashlib.sha256(snapshot_bytes).hexdigest() != expected_sha256` check.
+Red: `test_digest_mismatch_returns_422` — the route proceeds with bytes whose digest disagrees with the key hex; status is not 422.
+
+**Guard: manifest cik mismatch returns 422.**
+Mutation: remove the `manifest["cik"] == cik` check from `_is_snapshot_manifest`.
+Red: `test_manifest_mismatch_wrong_cik_returns_422` — a manifest with cik `0000000001` is accepted.
+
+**Guard: manifest as_of_date mismatch returns 422.**
+Mutation: remove the `manifest["as_of_date"] == as_of_date` check.
+Red: `test_manifest_mismatch_wrong_as_of_date_returns_422` — a manifest with a wrong date is accepted.
+
+**Guard: non-JSON bytes at snapshot_ref return 422.**
+Mutation: use `json.loads` directly without catching the JSONDecodeError, mapping it to 500.
+Red: `test_manifest_mismatch_filing_bytes_as_snapshot_ref_returns_422` — raw bytes cause a 500 instead of 422.
+
+**Guard: request-object-shaped JSON (three keys) fails the exact-key-set check.**
+Mutation: change `set(manifest) != _MANIFEST_KEYS` to `not _MANIFEST_KEYS.issubset(manifest)`.
+Red: `test_manifest_mismatch_request_object_shaped_json_returns_422` — a three-key object passes the weakened check and a run is created.
+
+**Guard: extra key in manifest fails the exact-key-set check.**
+Mutation: change `set(manifest) != _MANIFEST_KEYS` to a subset check.
+Red: `test_manifest_mismatch_extra_key_returns_422` — a twelve-key manifest is accepted.
+
+**Guard: missing key in manifest fails the exact-key-set check.**
+Mutation: change `set(manifest) != _MANIFEST_KEYS` to a superset check.
+Red: `test_manifest_mismatch_missing_key_returns_422` — a ten-key manifest is accepted.
+
+**Guard: ObjectStoreError on snapshot read returns detail-free 503.**
+Mutation: remove the `ObjectStoreError` catch or map it to 422.
+Red: `test_store_unavailable_on_snapshot_read_returns_503_detail_free` — status is not 503, or no log record with `snapshot_store_unavailable`.
+
+**Guard: write_payload failure for the request object returns 503.**
+Mutation: remove the `except Exception` block around `write_payload`.
+Red: `test_request_object_write_failure_returns_503` — the exception propagates as 500 instead of 503.
+
+### T4 controller notes
+
+- `src/ced/adapters/objectstore/client.py` is outside T4's `Touches` (it is in
+  T1's and T3's). T4 added `ObjectNotFoundError`, `ObjectStoreError` and
+  `read_payload_bytes_checked` there because
+  `tests/architecture/test_dependency_direction.py` forbids AWS SDK imports in
+  `ced.api`. The adapter is the layer that owns that translation.
+- The request object is written under the default `ced-step-lifecycle` scope.
+  Under the snapshot scope, a request reference matched the snapshot-reference
+  pattern and carried a matching CIK and as-of date.
+- `_is_snapshot_manifest` reduced to its former CIK and as-of check reds three
+  checks in `tests/api/test_start_and_read_a_run.py`: the filing-key,
+  request-shaped and extra/missing-key cases.

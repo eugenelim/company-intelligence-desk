@@ -171,6 +171,138 @@ def test_every_response_status_the_contract_declares_is_served(
         assert expected["responses"] == served_table[route]["responses"], route
 
 
+def test_the_contract_file_includes_the_analysis_operation(
+    committed: dict[str, Any],
+) -> None:
+    """Setup check: the analysis operation is in the committed contract.
+
+    Mirrors ``test_the_contract_file_includes_the_stream_operation``: guards
+    against the full comparison passing vacuously because both sides are empty.
+
+    Break: remove GET /runs/{run_id}/analysis from contracts/openapi/runs.yaml
+    while leaving the route implemented.  The served table has the operation;
+    the committed table does not — and the comparison fails in the other
+    direction.  This offline check catches the committed-only removal.
+    """
+    table = _route_table(committed)
+    assert "GET /runs/{run_id}/analysis" in table
+
+
+def test_the_contract_file_includes_503_on_start_run(
+    committed: dict[str, Any],
+) -> None:
+    """Setup check: POST /runs in the committed contract declares 503.
+
+    Break: remove '503' from the POST /runs responses in runs.yaml.
+    Red: this assertion fails immediately (offline gate).
+    """
+    responses = committed["paths"]["/runs"]["post"]["responses"]
+    assert "503" in responses, (
+        "committed contract must declare 503 for POST /runs; "
+        "the analysis snapshot read can fail the object store"
+    )
+
+
+def test_the_analysis_operation_carries_an_x_spec_link(
+    committed: dict[str, Any],
+) -> None:
+    """The x-spec link on the analysis endpoint is present and correct.
+
+    Break: remove or change x-spec from GET /runs/{run_id}/analysis in runs.yaml.
+    Red: the assertion fires immediately (offline gate).
+    """
+    path_item = committed["paths"].get("/runs/{run_id}/analysis", {})
+    x_spec = path_item.get("get", {}).get("x-spec", "")
+    assert "first-published-analysis" in x_spec, (
+        "x-spec must reference first-published-analysis spec"
+    )
+    assert "publishing-through-the-existing-run-boundary" in x_spec, (
+        "x-spec must link to the publishing-through-the-existing-run-boundary anchor"
+    )
+
+
+def test_the_start_run_schema_includes_the_analysis_field(
+    committed: dict[str, Any],
+) -> None:
+    """analysis is documented as an optional property of StartRunRequest.
+
+    Break: remove the analysis property from StartRunRequest in runs.yaml.
+    Red: this assertion fires immediately (offline gate).
+    """
+    schema = committed["components"]["schemas"]["StartRunRequest"]
+    props = schema.get("properties", {})
+    assert "analysis" in props, (
+        "StartRunRequest.properties must include the optional analysis field"
+    )
+
+
+def test_the_analysis_request_schema_is_documented(
+    committed: dict[str, Any],
+) -> None:
+    """AnalysisRequest schema is present in the committed contract.
+
+    Break: remove the AnalysisRequest schema from runs.yaml.
+    Red: this assertion fires immediately (offline gate).
+    """
+    schemas = committed["components"]["schemas"]
+    assert "AnalysisRequest" in schemas, "components.schemas must include AnalysisRequest"
+
+
+@pytest.mark.substrate
+def test_the_comparison_notices_a_removed_analysis_operation(
+    committed: dict[str, Any], served: dict[str, Any]
+) -> None:
+    """Removing the analysis operation from the served document must fail comparison.
+
+    Break: remove GET /runs/{run_id}/analysis from the FastAPI app.
+    Red: the route is absent from the served table; the committed table still
+    has it; the comparison fails.
+    """
+    import copy
+
+    mutated = copy.deepcopy(served)
+    del mutated["paths"]["/runs/{run_id}/analysis"]
+
+    assert _route_table(mutated) != _route_table(committed)
+
+
+@pytest.mark.substrate
+def test_the_comparison_notices_a_removed_503_on_start_run(
+    committed: dict[str, Any], served: dict[str, Any]
+) -> None:
+    """Removing 503 from POST /runs in the served document must fail the response check.
+
+    Break: remove responses[503] from the POST /runs decorator in main.py.
+    Red: the served route table has no 503 in responses; the committed table
+    still does; the per-route response assertion fires.
+    """
+    import copy
+
+    mutated = copy.deepcopy(served)
+    mutated["paths"]["/runs"]["post"]["responses"].pop("503", None)
+
+    committed_table = _route_table(committed)
+    served_table = _route_table(mutated)
+    assert committed_table["POST /runs"]["responses"] != served_table["POST /runs"]["responses"]
+
+
+@pytest.mark.substrate
+def test_the_comparison_notices_a_renamed_analysis_operation_id(
+    committed: dict[str, Any], served: dict[str, Any]
+) -> None:
+    """Renaming the analysis operationId must fail the comparison.
+
+    Break: change operation_id='read_analysis' to something else in main.py.
+    Red: the served operationId does not match the committed operationId.
+    """
+    import copy
+
+    mutated = copy.deepcopy(served)
+    mutated["paths"]["/runs/{run_id}/analysis"]["get"]["operationId"] = "get_analysis"
+
+    assert _route_table(mutated) != _route_table(committed)
+
+
 def test_the_published_attribution_bound_matches_the_model() -> None:
     """The one check that holds the contract's number and the model's in step.
 

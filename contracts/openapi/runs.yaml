@@ -46,7 +46,9 @@ paths:
       summary: Start a run
       description: >
         Commits the run row, its coordinator step and the `run.requested`
-        event in one transaction. All three or none.
+        event in one transaction. All three or none. When `agent_role` is
+        `first-published-analysis`, the `analysis` object is required and
+        the named snapshot is validated before the run is created.
       requestBody:
         required: true
         content:
@@ -67,7 +69,53 @@ paths:
           x-spec: docs/specs/walking-skeleton-evidence/spec.md#watching-from-a-browser
           description: A present Origin header does not match the API's origin.
         "422":
-          description: The request body is not valid.
+          description: >
+            The request body is not valid, or the analysis role/object
+            combination is wrong, or the CIK, as-of date, or snapshot
+            reference is unsupported or malformed, or the snapshot is
+            absent, digest-mismatched, or manifest-mismatched (AC-0411).
+        "503":
+          x-spec: >
+            docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+          description: >
+            Object store dependency unavailable. No run was created.
+
+  /runs/{run_id}/analysis:
+    get:
+      operationId: read_analysis
+      summary: Read a completed analysis artifact
+      x-spec: >
+        docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+      description: >
+        Returns the complete typed analysis artifact when the run completed
+        successfully. No authentication is required: the artifact contains
+        only public SEC evidence. The Phase 1 direct-read posture applies
+        (AC-0415): any caller that can reach the loopback-bound API and knows
+        a run id may read it. The response omits initiating-principal and
+        SEC-contact values.
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The complete typed analysis artifact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedAnalysis"
+        "404":
+          description: No such run.
+        "409":
+          description: >
+            Run is not completed, is not an analysis run, or the artifact
+            reference is absent, unreadable, digest-mismatched, or
+            schema-invalid (AC-0414).
+        "422":
+          description: run_id is not a UUID.
 
   /runs/{run_id}/snapshot:
     get:
@@ -247,6 +295,44 @@ paths:
 
 components:
   schemas:
+    AnalysisRequest:
+      type: object
+      required: [cik, as_of_date, snapshot_ref]
+      additionalProperties: false
+      x-spec: >
+        docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+      description: >
+        Analysis parameters for a first-published-analysis run. Required when
+        agent_role is first-published-analysis; refused for every other role.
+        Unknown fields are refused (additionalProperties: false). Only the
+        three canonical fields enter the persisted request object (AC-0411).
+      properties:
+        cik:
+          type: string
+          description: The canonical CIK (0000320193 for this slice).
+        as_of_date:
+          type: string
+          description: The as-of date for the analysis in YYYY-MM-DD format.
+        snapshot_ref:
+          type: string
+          description: >
+            Scope-qualified reference to the immutable snapshot. Must match
+            ced-first-published-analysis-snapshot/[0-9a-f]{64}; overlong,
+            wrong-scope, non-hex, uppercase, or trailing-newline values are
+            refused (AC-0411).
+
+    PublishedAnalysis:
+      type: object
+      description: >
+        The complete deterministic analysis artifact. Contains a fixed-format
+        memo and a machine-readable evidence manifest. Decimal values are
+        serialised as canonical strings. Execution-varying fields (run id,
+        retrieval time) are excluded so identical pinned inputs produce
+        identical bytes (AC-0410). The response omits initiating-principal
+        and SEC-contact values (AC-0415).
+      x-spec: >
+        docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+
     StartRunRequest:
       type: object
       required: [principal, agent_role]
@@ -275,6 +361,13 @@ components:
           description: >
             The coordinator role the first step runs under. An agent role is a
             first-class security object, assigned here and never by a model.
+        analysis:
+          description: >
+            Optional analysis parameters. Required when agent_role is
+            first-published-analysis; refused for every other role (AC-0411).
+          oneOf:
+            - $ref: "#/components/schemas/AnalysisRequest"
+            - type: "null"
 
     StartedRun:
       type: object

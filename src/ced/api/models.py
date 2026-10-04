@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ced.domain.events import EventEnvelope
 
@@ -29,11 +29,27 @@ from ced.domain.events import EventEnvelope
 ATTRIBUTION_MAX_LENGTH = 256
 
 
+class AnalysisRequest(BaseModel):
+    """Optional analysis parameters — required when agent_role is first-published-analysis.
+
+    ``extra="forbid"`` rejects any field not listed here with a 422, so a
+    client cannot smuggle unrecognised keys past the boundary (AC-0411).
+    Only the three canonical fields enter the persisted request object.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    cik: str
+    as_of_date: str
+    snapshot_ref: str
+
+
 class StartRunRequest(BaseModel):
     """What a client must supply to start a run."""
 
     principal: str = Field(min_length=1, max_length=ATTRIBUTION_MAX_LENGTH)
     agent_role: str = Field(min_length=1, max_length=ATTRIBUTION_MAX_LENGTH)
+    analysis: AnalysisRequest | None = None
 
 
 class StartedRun(BaseModel):

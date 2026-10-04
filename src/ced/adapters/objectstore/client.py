@@ -39,15 +39,27 @@ from botocore.exceptions import ClientError
 __all__ = [
     "ANALYSIS_SCOPE",
     "BUCKET_NAME",
+    "ObjectNotFoundError",
+    "ObjectStoreError",
     "OWNER_SCOPE",
     "SNAPSHOT_SCOPE",
     "READINESS_SCOPE",
     "head_object",
     "read_payload",
     "read_payload_bytes",
+    "read_payload_bytes_checked",
     "write_payload",
     "write_payload_bytes",
 ]
+
+
+class ObjectNotFoundError(Exception):
+    """The requested object key does not exist in the store."""
+
+
+class ObjectStoreError(Exception):
+    """The object store is unavailable or returned an unexpected error."""
+
 
 #: The object store bucket all CED payload objects share.
 BUCKET_NAME = "ced-payloads"
@@ -151,6 +163,27 @@ def read_payload_bytes(key: str) -> bytes:
     """Read raw bytes from the object store by its scope-qualified key."""
     response = _s3_client().get_object(Bucket=BUCKET_NAME, Key=key)
     return bytes(response["Body"].read())
+
+
+def read_payload_bytes_checked(key: str) -> bytes:
+    """Read raw bytes, translating AWS errors into domain exceptions.
+
+    Callers outside the ``adapters`` layer must use this instead of
+    ``read_payload_bytes`` so they do not import botocore directly.
+
+    Raises:
+        ObjectNotFoundError: The key does not exist (NoSuchKey / 404).
+        ObjectStoreError: Any other client or connection error.
+    """
+    try:
+        return read_payload_bytes(key)
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("NoSuchKey", "404"):
+            raise ObjectNotFoundError(key) from exc
+        raise ObjectStoreError(str(exc)) from exc
+    except Exception as exc:
+        raise ObjectStoreError(str(exc)) from exc
 
 
 def _checked_endpoint(value: str) -> str:
