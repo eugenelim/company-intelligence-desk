@@ -366,6 +366,10 @@ class _RawContext:
     cik: str
     start_date: str
     end_date: str
+    # True when xbrli:segment or xbrli:scenario was present in this context's
+    # entity block.  Recorded during parsing; refusal is deferred to
+    # _require_context so non-target segmented contexts are admitted.
+    has_segment: bool = False
 
 
 @dataclass
@@ -377,6 +381,10 @@ class _RawFact:
     decimals: str
     scale: str
     display_value: str
+    # Raw attribute values — recorded for all facts, validated only for
+    # target-concept facts in _extract_fact (not filing-wide).
+    sign: str | None = None
+    format_attr: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -450,9 +458,12 @@ class _FilingReader(HTMLParser):
         self._unit_id: str | None = None
         self._unit_measure: str | None = None
 
-        # --- Fact parsing state ---
-        self._fact_attrs: list[tuple[str, str | None]] | None = None
-        self._fact_parts: list[str] = []
+        # --- Fact parsing state (stack for nested ix:nonFraction) ---
+        # Each entry is (attrs, parts).  Pushing on start tag, popping on end
+        # tag ensures every level records its own attributes and its own text
+        # (text nodes go to the innermost frame).  A nesting that involves the
+        # target concept is refused at push-time (see handle_starttag).
+        self._fact_stack: list[tuple[list[tuple[str, str | None]], list[str]]] = []
 
         # --- Fact id uniqueness tracking ---
         # Every ix:nonFraction element id must be unique in the filing so that
@@ -481,8 +492,10 @@ class _FilingReader(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._collecting_for:
             self._text_parts.append(data)
-        if self._fact_attrs is not None:
-            self._fact_parts.append(data)
+        if self._fact_stack:
+            # Text goes to the innermost (top) frame so nested elements each
+            # accumulate only the text nodes that belong to them.
+            self._fact_stack[-1][1].append(data)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "xbrli:context":
@@ -517,8 +530,20 @@ class _FilingReader(HTMLParser):
             self._start_collect("xbrli:measure")
 
         elif tag == "ix:nonfraction":
-            self._fact_attrs = attrs
-            self._fact_parts = []
+            new_name = _read_attr(attrs, "name") or ""
+            if self._fact_stack:
+                # Nesting detected — refuse if either the incoming element or
+                # any already-open frame involves the target concept.  The
+                # slice is fail-closed: a nested target fact is never admitted.
+                outer_names = [_read_attr(fa, "name") or "" for fa, _ in self._fact_stack]
+                if new_name == _TARGET_CONCEPT or any(
+                    n == _TARGET_CONCEPT for n in outer_names
+                ):
+                    raise DiligenceError(
+                        f"nested ix:nonFraction involves the target concept "
+                        f"{_TARGET_CONCEPT!r}; nested target facts are not admitted"
+                    )
+            self._fact_stack.append((list(attrs), []))
 
     def handle_endtag(self, tag: str) -> None:  # noqa: C901 – state machine
         if tag == "xbrli:identifier":
@@ -534,19 +559,17 @@ class _FilingReader(HTMLParser):
             if self._ctx_id is None:
                 return
             cid = self._ctx_id
-            if self._ctx_has_segment:
-                raise DiligenceError(
-                    f"context {cid!r} contains a segment or scenario element — "
-                    f"non-consolidated contexts are not admitted"
-                )
             if cid in self.contexts:
                 raise DiligenceError(f"duplicate context id {cid!r} in filing")
+            # has_segment is recorded here but not refused — non-target contexts
+            # may carry segments.  _require_context refuses it for c-18/c-19.
             self.contexts[cid] = _RawContext(
                 id=cid,
                 scheme=self._ctx_scheme or "",
                 cik=self._ctx_cik or "",
                 start_date=self._ctx_start or "",
                 end_date=self._ctx_end or "",
+                has_segment=self._ctx_has_segment,
             )
             self._ctx_id = None
             self._ctx_has_segment = False
@@ -565,28 +588,13 @@ class _FilingReader(HTMLParser):
             self._unit_measure = None
 
         elif tag == "ix:nonfraction":
-            fa = self._fact_attrs
-            if fa is None:
+            if not self._fact_stack:
                 return
-            display = "".join(self._fact_parts).strip()
-
-            # Guard: refuse any sign attribute (negation must not be implicit).
-            sign_val = _read_attr(fa, "sign")
-            if sign_val is not None:
-                raise DiligenceError(
-                    f"ix:nonFraction element carries a sign attribute {sign_val!r}; "
-                    f"negated facts are not admitted"
-                )
-
-            # Guard: require format exactly ixt:num-dot-decimal.
-            fmt_val = _read_attr(fa, "format")
-            if fmt_val != "ixt:num-dot-decimal":
-                raise DiligenceError(
-                    f"ix:nonFraction element has format {fmt_val!r}; "
-                    f"expected exactly 'ixt:num-dot-decimal'"
-                )
+            fa, parts = self._fact_stack.pop()
+            display = "".join(parts).strip()
 
             # Guard: id is required and must match the closed pattern.
+            # Applied filing-wide so every source fragment is resolvable.
             fact_id = _read_attr(fa, "id")
             if not fact_id:
                 raise DiligenceError(
@@ -607,6 +615,13 @@ class _FilingReader(HTMLParser):
                 )
             self._fact_ids.add(fact_id)
 
+            # Record sign and format for target-scoped validation in _extract_fact.
+            # Non-target facts may carry sign="-" or other format values — their
+            # sign and format are not applied here and are not part of the
+            # parsed Decimal value.
+            sign_val = _read_attr(fa, "sign")
+            fmt_val = _read_attr(fa, "format")
+
             self.raw_facts.append(
                 _RawFact(
                     id=fact_id,
@@ -616,10 +631,10 @@ class _FilingReader(HTMLParser):
                     decimals=_read_attr(fa, "decimals") or "",
                     scale=_read_attr(fa, "scale") or "",
                     display_value=display,
+                    sign=sign_val,
+                    format_attr=fmt_val,
                 )
             )
-            self._fact_attrs = None
-            self._fact_parts = []
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +672,13 @@ def _require_context(
     if ctx is None:
         raise DiligenceError(f"required XBRL context {ctx_id!r} is absent from filing")
     _validate_context_identity(ctx)
+
+    # Guard: the selected contexts must be consolidated — no segment or scenario.
+    if ctx.has_segment:
+        raise DiligenceError(
+            f"context {ctx_id!r} contains a segment or scenario element — "
+            f"non-consolidated contexts are not admitted"
+        )
 
     # Validate end date: parse, then compare canonical value.
     end_date = _parse_iso_date(ctx.end_date, f"context {ctx_id!r} endDate")
@@ -730,7 +752,9 @@ def _extract_fact(
             f"required fact ({concept!r}, {context_ref!r}) is absent from filing"
         )
 
-    # Validate unit, scale, decimals on every copy.
+    # Validate unit, scale, decimals, sign, and format on every copy.
+    # sign and format are scoped here (not filing-wide) so non-target facts
+    # may carry sign="-" or non-standard format values without being refused.
     for rf in matches:
         if rf.unit_ref != unit_id:
             raise DiligenceError(
@@ -753,6 +777,20 @@ def _extract_fact(
             raise DiligenceError(
                 f"fact ({concept!r}, {context_ref!r}): "
                 f"decimals {rf.decimals!r} does not match expected {_TARGET_DECIMALS!r}"
+            )
+        # Guard: refuse any sign attribute — negation must not be implicit.
+        if rf.sign is not None:
+            raise DiligenceError(
+                f"fact ({concept!r}, {context_ref!r}): "
+                f"ix:nonFraction element carries a sign attribute {rf.sign!r}; "
+                f"negated facts are not admitted"
+            )
+        # Guard: require format exactly ixt:num-dot-decimal.
+        if rf.format_attr != "ixt:num-dot-decimal":
+            raise DiligenceError(
+                f"fact ({concept!r}, {context_ref!r}): "
+                f"ix:nonFraction element has format {rf.format_attr!r}; "
+                f"expected exactly 'ixt:num-dot-decimal'"
             )
 
     # Reject conflicting values; collapse identical duplicates.

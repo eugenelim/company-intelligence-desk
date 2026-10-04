@@ -1012,7 +1012,7 @@ def test_tls_handshake_timeout_produces_attempt_record() -> None:
 
 
 def test_http_exception_during_request_produces_attempt_record() -> None:
-    """A non-OSError HTTPException during request maps to read_timeout with a record.
+    """A non-OSError HTTPException during request maps to connection with a record.
 
     ``http.client.BadStatusLine`` is not a subclass of ``OSError``; before this
     fix it escaped the ``except OSError`` block in ``_real_fetch`` and propagated
@@ -1060,11 +1060,11 @@ def test_http_exception_during_request_produces_attempt_record() -> None:
     assert exc.attempt_record is not None, (
         "an HTTPException during request must produce an AttemptRecord"
     )
-    assert exc.attempt_record.no_response_class == "read_timeout"
+    assert exc.attempt_record.no_response_class == "connection"
 
 
 def test_http_exception_during_body_read_produces_attempt_record() -> None:
-    """A non-OSError HTTPException during body read maps to read_timeout with a record.
+    """A non-OSError HTTPException during body read maps to connection with a record.
 
     ``http.client.IncompleteRead`` is not a subclass of ``OSError``; before
     this fix it escaped the except block in the body-read loop and propagated
@@ -1133,4 +1133,24 @@ def test_http_exception_during_body_read_produces_attempt_record() -> None:
     assert exc.attempt_record is not None, (
         "an HTTPException during body read must produce an AttemptRecord"
     )
-    assert exc.attempt_record.no_response_class == "read_timeout"
+    assert exc.attempt_record.no_response_class == "connection"
+
+
+def test_a_refused_connection_maps_to_connection_class() -> None:
+    """A non-timeout socket error at connect is a connection failure, not a timeout.
+
+    Mutation: map it to 'connect_timeout' as before. This check reds.
+    """
+    with pytest.raises(SecClientError) as exc_info:
+        _fetch(open_socket_error=ConnectionRefusedError("refused"))
+    assert exc_info.value.no_response_class == "connection"
+
+
+def test_a_reset_during_the_tls_handshake_maps_to_connection_class() -> None:
+    """A reset during the handshake is neither a TLS verification failure nor a timeout.
+
+    Mutation: let every non-timeout wrap error map to 'tls'. This check reds.
+    """
+    with pytest.raises(SecClientError) as exc_info:
+        _fetch(wrap_error=ConnectionResetError("reset"))  # type: ignore[arg-type]
+    assert exc_info.value.no_response_class == "connection"

@@ -26,8 +26,10 @@ module owns the analysis path end-to-end:
 Any failure at steps 3–8 appends fenced ``step.failed`` followed by terminal
 ``run.failed`` through the existing run-terminal path, then re-raises so the
 pool records the step as failed.  No partial artifact is ever stored without a
-reference, no ``run.completed`` is ever appended after a failure, and the run is
-always left terminal.
+reference, and no ``run.completed`` is ever appended after a failure. The run
+ends terminal on every such failure. The one exception is a principal that
+cannot be read at step 1: no event can be built without it, so the step is
+recorded failed and the run stays non-terminal.
 
 AC-0413, AC-0418.
 """

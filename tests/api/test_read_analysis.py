@@ -639,3 +639,61 @@ def test_read_analysis_response_omits_principal_values(
         )
     finally:
         _cleanup(run_id)
+
+
+def _valid_artifact() -> dict[str, object]:
+    """A complete artifact built from the committed fixture, as a JSON object."""
+    import hashlib
+
+    from ced.domain.diligence import build_published_analysis, canonical_bytes
+    from tests.ingestion.fixture import recorded_filing
+
+    filing = recorded_filing()
+    artifact = build_published_analysis(
+        filing_html=filing,
+        filing_sha256=hashlib.sha256(filing).hexdigest(),
+        source_url="https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/aapl-20260627.htm",
+        as_of_date="2026-07-31",
+        filing_ref="ced-first-published-analysis-snapshot/" + "0" * 64,
+    )
+    loaded: dict[str, object] = json.loads(canonical_bytes(artifact))
+    return loaded
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda a: a.update({"extra": "x"}), id="unknown-top-level-key"),
+        pytest.param(
+            lambda a: a["memo"]["claims"][0].update({"injected": "x"}), id="unknown-claim-key"
+        ),
+        pytest.param(
+            lambda a: a["memo"]["claims"][0].update({"evidence_refs": [7]}), id="non-string-ref"
+        ),
+        pytest.param(
+            lambda a: a["evidence_manifest"].update({"claim_links": []}),
+            id="unresolved-lineage",
+        ),
+    ],
+)
+def test_read_analysis_refuses_an_artifact_outside_the_published_schema(
+    api_server: Client, require_substrate: None, corrupt: object
+) -> None:
+    """AC-0414: a digest-valid artifact the 200 schema would not admit is a 409.
+
+    Break: validate only through the lenient domain parser, as before review
+    round 2. Each case then returns 200 and reds.
+    """
+    artifact = _valid_artifact()
+    assert callable(corrupt)
+    corrupt(artifact)
+    body = json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    artifact_ref = write_payload_bytes(body, owner_scope=ANALYSIS_SCOPE)
+
+    run_id, step_id = _make_run()
+    try:
+        epoch = _lease_step(step_id, _READ_TEST_POOL_CLASS)
+        _complete_run(run_id, step_id, epoch, payload_ref=artifact_ref)
+        assert api_server.get(f"/runs/{run_id}/analysis").status == 409
+    finally:
+        _cleanup(run_id)

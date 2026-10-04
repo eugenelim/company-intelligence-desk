@@ -210,7 +210,12 @@ def _select_filing(
 
     Rules (AC-0401, AC-0405):
     - The selected accession must match ``required_accession`` exactly.
-    - The filing date must be on or before ``as_of_date``.
+    - The filing date must be on or before ``as_of_date`` (compared as dates).
+    - The selected form must equal ``CANONICAL_FORM``.
+    - The selected ``filingDate`` and ``reportDate`` must be strict ISO calendar
+      dates (``\\d{4}-\\d{2}-\\d{2}`` fullmatch + ``date.fromisoformat``).
+    - Required arrays must all be lists of equal length; every element must be
+      a string.
     - No fallback to a different filing is admitted.
     - Missing required fields or no matching filing fails ingestion.
     """
@@ -219,30 +224,95 @@ def _select_filing(
         if key not in recent:
             raise IngestionError(f"submission metadata missing required field {key!r}")
 
+    # All required fields must be lists.
+    for key in required_keys:
+        if not isinstance(recent[key], list):
+            raise IngestionError(
+                f"submission metadata field {key!r} is not an array: "
+                "refusing before any filing request"
+            )
+
+    # All required arrays must have the same length.
+    n = len(recent["accessionNumber"])
+    for key in required_keys:
+        if len(recent[key]) != n:
+            raise IngestionError(
+                "submission metadata required arrays have unequal lengths: "
+                "refusing before any filing request"
+            )
+
+    # Every element of every required array must be a string (shape check
+    # before any selection or date parsing).
+    for key in required_keys:
+        for j, elem in enumerate(recent[key]):
+            if not isinstance(elem, str):
+                raise IngestionError(
+                    f"submission metadata {key!r} element {j} is not a string: "
+                    "refusing before any filing request"
+                )
+
+    # Parse as_of_date once as a date object for safe calendar comparison.
+    as_of = datetime.date.fromisoformat(as_of_date)
+
     # Normalise accession number: remove dashes for comparison.
     bare_acc = required_accession.replace("-", "")
 
-    n = len(recent["accessionNumber"])
     matches: list[dict[str, str]] = []
 
     for i in range(n):
-        acc_raw = str(recent["accessionNumber"][i])
+        acc_raw = recent["accessionNumber"][i]  # already validated as str
         # SEC accession numbers come as "0000320193-26-000020" or "000032019326000020".
         acc_bare = acc_raw.replace("-", "")
         if acc_bare != bare_acc:
             continue
 
-        filing_date = str(recent["filingDate"][i])
-        # Refuse any filing dated after as_of_date (AC-0405).
-        if filing_date > as_of_date:
+        # Validate and parse the filing date as a strict ISO calendar date.
+        filing_date_raw = recent["filingDate"][i]
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", filing_date_raw):
             raise IngestionError(
-                f"selected filing date {filing_date!r} is after the "
+                f"selected filingDate {filing_date_raw!r} is not a strict ISO calendar date "
+                r"(\d{4}-\d{2}-\d{2}): refusing before any filing request"
+            )
+        try:
+            filing_date_obj = datetime.date.fromisoformat(filing_date_raw)
+        except ValueError as exc:
+            raise IngestionError(
+                f"selected filingDate {filing_date_raw!r} is not a valid calendar date: "
+                "refusing before any filing request"
+            ) from exc
+
+        # Refuse any filing dated after as_of_date (AC-0405) — compared as dates
+        # so whitespace, empty strings, or non-canonical orderings cannot bypass the guard.
+        if filing_date_obj > as_of:
+            raise IngestionError(
+                f"selected filing date {filing_date_raw!r} is after the "
                 f"requested as-of date {as_of_date!r}: refusing"
             )
 
-        primary_doc = str(recent["primaryDocument"][i])
-        form = str(recent["form"][i])
-        report_date = str(recent["reportDate"][i])
+        primary_doc = recent["primaryDocument"][i]
+
+        # Validate form: only the canonical form is admitted into the manifest.
+        form = recent["form"][i]
+        if form != CANONICAL_FORM:
+            raise IngestionError(
+                f"selected filing form {form!r} is not {CANONICAL_FORM!r}: "
+                "refusing before any filing request"
+            )
+
+        # Validate and parse the report date as a strict ISO calendar date.
+        report_date_raw = recent["reportDate"][i]
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", report_date_raw):
+            raise IngestionError(
+                f"selected reportDate {report_date_raw!r} is not a strict ISO calendar date "
+                r"(\d{4}-\d{2}-\d{2}): refusing before any filing request"
+            )
+        try:
+            datetime.date.fromisoformat(report_date_raw)
+        except ValueError as exc:
+            raise IngestionError(
+                f"selected reportDate {report_date_raw!r} is not a valid calendar date: "
+                "refusing before any filing request"
+            ) from exc
 
         # Rebuild accession in dashed form if it arrived without dashes.
         if "-" not in acc_raw:
@@ -254,8 +324,8 @@ def _select_filing(
         matches.append(
             {
                 "accession": acc_dashed,
-                "filing_date": filing_date,
-                "report_date": report_date,
+                "filing_date": filing_date_obj.isoformat(),  # normalised ISO calendar date
+                "report_date": report_date_raw,
                 "form": form,
                 "primary_doc": primary_doc,
             }
@@ -398,14 +468,14 @@ def _ingest_offline() -> dict[str, str]:
         submissions_bytes = _FIXTURE_JSON.read_bytes()
     except OSError as exc:
         raise IngestionError(
-            "error: --offline-fixture needs a source checkout; "
+            "--offline-fixture needs a source checkout; "
             "the fixture is not installed with the package"
         ) from exc
     try:
         filing_bytes = _FIXTURE_HTML.read_bytes()
     except OSError as exc:
         raise IngestionError(
-            "error: --offline-fixture needs a source checkout; "
+            "--offline-fixture needs a source checkout; "
             "the fixture is not installed with the package"
         ) from exc
 
@@ -465,10 +535,28 @@ def _ingest_live(
         except json.JSONDecodeError as exc:
             raise IngestionError(f"submissions JSON is not valid: {exc}") from exc
 
+        # Refuse a submissions document that is not a JSON object.
+        if not isinstance(submissions, dict):
+            raise IngestionError(
+                "submissions document is not a JSON object: refusing before any filing request"
+            )
+
         # Refuse submissions whose CIK disagrees with the canonical CIK (AC-0401).
         _validate_submissions_cik(submissions, CANONICAL_CIK)
 
-        recent = submissions.get("filings", {}).get("recent", {})
+        # Refuse a missing or non-object 'filings' or 'filings.recent'.
+        filings = submissions.get("filings")
+        if not isinstance(filings, dict):
+            raise IngestionError(
+                "submissions 'filings' field is missing or not a JSON object: "
+                "refusing before any filing request"
+            )
+        recent = filings.get("recent")
+        if not isinstance(recent, dict):
+            raise IngestionError(
+                "submissions 'filings.recent' field is missing or not a JSON object: "
+                "refusing before any filing request"
+            )
         filing_info = _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
 
         # Refuse if the selected accession's filer prefix does not match (AC-0401).
@@ -524,10 +612,28 @@ def _run_ingest_from_bytes(
     except json.JSONDecodeError as exc:
         raise IngestionError(f"submissions JSON is not valid: {exc}") from exc
 
+    # Refuse a submissions document that is not a JSON object.
+    if not isinstance(submissions, dict):
+        raise IngestionError(
+            "submissions document is not a JSON object: refusing before any filing request"
+        )
+
     # Refuse submissions whose CIK disagrees with the canonical CIK (AC-0401).
     _validate_submissions_cik(submissions, CANONICAL_CIK)
 
-    recent = submissions.get("filings", {}).get("recent", {})
+    # Refuse a missing or non-object 'filings' or 'filings.recent'.
+    filings = submissions.get("filings")
+    if not isinstance(filings, dict):
+        raise IngestionError(
+            "submissions 'filings' field is missing or not a JSON object: "
+            "refusing before any filing request"
+        )
+    recent = filings.get("recent")
+    if not isinstance(recent, dict):
+        raise IngestionError(
+            "submissions 'filings.recent' field is missing or not a JSON object: "
+            "refusing before any filing request"
+        )
     filing_info = _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
 
     # Refuse if the selected accession's filer prefix does not match (AC-0401).

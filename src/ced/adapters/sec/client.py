@@ -39,7 +39,7 @@ dependency in offline unit tests.
 
 ``no_response_class`` on ``SecClientError``: every failure that produces no HTTP
 response carries a string class (``"dns"``, ``"tls"``, ``"connect_timeout"``,
-``"read_timeout"``, ``"total_timeout"``).  The ``AttemptRecord`` field of the
+``"read_timeout"``, ``"total_timeout"``, ``"connection"``).  The ``AttemptRecord`` field of the
 same name is populated from this attribute in the catch block of ``fetch_url``.
 """
 
@@ -112,7 +112,8 @@ class SecClientError(Exception):
 
     Network-level failures set ``no_response_class`` to one of:
     ``"dns"``, ``"tls"``, ``"connect_timeout"``, ``"read_timeout"``,
-    ``"total_timeout"``.  HTTP-level failures and configuration errors
+    ``"total_timeout"``, or ``"connection"`` for a refused, reset or garbled
+    connection.  HTTP-level failures and configuration errors
     leave it ``None``.
     """
 
@@ -166,7 +167,7 @@ class AttemptRecord:
 
     no_response_class: str | None
     """One of "dns", "tls", "connect_timeout", "read_timeout", "total_timeout",
-    or ``None`` when an HTTP response was received."""
+    "connection", or ``None`` when an HTTP response was received."""
 
     blocked: bool
     """True when HTTP 403 or 429 was received."""
@@ -306,7 +307,7 @@ class _GatedSecConnection(http_client.HTTPSConnection):
         except OSError as exc:
             raise SecClientError(
                 "connect failed",
-                no_response_class="connect_timeout",
+                no_response_class="connection",
             ) from exc
 
         # Retain the original SEC hostname for TLS certificate verification.
@@ -317,12 +318,17 @@ class _GatedSecConnection(http_client.HTTPSConnection):
                 raw_sock.close()
             except Exception:
                 pass
-            # TimeoutError from wrap_socket is a handshake timeout; map to
-            # connect_timeout.  ssl.SSLError is a TLS verification failure.
+            # A handshake timeout is a connect timeout, an ssl.SSLError is a
+            # TLS failure, and any other socket error is a dropped connection.
             if isinstance(exc, TimeoutError):
                 raise SecClientError(
                     "TLS handshake timeout",
                     no_response_class="connect_timeout",
+                ) from exc
+            if not isinstance(exc, ssl.SSLError):
+                raise SecClientError(
+                    "connection failed during TLS handshake",
+                    no_response_class="connection",
                 ) from exc
             raise SecClientError(
                 "TLS verification failed",
@@ -614,7 +620,7 @@ def _real_fetch(
         except (OSError, http_client.HTTPException) as exc:
             raise SecClientError(
                 "request failed",
-                no_response_class="read_timeout",
+                no_response_class="connection",
             ) from exc
 
         status = response.status
@@ -656,7 +662,7 @@ def _real_fetch(
             except (OSError, http_client.HTTPException) as exc:
                 raise SecClientError(
                     "read error during body",
-                    no_response_class="read_timeout",
+                    no_response_class="connection",
                 ) from exc
             if not chunk:
                 break

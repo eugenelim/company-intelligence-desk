@@ -304,3 +304,110 @@ def test_a_live_metadata_refusal_makes_no_filing_request_and_no_write(
 
     assert len(opens) == 1, f"only the submissions request may be made; saw {len(opens)}"
     assert writes == [], f"no object may be written; saw {writes}"
+
+
+# ---------------------------------------------------------------------------
+# Concern 5 (AC-0405): a malformed filingDate on the live path stops before
+# the filing fetch and before any object write
+# ---------------------------------------------------------------------------
+
+
+def test_a_live_malformed_filing_date_makes_no_filing_request_and_no_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leading-space filingDate in the submissions response stops before the filing fetch.
+
+    The seam counts socket opens, so a filing request would be a second open.
+    The store spy records every write.
+
+    Mutation: remove the ``re.fullmatch`` / ``date.fromisoformat`` check for
+    ``filingDate`` → the leading-space date passes the old string-comparison
+    post-as-of guard (``' 2026-08-01' < '2026-07-31'`` lexically), the filing
+    is fetched (two socket opens), and the ``len(opens) == 1`` assertion fails.
+    """
+    import json as _json
+
+    monkeypatch.setenv("SEC_CONTACT", _CONTACT)
+    monkeypatch.setattr("ced.adapters.postgres.dsn.database_url", lambda role: "unused-dsn")
+    from ced.adapters.objectstore import client as obj_client
+
+    writes: list[str] = []
+    monkeypatch.setattr(
+        obj_client, "write_payload_bytes", lambda b, **kw: writes.append("bytes")
+    )
+    monkeypatch.setattr(obj_client, "write_payload", lambda d, **kw: writes.append("json"))
+
+    opens: list[Any] = []
+
+    # Build a submissions document where the canonical filingDate has a leading space,
+    # which would slip past a raw-string '>' comparison but must fail ISO date parsing.
+    doc = _json.loads(_FIXTURE_JSON.read_bytes())
+    recent = doc["filings"]["recent"]
+    idx = recent["accessionNumber"].index("0000320193-26-000020")
+    recent["filingDate"][idx] = " 2026-08-01"  # leading space; post-as-of when parsed
+    malformed_bytes = _json.dumps(doc).encode()
+
+    response = make_http_response(200, {}, malformed_bytes)
+
+    def resolve(host: str, port: int, **kwargs: Any) -> list[tuple[Any, ...]]:
+        import socket as _socket
+
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
+
+    def open_socket(address: Any, timeout: Any = None) -> Any:
+        opens.append(address)
+        return FakeSocket(response)
+
+    with pytest.raises(IngestionError):
+        _ingest_live(
+            gate_factory=_make_gate_factory(),
+            resolve=resolve,
+            open_socket=open_socket,
+            wrap=lambda sock, server_hostname=None: sock,
+        )
+
+    assert len(opens) == 1, f"only the submissions request may be made; saw {len(opens)}"
+    assert writes == [], f"no object may be written; saw {writes}"
+
+
+# ---------------------------------------------------------------------------
+# Nit 8: the offline-fixture-missing error must print exactly one 'error: '
+# ---------------------------------------------------------------------------
+
+
+def test_offline_fixture_missing_error_has_exactly_one_error_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The offline-fixture-missing error prints exactly one ``error: `` prefix on stderr.
+
+    ``run()`` formats the message as ``f"error: {exc}\\n"``.  If the
+    ``IngestionError`` message itself begins with ``error: ``, the output
+    reads ``error: error: --offline-fixture needs a source checkout; …``,
+    which duplicates the prefix and disagrees with the guide.
+
+    Mutation: add ``error: `` back to the ``IngestionError`` message in
+    ``_ingest_offline`` → stderr starts with ``"error: error: "`` and the
+    ``not … startswith("error: error: ")`` assertion fails.
+    """
+    from pathlib import Path
+
+    import ced.worker.ingestion as ingestion_module
+
+    monkeypatch.setattr(ingestion_module, "_FIXTURE_JSON", Path("/nonexistent/x.json"))
+    monkeypatch.setattr(sys, "argv", ["ced-ingest", "--offline-fixture"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error: "), (
+        f"stderr must start with exactly one 'error: '; got: {captured.err!r}"
+    )
+    assert not captured.err.startswith("error: error: "), (
+        f"stderr must not start with double 'error: error: '; got: {captured.err!r}"
+    )
+    assert "--offline-fixture needs a source checkout" in captured.err, (
+        f"stderr must contain the user guidance; got: {captured.err!r}"
+    )

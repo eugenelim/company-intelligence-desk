@@ -512,3 +512,219 @@ def test_offline_ingest_refuses_with_path_free_message_when_fixture_absent(
     assert not re.search(r"/[A-Za-z]", msg), (
         f"error message must not contain an absolute path; got: {msg!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Concern 5: submissions document and filings.recent shape checks
+# (non-object submissions, non-object filings/recent)
+# ---------------------------------------------------------------------------
+
+
+def test_run_ingest_from_bytes_refuses_non_object_submissions() -> None:
+    """A submissions JSON that is not a JSON object (e.g. a list) is refused.
+
+    Mutation: remove the ``isinstance(submissions, dict)`` check →
+    ``_validate_submissions_cik`` raises ``AttributeError`` (``list.get``
+    does not exist) rather than ``IngestionError``, and the assertion fails.
+    """
+    submissions_bytes = b'["not", "an", "object"]'
+    filing_bytes = _FIXTURE_HTML.read_bytes()
+
+    with pytest.raises(IngestionError, match="not a JSON object"):
+        _run_ingest_from_bytes(submissions_bytes, filing_bytes)
+
+
+def test_run_ingest_from_bytes_refuses_non_object_filings() -> None:
+    """A submissions document where 'filings' is a list rather than an object is refused.
+
+    Mutation: remove the ``isinstance(filings, dict)`` check → calling
+    ``.get("recent")`` on a list raises ``AttributeError`` instead of
+    ``IngestionError``, and the assertion fails.
+    """
+    submissions = _load_submissions()
+    submissions["filings"] = ["not", "a", "dict"]
+    submissions_bytes = json.dumps(submissions).encode()
+    filing_bytes = _FIXTURE_HTML.read_bytes()
+
+    with pytest.raises(IngestionError, match="not a JSON object"):
+        _run_ingest_from_bytes(submissions_bytes, filing_bytes)
+
+
+def test_run_ingest_from_bytes_refuses_non_object_recent() -> None:
+    """A submissions document where 'filings.recent' is a list rather than an object is refused.
+
+    Mutation: remove the ``isinstance(recent, dict)`` check → ``_select_filing``
+    receives a list; ``key not in recent`` checks membership in list elements
+    rather than dict keys and raises ``IngestionError("missing required field")``
+    instead of the shape-check message, so the ``match`` assertion fails.
+    """
+    submissions = _load_submissions()
+    submissions["filings"]["recent"] = ["not", "a", "dict"]
+    submissions_bytes = json.dumps(submissions).encode()
+    filing_bytes = _FIXTURE_HTML.read_bytes()
+
+    with pytest.raises(IngestionError, match="not a JSON object"):
+        _run_ingest_from_bytes(submissions_bytes, filing_bytes)
+
+
+# ---------------------------------------------------------------------------
+# Concern 5: required arrays — list check and equal-length check
+# ---------------------------------------------------------------------------
+
+
+def test_select_filing_refuses_non_list_array_field() -> None:
+    """A required field that is not a list is refused with a clear message.
+
+    Mutation: remove the ``isinstance(recent[key], list)`` check → ``len()``
+    on a string is called (strings have len), the equal-length check sees a
+    mismatch, and the message differs from the expected match, so the test fails.
+    """
+    recent = _recent()
+    recent["accessionNumber"] = "not-a-list"
+
+    with pytest.raises(IngestionError, match="not an array"):
+        _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+
+def test_select_filing_refuses_unequal_length_arrays() -> None:
+    """Required arrays with unequal lengths are refused before any selection.
+
+    Mutation: remove the equal-length check → ``recent["filingDate"][i]``
+    raises ``IndexError`` for the last entry rather than ``IngestionError``,
+    and the assertion fails.
+    """
+    recent = _recent()
+    recent["filingDate"] = recent["filingDate"][:-1]  # one element shorter
+
+    with pytest.raises(IngestionError, match="unequal"):
+        _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+
+# ---------------------------------------------------------------------------
+# Concern 5: required array elements must be strings
+# ---------------------------------------------------------------------------
+
+
+def test_select_filing_refuses_non_string_array_element() -> None:
+    """An accessionNumber element that is not a string is refused.
+
+    Mutation: remove the per-element ``isinstance(elem, str)`` pre-loop →
+    ``acc_raw.replace("-", "")`` on an ``int`` raises ``AttributeError``
+    rather than ``IngestionError``, and the assertion fails.
+    """
+    recent = _recent()
+    idx = recent["accessionNumber"].index(CANONICAL_ACCESSION)
+    recent["accessionNumber"][idx] = 32019326000020  # integer, not a string
+
+    with pytest.raises(IngestionError, match="not a string"):
+        _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+
+# ---------------------------------------------------------------------------
+# Concern 5: selected filingDate must be a strict ISO calendar date
+# ---------------------------------------------------------------------------
+
+
+def test_select_filing_refuses_filing_date_with_leading_space() -> None:
+    """A filingDate with a leading space passes ``'<' `` string comparison but is refused.
+
+    ``' 2026-08-01' < '2026-07-31'`` in string order (space < digit), so the
+    raw-string guard passes a post-as-of date.  Parsing as a date catches it.
+
+    Mutation: remove the ``re.fullmatch`` / ``date.fromisoformat`` date check
+    → the leading-space date bypasses the post-as-of guard and enters the
+    manifest, and the assertion fails.
+    """
+    recent = _recent()
+    idx = recent["accessionNumber"].index(CANONICAL_ACCESSION)
+    recent["filingDate"][idx] = " 2026-08-01"  # leading space; post-as-of
+
+    with pytest.raises(IngestionError, match="ISO calendar date|filingDate"):
+        _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+
+def test_select_filing_refuses_empty_filing_date() -> None:
+    """An empty filingDate string passes ``''<'2026-07-31'`` string comparison but is refused.
+
+    Mutation: remove the ``re.fullmatch`` / ``date.fromisoformat`` date check
+    → the empty string bypasses the post-as-of guard and enters the manifest,
+    and the assertion fails.
+    """
+    recent = _recent()
+    idx = recent["accessionNumber"].index(CANONICAL_ACCESSION)
+    recent["filingDate"][idx] = ""  # empty string; lexically less than any YYYY date
+
+    with pytest.raises(IngestionError, match="ISO calendar date|filingDate"):
+        _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+
+# ---------------------------------------------------------------------------
+# Concern 5: selected reportDate must be a strict ISO calendar date
+# ---------------------------------------------------------------------------
+
+
+def test_select_filing_refuses_non_iso_report_date() -> None:
+    """A reportDate that does not match YYYY-MM-DD is refused.
+
+    Mutation: remove the ``re.fullmatch`` / ``date.fromisoformat`` check for
+    ``reportDate`` → an invalid reportDate enters the manifest unchecked,
+    and the assertion fails.
+    """
+    recent = _recent()
+    idx = recent["accessionNumber"].index(CANONICAL_ACCESSION)
+    recent["reportDate"][idx] = "not-a-date"
+
+    with pytest.raises(IngestionError, match="ISO calendar date|reportDate"):
+        _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+
+# ---------------------------------------------------------------------------
+# Concern 5: selected form must equal CANONICAL_FORM
+# ---------------------------------------------------------------------------
+
+
+def test_select_filing_refuses_wrong_form() -> None:
+    """A selected filing whose form is not 10-Q is refused before any request or write.
+
+    Mutation: remove the ``form != CANONICAL_FORM`` check → a 10-K accession
+    entered into the manifest, and the assertion fails.
+    """
+    recent = _recent()
+    idx = recent["accessionNumber"].index(CANONICAL_ACCESSION)
+    recent["form"][idx] = "10-K"  # wrong form
+
+    with pytest.raises(IngestionError, match="form|10-Q"):
+        _select_filing(recent, CANONICAL_AS_OF, CANONICAL_ACCESSION)
+
+
+# ---------------------------------------------------------------------------
+# Nit 4 support: misplaced-dash accession passes bare-number matching but
+# fails the filer-prefix check
+# ---------------------------------------------------------------------------
+
+
+def test_run_ingest_from_bytes_refuses_misplaced_dash_accession() -> None:
+    """A misplaced-dash accession matches on bare digits but fails the filer-prefix check.
+
+    ``'0000320-19326-000020'`` strips to the same 18 digits as
+    ``'0000320193-26-000020'`` (both → ``'000032019326000020'``), so
+    ``_select_filing`` matches and returns the raw dashed form.
+    ``_validate_accession_filer_prefix`` then splits on the first dash,
+    gets ``'0000320'``, normalises to ``'0000000320'``, and refuses because
+    that disagrees with the canonical CIK ``'0000320193'``.
+
+    Mutation: remove the ``_validate_accession_filer_prefix`` call from
+    ``_run_ingest_from_bytes`` → the misplaced-dash accession is accepted,
+    the path proceeds to ``_store_and_return`` (which needs MinIO and raises
+    a non-``IngestionError`` instead), and the ``pytest.raises`` assertion fails.
+    """
+    submissions = _load_submissions()
+    idx = submissions["filings"]["recent"]["accessionNumber"].index(CANONICAL_ACCESSION)
+    # Same bare digits, wrong dash positions.
+    submissions["filings"]["recent"]["accessionNumber"][idx] = "0000320-19326-000020"
+
+    submissions_bytes = json.dumps(submissions).encode()
+    filing_bytes = _FIXTURE_HTML.read_bytes()
+
+    with pytest.raises(IngestionError, match="filer prefix|CIK|cik"):
+        _run_ingest_from_bytes(submissions_bytes, filing_bytes)

@@ -913,3 +913,179 @@ def test_canonical_bytes_digest_matches_pinned_value() -> None:
         hashlib.sha256(raw).hexdigest()
         == "9aaf1714a11e183c5cc4b8534872779f9e6a895fe2b494aeb4669b09ced3896f"
     )
+
+
+# ---------------------------------------------------------------------------
+# Blocker 1 — non-target segment/sign/format facts do not refuse the build
+# ---------------------------------------------------------------------------
+
+
+def test_non_target_segment_sign_format_facts_do_not_refuse_build() -> None:
+    """Non-target contexts and facts with segment, sign="-", or wrong format succeed.
+
+    The real filing has segmented contexts (e.g. c-2), ~54 facts with
+    sign="-", and facts with format="ixt:fixed-zero" or absent format.
+    Those guards must not fire on non-target elements.
+
+    Mutation — keep the guard filing-wide: the first signed non-target fact
+    raises DiligenceError before the target facts are reached, so this
+    assertion fails (the build raises rather than returning 16.36).
+    """
+    filing = recorded_filing()
+
+    # Insert a segmented non-target context (id c-2) before the unit definition.
+    # The segment marks c-2 as non-consolidated; only c-18/c-19 are checked.
+    extra_ctx = (
+        b'    <xbrli:context id="c-2">\n'
+        b"      <xbrli:entity>\n"
+        b'        <xbrli:identifier scheme="http://www.sec.gov/CIK">0000320193</xbrli:identifier>\n'
+        b"        <xbrli:segment/>\n"
+        b"      </xbrli:entity>\n"
+        b"      <xbrli:period><xbrli:startDate>2026-03-29</xbrli:startDate>"
+        b"<xbrli:endDate>2026-06-27</xbrli:endDate></xbrli:period>\n"
+        b"    </xbrli:context>\n"
+    )
+    # Insert a non-target fact with sign="-", one with format="ixt:fixed-zero",
+    # and one with no format attribute.  All use concept names that are not
+    # the target concept so _extract_fact never validates them.
+    extra_facts = (
+        b'<ix:nonFraction name="us-gaap:OtherExpenses" contextRef="c-18"'
+        b' unitRef="usd" decimals="-6" scale="6"'
+        b' format="ixt:num-dot-decimal" id="f-signed-nt-1" sign="-">1,000</ix:nonFraction>\n'
+        b'<ix:nonFraction name="us-gaap:FixedZeroItem" contextRef="c-18"'
+        b' unitRef="usd" decimals="-6" scale="6"'
+        b' format="ixt:fixed-zero" id="f-fmtz-nt-2">0</ix:nonFraction>\n'
+        b'<ix:nonFraction name="us-gaap:NoFormatItem" contextRef="c-18"'
+        b' unitRef="usd" decimals="-6" scale="6"'
+        b' id="f-nofmt-nt-3">5,000</ix:nonFraction>\n'
+    )
+
+    modified = filing.replace(
+        b'    <xbrli:unit id="usd">', extra_ctx + b'    <xbrli:unit id="usd">', 1
+    )
+    modified = modified.replace(b"</body>", extra_facts + b"</body>", 1)
+
+    artifact = build_published_analysis(
+        filing_html=modified,
+        filing_sha256=hashlib.sha256(modified).hexdigest(),
+        source_url=_SOURCE_URL,
+        as_of_date=_AS_OF_DATE,
+    )
+    assert artifact.evidence_manifest.calculations[0].value == Decimal("16.36")
+
+
+def test_segmented_target_context_still_raises_diligence_error() -> None:
+    """Guard: segment inside c-18 (a target context) is still refused.
+
+    Mutation — remove the has_segment check in _require_context: a segmented
+    c-18 is accepted and build_published_analysis succeeds.
+    """
+    # The existing test already covers this via a direct byte-replace; this
+    # confirms the guard survives Blocker 1's refactoring.
+    modified = recorded_filing().replace(
+        b"0000320193</xbrli:identifier>\n      </xbrli:entity>",
+        b"0000320193</xbrli:identifier>\n        <xbrli:segment/>\n      </xbrli:entity>",
+        1,
+    )
+    with pytest.raises(DiligenceError, match="segment"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_target_fact_with_sign_still_raises_diligence_error() -> None:
+    """Guard: sign="-" on a target-concept fact in c-18 is still refused.
+
+    Mutation — remove the sign check in _extract_fact: the signed target fact
+    is accepted and build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(
+        b'format="ixt:num-dot-decimal" scale="6" id="f-56"',
+        b'format="ixt:num-dot-decimal" scale="6" id="f-56" sign="-"',
+        1,
+    )
+    with pytest.raises(DiligenceError, match="sign"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_target_fact_with_wrong_format_still_raises_diligence_error() -> None:
+    """Guard: format="ixt:num-comma-decimal" on a target-concept fact is still refused.
+
+    Mutation — remove the format check in _extract_fact: the wrong-format
+    target fact is accepted and build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(
+        b'format="ixt:num-dot-decimal"',
+        b'format="ixt:num-comma-decimal"',
+        1,
+    )
+    with pytest.raises(DiligenceError, match="format"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+def test_target_fact_with_missing_format_still_raises_diligence_error() -> None:
+    """Guard: absent format attribute on a target-concept fact is still refused.
+
+    Mutation — remove the format check in _extract_fact: a target fact with no
+    format attribute is accepted and build_published_analysis succeeds.
+    """
+    modified = recorded_filing().replace(b' format="ixt:num-dot-decimal"', b"", 1)
+    with pytest.raises(DiligenceError, match="format"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Blocker 2 — nested ix:nonFraction involving the target concept is refused
+# ---------------------------------------------------------------------------
+
+
+def test_nested_nonfraction_with_target_concept_raises_diligence_error() -> None:
+    """Guard: a nested ix:nonFraction where the outer element is the target concept is refused.
+
+    The slice is fail-closed: nesting that involves a target fact is never
+    admitted.  With the stack-based implementation, removing the nesting
+    detection causes both the outer 999,999 and the existing 109,417 copies
+    to be recorded for the target concept in c-18.  _extract_fact detects
+    the conflict and raises DiligenceError with message "conflicting", not
+    "nested", so pytest.raises(match="nested") fails and the test reds.
+    """
+    filing = recorded_filing()
+    # Insert a nested ix:nonFraction: outer = target concept with 999,999 in
+    # c-18 (a conflicting duplicate if both were recorded), inner = non-target.
+    nested = (
+        b"<ix:nonFraction"
+        b' name="us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"'
+        b' contextRef="c-18" unitRef="usd" decimals="-6" scale="6"'
+        b' format="ixt:num-dot-decimal" id="f-nest-outer-999">999,999'
+        b'<ix:nonFraction name="us-gaap:OtherExpenses"'
+        b' contextRef="c-18" unitRef="usd" decimals="-6" scale="6"'
+        b' format="ixt:num-dot-decimal"'
+        b' id="f-nest-inner-888">50,000</ix:nonFraction>'
+        b"</ix:nonFraction>"
+    )
+    modified = filing.replace(b"</body>", nested + b"</body>", 1)
+    with pytest.raises(DiligenceError, match="nested"):
+        build_published_analysis(
+            filing_html=modified,
+            filing_sha256=hashlib.sha256(modified).hexdigest(),
+            source_url=_SOURCE_URL,
+            as_of_date=_AS_OF_DATE,
+        )

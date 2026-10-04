@@ -1054,7 +1054,7 @@ red.
 | --- | --- | --- | --- |
 | 2 (AC-0405) | duplicate canonical accession refused | first-match `break` restored | `test_select_filing_refuses_duplicate_accession_entries`; live `[duplicate-accession]` case |
 | 3 (AC-0401) | submissions CIK, normalised for zero padding | call removed; normalisation removed | `test_validate_submissions_cik_refuses_wrong_cik`; `test_validate_submissions_cik_accepts_short_form` |
-| 3 (AC-0401) | accession filer prefix | call removed | `test_validate_accession_filer_prefix_refuses_wrong_prefix` |
+| 3 (AC-0401) | accession filer prefix | call removed from `_run_ingest_from_bytes` | `test_run_ingest_from_bytes_refuses_misplaced_dash_accession`. `test_validate_accession_filer_prefix_refuses_wrong_prefix` pins the helper alone and stays green under this mutation |
 | 3 (AC-0401) | live refusal makes one request and no write | CIK check or duplicate check removed | `test_a_live_metadata_refusal_makes_no_filing_request_and_no_write` (controller-run) |
 | 4 (AC-0404) | snapshot bytes re-hashed on read-back | snapshot digest check removed | `test_round_trip_digest_check_fails_on_tampered_snapshot_manifest` |
 | 4 (AC-0404) | declared client absent on the live path | contact stored in the manifest | `test_contact_value_absent_from_stored_objects_via_live_ingest` |
@@ -1093,3 +1093,86 @@ compares the following, served against committed:
 | `memo` dropped from the served schema | `test_analysis_view_notices_dropped_served_property` |
 | `StartRunRequest.analysis` removed or made non-nullable; start 503 or its `x-spec` removed | `test_analysis_view_notices_start_run_changes` |
 | committed `analysis` field written as `oneOf` rather than the served `anyOf` | served-vs-committed agreement test (controller-run) |
+
+## Review round 2 repairs
+
+### Finding 1 — filing guards apply to the selected facts only (AC-0406)
+
+Round 1 placed the segment, `sign` and `format` refusals on every context and
+fact in the filing. The real filing has segmented contexts such as `c-2`,
+signed facts, and facts with other formats, so it was refused before `c-18`
+and `c-19` were read. Those refusals now apply only to `c-18`, `c-19` and
+every copy of the target-concept facts in them. The fact-id rules stay
+filing-wide, because the real filing satisfies them.
+
+Real-filing check, run by hand and not in any test: the Phase 0 copy of
+accession `0000320193-26-000020` (SHA-256 `4ad5bea6…b9177`) builds `16.36`,
+with the approved sentence, fragments `#f-381` and `#f-382`, and no
+unresolved claim.
+
+| Check | Mutation | Red |
+| --- | --- | --- |
+| `test_non_target_segment_sign_format_facts_do_not_refuse_build` | refusals back to filing-wide | `DiligenceError` on a non-target fact |
+| `test_segmented_target_context_still_raises_diligence_error`, `test_target_fact_with_sign_…`, `…_wrong_format_…`, `…_missing_format_…` | target-scoped check removed | the target case is accepted |
+
+### Finding 2 — a nested target fact is refused
+
+Facts are tracked on a stack, so every `ix:nonFraction` keeps its own
+attributes and text. A target-concept fact that contains a nested
+`ix:nonFraction` is refused.
+
+| Check | Mutation | Red |
+| --- | --- | --- |
+| `test_nested_nonfraction_with_target_concept_raises_diligence_error` | nesting check removed | `match="nested"` fails |
+
+### Finding 3 — the read admits only the published 200 schema (AC-0414)
+
+`GET /runs/{run_id}/analysis` now validates the stored bytes with the strict
+`PublishedAnalysis` model, which forbids unknown keys and coerces nothing,
+and requires complete claim lineage. Otherwise it returns the
+`artifact_schema_invalid` `409`.
+
+| Check | Mutation | Red |
+| --- | --- | --- |
+| `test_read_analysis_refuses_an_artifact_outside_the_published_schema` (four cases: top-level key, claim key, non-string ref, unresolved lineage) | lenient domain parser only | all four return 200 |
+
+### Finding 5 — submission metadata is shape- and date-checked (AC-0405)
+
+The following are refused before any filing request, and the manifest carries
+the parsed `isoformat()`:
+
+- a non-object document, `filings` or `recent`;
+- required arrays that are not lists, are not of equal length, or hold
+  non-strings;
+- a selected `filingDate` or `reportDate` that is not a strict ISO date, with
+  dates compared as dates;
+- a `form` other than `10-Q`.
+
+| Check | Mutation | Red |
+| --- | --- | --- |
+| `test_run_ingest_from_bytes_refuses_non_object_submissions`, `…_non_object_filings`, `…_non_object_recent` | `isinstance` check removed | `AttributeError` instead of `IngestionError` |
+| `test_select_filing_refuses_non_list_array_field`, `…_unequal_length_arrays`, `…_non_string_array_element` | shape check removed | wrong error or `IndexError` |
+| `test_select_filing_refuses_filing_date_with_leading_space`, `…_empty_filing_date`, `…_non_iso_report_date` | date parse removed | malformed date admitted |
+| `test_select_filing_refuses_wrong_form` | form check removed | `10-K` admitted |
+| `test_a_live_malformed_filing_date_makes_no_filing_request_and_no_write` | date parse removed | a second socket open |
+
+### Findings 4, 7, 8 — record and message corrections
+
+- The filer-prefix row above now cites the call-site check, with mutation
+  proof from `test_run_ingest_from_bytes_refuses_misplaced_dash_accession`.
+- The analysis module docstring states the unreadable-principal exception.
+- The offline refusal prints one `error:` prefix. This is pinned by
+  `test_offline_fixture_missing_error_has_exactly_one_error_prefix`.
+
+### Finding 6 — connection failures get their own class (AC-0417 amendment)
+
+**Owner decision, 2026-10-04:** the owner chose to add a `connection` class
+to AC-0417's closed no-response set, through the controlled amendment route,
+rather than label resets as `read_timeout`. A refused connection, a reset or
+other socket error, and a garbled HTTP response are now recorded as
+`connection`. The other classes are unchanged: an `ssl.SSLError` is `tls`,
+and a timeout is still its timeout class.
+
+| Check | Mutation | Red |
+| --- | --- | --- |
+| `test_a_refused_connection_maps_to_connection_class`, `test_a_reset_during_the_tls_handshake_maps_to_connection_class`, `test_http_exception_during_request_…`, `…_during_body_read_…` | `connection` mapped back to `read_timeout` | 4 red |

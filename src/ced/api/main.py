@@ -26,6 +26,7 @@ import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from ced.adapters.objectstore.client import (
     ObjectNotFoundError,
@@ -458,10 +459,13 @@ def read_analysis(run_id: UUID, conn: Conn) -> Response:
         )
         raise HTTPException(status_code=409, detail="artifact digest mismatch")
 
-    # Validate the full typed schema.
+    # Validate against the published 200 schema, which forbids unknown keys and
+    # coerces nothing, then require complete claim lineage.
     try:
-        parse_published_analysis(artifact_bytes)
-    except DiligenceError:
+        PublishedAnalysis.model_validate_json(artifact_bytes, strict=True)
+        if parse_published_analysis(artifact_bytes).unresolved_claim_ids():
+            raise DiligenceError("artifact lineage is incomplete")
+    except (ValidationError, DiligenceError):
         log.error(
             "analysis read: schema invalid run_id=%s reason=artifact_schema_invalid",
             run_id,
