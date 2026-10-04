@@ -369,3 +369,187 @@ is created by the controller's live run (T5). This ledger entry is a placeholder
 for the controller to record: planned/started counts, per-attempt zero retries,
 minimum interval, first-to-last duration, outcome counts, blocked result, and
 all-stream redaction pass/fail.
+
+---
+
+## T2: The pinned filing deterministically produces the linked memo and manifest
+
+### Stub red phase — AC-0407
+
+The stub (`# STUB: AC-0407`) was materialized at `tests/diligence/test_build_published_analysis.py`
+before `src/ced/domain/diligence.py` existed. Running `pytest tests/diligence/` produced:
+
+```
+ERROR tests/diligence/test_build_published_analysis.py — ModuleNotFoundError:
+No module named 'ced.domain.diligence'
+```
+
+Implementation was begun only after confirming this collection error.
+
+### AC-0406 — XBRL extraction: concept, context, period, unit, scale, CIK, duplicate collapse
+
+**Guard: target concept must be present.**
+Mutation: replace all occurrences of
+`us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax` with
+`us-gaap:DifferentConcept` in the fixture bytes.
+Red: `test_absent_concept_raises_diligence_error` — `DiligenceError` with `"absent"` is not raised.
+
+**Guard: current context c-18 must be present.**
+Mutation: remove the `<xbrli:context id="c-18">` element from the fixture bytes.
+Red: `test_absent_current_context_raises_diligence_error` — `DiligenceError` matching `"c-18"` is not raised.
+
+**Guard: prior context c-19 must be present.**
+Mutation: remove the `<xbrli:context id="c-19">` element from the fixture bytes.
+Red: `test_absent_prior_context_raises_diligence_error` — `DiligenceError` matching `"c-19"` is not raised.
+
+**Guard: c-18 period end must equal `2026-06-27`.**
+Mutation: replace the first `<xbrli:endDate>2026-06-27</xbrli:endDate>` with `2026-09-27`.
+Red: `test_period_mismatch_current_raises_diligence_error` — `DiligenceError` matching `"period end"` is not raised.
+
+**Guard: c-19 period end must equal `2025-06-28`.**
+Mutation: replace `<xbrli:endDate>2025-06-28</xbrli:endDate>` with `2025-09-27`.
+Red: `test_period_mismatch_prior_raises_diligence_error` — `DiligenceError` matching `"period end"` is not raised.
+
+**Guard: unit measure must be `iso4217:USD`.**
+Mutation: replace `<xbrli:measure>iso4217:USD</xbrli:measure>` with `iso4217:EUR`.
+Red: `test_unit_mismatch_raises_diligence_error` — `DiligenceError` matching `"iso4217:USD"` is not raised.
+
+**Guard: scale attribute must be `6`.**
+Mutation: replace `scale="6"` with `scale="7"` globally.
+Red: `test_scale_mismatch_raises_diligence_error` — `DiligenceError` matching `"scale"` is not raised.
+
+**Guard: identical duplicates collapse to one fact per context; conflicting values raise.**
+Mutation (conflict): change `id="f-381"` fact value from `109,417` to `108,000`.
+Red: `test_conflicting_duplicates_raises_diligence_error` — `DiligenceError` matching `"conflicting"` is not raised.
+
+**Guard: identical duplicates collapse; exactly two facts survive.**
+Mutation: treat each `id` tag as a distinct fact (no collapse).
+Red: `test_identical_duplicates_collapse_to_two_facts` — `len(facts) != 2`.
+
+**Guard: CIK must equal `0000320193` under `http://www.sec.gov/CIK`.**
+Mutation: replace `>0000320193<` with `>0000000001<`.
+Red: `test_cik_mismatch_raises_diligence_error` — `DiligenceError` matching `"CIK"` is not raised.
+
+**Guard: stable fragment selection — lexically smallest element id among identical duplicates.**
+Fixture c-18 carries ids `f-56`, `f-381`, `f-731`; lexically smallest is `f-381`.
+Fixture c-19 carries ids `f-57`, `f-382`, `f-760`; lexically smallest is `f-382`.
+Mutation: select the first-seen id instead of the minimum.
+Red: `test_stable_fragment_selection_among_identical_duplicates` — `source_fragment` assertions fail
+(`"#f-381"` and `"#f-382"` expected).
+
+### AC-0407 — Calculation lineage: value, rounding, operation, input fact refs
+
+**Guard: calculated value equals `Decimal("16.36")`.**
+Mutation (ROUND_DOWN): replace `ROUND_HALF_UP` with `ROUND_DOWN`.
+Red: `test_the_canonical_filing_builds_the_linked_net_sales_claim` — `calculation.value` equals
+`Decimal("16.35")` not `Decimal("16.36")`.
+
+**Guard: operation field is `"year_over_year_percent_change"`.**
+Mutation: set `operation = "pct_change"`.
+Red: `test_calculation_has_correct_operation` — string equality fails.
+
+**Guard: `input_fact_refs` names both extracted facts.**
+Mutation: record only the current fact id.
+Red: `test_calculation_lineage_records_both_fact_refs` — set equality fails.
+
+**Guard: numerator and denominator are `Decimal`, not `float`.**
+Mutation: convert to `float` before storing.
+Red: `test_calculation_records_correct_numerator_and_denominator` — `isinstance(calc.numerator, Decimal)` fails.
+
+**Guard: rounding_rule is `"ROUND_HALF_UP"` and output_scale is `2`.**
+Mutation: omit `rounding_rule` from the `Calculation` dataclass.
+Red: `test_calculation_rounding_rule_and_output_scale` — `AttributeError` or wrong value.
+
+**Guard: claim evidence_refs resolves to the calculation id.**
+Mutation: leave `evidence_refs` as `()`.
+Red: `test_the_canonical_filing_builds_the_linked_net_sales_claim` — `evidence_refs` tuple assertion fails.
+
+**Guard: `unresolved_claim_ids()` returns `()` on a fully linked artifact.**
+Mutation: omit the `claim_links` entry.
+Red: `test_the_canonical_filing_builds_the_linked_net_sales_claim` — `unresolved_claim_ids() != ()`.
+
+### AC-0408 — No model call; fixed memo sentence
+
+**Guard: `BedrockConverseModel.__init__` is never called.**
+Mutation: construct `BedrockConverseModel` inside `build_published_analysis`.
+Red: `test_no_model_adapter_constructed` — `AssertionError` from the monkeypatched init fires,
+which is the expected mechanism; if the guard is absent the function raises before reaching the
+result assertion.
+
+**Guard: memo text does not derive from filing HTML prose.**
+Mutation: derive `_MEMO_SENTENCE` from filing HTML rather than a fixed constant.
+Red: `test_distinctive_non_fact_string_not_in_memo` — the canary string
+`DILIGENCE_CANARY_XQZ987654` injected into a non-fact section would appear in the memo text.
+
+**Guard: exactly one claim with the approved sentence.**
+Mutation: emit zero claims or two claims.
+Red: `test_memo_has_exactly_one_factual_claim` — `len(claims) != 1` or text equality fails.
+
+### AC-0409 — Exhaustive lineage validator refuses serialisation on any gap
+
+**Guard: empty `evidence_refs` is detected.**
+Mutation: skip the `not claim.evidence_refs` check in `unresolved_claim_ids`.
+Red: `test_empty_evidence_refs_makes_claim_unresolved` — claim does not appear in the returned
+tuple; `canonical_bytes` does not raise.
+
+**Guard: missing `claim_link` is detected.**
+Mutation: skip the `cid not in link_by_claim` check.
+Red: `test_missing_claim_link_makes_claim_unresolved` — claim resolves despite no link present.
+
+**Guard: dangling `calculation_ref` is detected.**
+Mutation: skip the `link.calculation_ref not in calc_by_id` check.
+Red: `test_dangling_calculation_ref_makes_claim_unresolved` — claim resolves to a nonexistent calculation.
+
+**Guard: dangling `input_fact_ref` is detected.**
+Mutation: skip the `fref not in fact_by_id` check.
+Red: `test_dangling_input_fact_ref_makes_claim_unresolved` — claim resolves against missing facts.
+
+**Guard: missing source is detected.**
+Mutation: skip the `fact.source_id not in source_by_id` check.
+Red: `test_missing_source_makes_claim_unresolved` — claim resolves against a missing source.
+
+**Guard: empty `source_fragment` is detected.**
+Mutation: skip the `not fact.source_fragment` check.
+Red: `test_empty_source_fragment_makes_claim_unresolved` — empty fragment goes undetected.
+
+### AC-0410 — Canonical byte stability and input sensitivity
+
+**Guard: two builds from identical inputs produce identical bytes.**
+Mutation: include `datetime.utcnow()` or `uuid.uuid4()` in the artifact.
+Red: `test_canonical_bytes_are_deterministic` — `b1 != b2`.
+
+**Guard: changing `filing_sha256` changes canonical output.**
+Mutation: exclude `filing_sha256` from `EvidenceSource`.
+Red: `test_different_filing_sha256_produces_different_bytes` — `b1 == b2` even with a different digest.
+
+**Guard: changing `as_of_date` changes canonical output.**
+Mutation: exclude `as_of_date` from serialisation.
+Red: `test_different_as_of_date_produces_different_bytes` — `b1 == b2`.
+
+**Guard: changing `source_url` changes canonical output.**
+Mutation: exclude `source_url` from `EvidenceSource`.
+Red: `test_different_source_url_produces_different_bytes` — `b1 == b2`.
+
+**Guard: `canonical_bytes → parse_published_analysis` round-trips losslessly.**
+Mutation: drop a field during serialisation.
+Red: `test_canonical_bytes_round_trip` — second call to `canonical_bytes(restored)` produces different bytes.
+
+**Guard: wrong `schema_version` is rejected at parse time.**
+Mutation: accept any schema_version string.
+Red: `test_parse_published_analysis_rejects_wrong_schema_version` — `DiligenceError` matching
+`"schema_version"` is not raised.
+
+**Guard: non-UTF-8 bytes are rejected at parse time.**
+Mutation: decode with `errors="replace"` instead of raising.
+Red: `test_parse_published_analysis_rejects_non_utf8` — `DiligenceError` matching `"UTF-8"` is not raised.
+
+### T2 controller correction — the memo sentence follows its evidence (AC-0408)
+
+The first T2 build carried the approved sentence as a fixed string, so changed
+facts would still publish 16.36%. The sentence is now rendered from the Decimal
+result and the scale-6 input facts, and a non-increase refuses.
+
+| Check | Mutation | Observed |
+| --- | --- | --- |
+| `test_memo_sentence_is_rendered_from_the_calculated_values` | sentence restored to the fixed string | red |
+| `test_a_non_increase_has_no_approved_sentence` | sentence restored to the fixed string | red |
