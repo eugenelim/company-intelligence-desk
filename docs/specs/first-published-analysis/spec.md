@@ -123,18 +123,26 @@ SEC filing, with no model call and no unsupported published claim.
   manifest.
 - [ ] **AC-0402.** The SEC client permits HTTPS requests only to
   `data.sec.gov` and `www.sec.gov`, requires its declared-client value from runtime
-  configuration, and follows no redirect. Before connecting, it resolves the selected
+  configuration, and follows no redirect. The declared-client value is checked
+  exactly as configured, before any trimming, wherever it becomes the `User-Agent`
+  header, whichever function sends it. It must be 1 to 256 characters, each in
+  U+0020 to U+007E, and at least one of them not a space. Any other value is
+  refused before the gate is entered or a socket opened. No refusal, record, log,
+  output, or exception chain carries the value in any rendering. Before connecting, it resolves the selected
   host and admits only public unicast addresses: Python 3.13 `ipaddress` must classify
   an address as global and must not classify it as multicast. It connects only to one
   of the validated addresses without a second resolution while retaining the selected
   host for TLS verification. Each request has a 5-second connect timeout, a 15-second
-  read timeout, and a 30-second total budget measured after the shared gate admits it,
-  and TLS certificate verification cannot be disabled. The submissions response is
+  read timeout, and a 30-second total budget measured after the shared gate admits it.
+  The budget is a hard wall-clock bound on the attempt and on the gate it holds,
+  including DNS resolution that has not returned. TLS certificate verification
+  cannot be disabled. The submissions response is
   capped at 5 MiB and the filing response at 10 MiB; a declared length above the
   applicable cap is refused before reading, and a stream first crossing the cap is
-  stopped and refused. DNS failure, TLS verification failure, timeout, or redirect
-  fails closed, releases the gate session, stores no source or snapshot object, and
-  records only redacted attempt metadata.
+  stopped and refused. Every attempt that does not end in AC-0417 `success`,
+  including one ended by an unexpected exception, fails closed: it releases the gate
+  session, stores no source or snapshot object, and records only redacted attempt
+  metadata.
 - [ ] **AC-0403.** Every SEC request passes through one repository-wide gate that
   serializes request starts at least 0.125 seconds apart across concurrent ingestion
   processes using the shared Postgres substrate while the current gate holder's
@@ -239,11 +247,40 @@ SEC filing, with no model call and no unsupported published claim.
 ### Observing SEC access without overclaiming it
 
 - [ ] **AC-0417.** Each real SEC attempt records request class, gate wait,
-  monotonic duration, retry count, stop condition, and either an HTTP status class or
-  one closed, redacted no-response class for DNS, TLS, connect-timeout, read-timeout,
-  or total-timeout failure. It also records whether a `403` or `429` blocked the
-  declared client. A bounded live observation schedules 60 attempts through the same
-  client at one start per second for 60 seconds. Its command-produced
+  monotonic duration, retry count, stop condition, `blocked`, the status class of
+  any status line received, and, when a transport failure ends it, one closed,
+  redacted no-response class. Every attempt carries at least one of the two
+  classes.
+  - **Status classes:** `1xx` to `5xx`, and `other` for any status outside 100 to
+    599. A status is received when `http.client` returns a response object for it.
+    A status line it parsed and then discarded is not received.
+  - **No-response classes:** `dns` when resolution fails or admits no public
+    unicast address; `tls` for any `ssl.SSLError`; `total_timeout` when
+    resolution or any part of the attempt outruns the total budget, which wins over
+    a phase timeout the budget shortened; `connect_timeout` for a TCP connect or
+    TLS handshake timeout;
+    `read_timeout` for a request or body timeout; and `connection` for any other
+    socket or protocol failure or unexpected `Exception`, such as a refused, reset,
+    or garbled connection, or a body that ends before its declared length. An
+    interrupt or system exit is not an attempt outcome. It stops the run, releases
+    the gate, and stores nothing.
+  - **Well-formed length:** a response without `Content-Length` is read under the
+    stream cap. A response with one must carry exactly one, whose value is ASCII
+    digits alone, or its length is malformed.
+  - **`blocked`:** true when a received status is `403` or `429`, whatever ends
+    the attempt.
+  - **Stop condition:** the first of these that applies:
+    1. the no-response class;
+    2. `blocked`;
+    3. `redirect` for a `3xx`;
+    4. `refused` for a well-formed length over the cap, a malformed length, or
+       a stream crossing the cap;
+    5. `http_4xx` or `http_5xx`;
+    6. `refused` for `1xx` or `other`;
+    7. otherwise `success`, which only a `2xx` can reach.
+
+  A bounded live observation schedules 60 attempts through the same client at one
+  start per second for 60 seconds. Its command-produced
   `notes/sec-access.json` records the planned and started attempt counts, target and
   minimum observed start interval, first-to-last start duration, outcome counts, and
   whether any `403` or `429` blocked the client; a started-attempt count other than 60

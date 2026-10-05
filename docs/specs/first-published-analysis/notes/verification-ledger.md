@@ -1176,3 +1176,60 @@ and a timeout is still its timeout class.
 | Check | Mutation | Red |
 | --- | --- | --- |
 | `test_a_refused_connection_maps_to_connection_class`, `test_a_reset_during_the_tls_handshake_maps_to_connection_class`, `test_http_exception_during_request_…`, `…_during_body_read_…` | `connection` mapped back to `read_timeout` | 4 red |
+
+**Owner decisions, 2026-10-04, from the fourth review of the amendment:**
+
+1. **A malformed declared-client value is refused up front.** A
+   `SEC_CONTACT` value must be 1 to 256 printable ASCII characters. Anything
+   else is refused before any request, with a message that never echoes it.
+   This closes a path where Python's `http.client` raised a `ValueError`
+   quoting the value.
+2. **Both fields are recorded, and `blocked` follows any 403 or 429.** An
+   attempt records the status class of any status line it received, and the
+   no-response class of any transport failure that ended it. At least one is
+   present. `blocked` is true for any received `403` or `429`, whatever ends
+   the attempt.
+3. **One stop-condition order.** A transport failure's class comes first, then
+   `blocked` for a `403` or `429`, then `redirect` for any `3xx`, then
+   `refused` for a size or length refusal, then `http_4xx` or `http_5xx`.
+
+The controller confirmed the leak in Python 3.13: `putheader` with an embedded
+newline raises `ValueError`, and its message contains the value.
+
+**Owner decision, 2026-10-04, after the fifth review of the amendment:** listing
+cases one at a time did not converge. Each review found the next missing case.
+The owner directed a rule-based contract, verified by one exhaustive matrix:
+
+- **Declared client.** The allowed bytes are U+0020 to U+007E. The check runs
+  on the raw value at the point it becomes the `User-Agent` header, whoever
+  the caller is.
+- **Unexpected errors.** Any exception during an attempt fails closed with a
+  redacted record.
+- **Budget.** DNS resolution counts against the total budget.
+- **Success.** Only a `2xx` status is success. Any other status, including
+  `1xx` and `6xx` and above, is refused.
+- **Length.** `Content-Length` must be exactly one ASCII-digit value.
+- **Verification.** T6 checks the rules with one table-driven test over every
+  status family and every failure site.
+
+**Owner decision, 2026-10-04, after the sixth review of the amendment:** freeze
+the rules in AC-0417 and verify the matrix's detail against the real test at
+the post-implementation review. The owner's defaults for the open choices:
+
+- A body that ends before its declared length is a transport failure. It
+  records `connection` and keeps its status class. Python 3.13's `http.client`
+  returns `b""` at early EOF, which the controller reproduced.
+- A status counts as received when `http.client` returns a response object. A
+  status it parsed and then discarded is not received.
+- Timeout class by phase: resolution, or any spent total budget, is
+  `total_timeout`; a TCP connect or TLS handshake timeout is
+  `connect_timeout`; a request or body timeout is `read_timeout`.
+- The 30-second budget is a hard wall-clock bound. Resolution runs in a
+  thread that is abandoned at the deadline.
+- Only `Exception` subclasses become `connection`. An interrupt or system exit
+  stops the run, releases the gate and stores nothing.
+
+**Owner decision, 2026-10-04, after the seventh review of the amendment:** a
+lookup that admits no public unicast address records `dns`, as the shipped
+client already does. `total_timeout` wins over a connect or read timeout that
+the budget shortened, which applies the sixth-review default.
