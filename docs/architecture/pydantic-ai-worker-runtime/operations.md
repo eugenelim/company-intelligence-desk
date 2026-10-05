@@ -238,7 +238,7 @@ configurable.
 | Redirects | None followed; any `3xx` is refused |
 | Connect timeout | 5 s |
 | Read timeout | 15 s per read, cut to whatever remains of the total budget |
-| Total budget | 30 s, counted from when the request gate admits the request |
+| Total budget | 30 s, counted from when the request gate admits the request. It is a hard wall-clock bound on the attempt and the gate, including a DNS lookup that has not returned |
 | Submissions response | 5 MiB cap |
 | Filing response | 10 MiB cap; a declared or streamed length over the cap is refused |
 | Retries | None |
@@ -293,11 +293,10 @@ the attempt (a transport failure after a blocked status keeps `blocked: true`).
 1. `no_response_class` — transport failure wins over all HTTP-level outcomes.
 2. `"blocked"` — a blocked status wins over redirect, refused, or HTTP class.
 3. `"redirect"` — any 3xx.
-4. `"refused"` — size cap exceeded (declared or streaming), malformed
-   Content-Length (sign, non-ASCII, duplicate, or non-digit chars), or 1xx /
-   out-of-range status.
+4. `"refused"` — size cap exceeded (declared or streaming), or malformed
+   Content-Length (sign, non-ASCII, duplicate, or non-digit chars).
 5. `"http_4xx"` or `"http_5xx"`.
-6. `"refused"` — 1xx or status outside 100–599 not caught at step 4.
+6. `"refused"` — 1xx or status outside 100–599.
 7. `"success"` — 2xx only.
 
 **Content-Length strictness (AC-0402, AC-0417).** A declared Content-Length
