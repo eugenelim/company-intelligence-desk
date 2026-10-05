@@ -31,7 +31,6 @@ from pydantic import ValidationError
 from ced.adapters.objectstore.client import (
     ObjectNotFoundError,
     ObjectStoreError,
-    read_payload_bytes,
     read_payload_bytes_checked,
     write_payload,
 )
@@ -438,14 +437,22 @@ def read_analysis(run_id: UUID, conn: Conn) -> Response:
 
     artifact_ref = terminal.payload_ref
 
-    # Read raw artifact bytes from the object store.
+    # Read raw artifact bytes from the object store, distinguishing absence from
+    # store unavailability so each carries its own closed reason class.
     try:
-        artifact_bytes = read_payload_bytes(artifact_ref)
-    except Exception:
+        artifact_bytes = read_payload_bytes_checked(artifact_ref)
+    except ObjectNotFoundError:
         log.error(
-            "analysis read: object not found run_id=%s reason=artifact_not_found",
+            "analysis read: artifact absent run_id=%s reason=artifact_not_found",
             run_id,
             extra={"reason_class": "artifact_not_found"},
+        )
+        raise HTTPException(status_code=409, detail="artifact not found") from None
+    except ObjectStoreError:
+        log.error(
+            "analysis read: store unavailable run_id=%s reason=artifact_store_unavailable",
+            run_id,
+            extra={"reason_class": "artifact_store_unavailable"},
         )
         raise HTTPException(status_code=409, detail="artifact not found") from None
 

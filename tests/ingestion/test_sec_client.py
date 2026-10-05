@@ -2234,3 +2234,109 @@ def test_a_short_body_at_the_deadline_records_total_timeout() -> None:
     assert exc_info.value.no_response_class == "total_timeout"
     record = exc_info.value.attempt_record
     assert record is not None and record.http_status_class == "2xx"
+
+
+# ---------------------------------------------------------------------------
+# Concern 9 (AC-0402): deadline-exhausted and settimeout-failure socket close
+# ---------------------------------------------------------------------------
+
+
+def test_deadline_exhausted_before_handshake_closes_raw_socket() -> None:
+    """When the wall deadline has already passed, connect() closes raw_sock before raising.
+
+    A recording socket tracks close() calls.  Without the close() call, the
+    socket is leaked; the assertion on close_calls fires.
+
+    Mutation: remove ``raw_sock.close()`` from the deadline-exhausted branch
+    (the ``if _handshake_left <= 0`` block) → ``close_calls`` stays empty and
+    ``len(close_calls) == 1`` fails.
+    """
+    import socket as _socket
+    import time as _time
+
+    from ced.adapters.sec.client import _GatedSecConnection
+
+    close_calls: list[str] = []
+
+    class _RecordingSocket(FakeSocket):
+        def close(self) -> None:
+            close_calls.append("close")
+
+    def resolve(host: str, port: int, **kwargs: Any) -> list[tuple[Any, ...]]:
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 0, "", ("8.8.8.8", 443))]
+
+    def open_socket(address: Any, timeout: Any = None) -> Any:
+        return _RecordingSocket(b"")
+
+    conn = _GatedSecConnection(
+        "data.sec.gov",
+        resolve=resolve,
+        open_socket=open_socket,
+        wrap=lambda s, server_hostname=None: s,
+    )
+    conn._dns_timeout = 10.0
+    conn._budget_end = None  # skip post-DNS budget check
+    conn._clock = None
+    conn._wall_deadline = _time.monotonic() - 1.0  # already past
+    conn.timeout = 10.0
+
+    with pytest.raises(SecClientError) as exc_info:
+        conn.connect()
+
+    assert exc_info.value.no_response_class == "total_timeout"
+    assert len(close_calls) == 1, (
+        f"raw_sock.close() must be called once on deadline exhaustion; got {close_calls!r}"
+    )
+
+
+def test_settimeout_oserror_closes_raw_socket_and_raises_connection() -> None:
+    """When settimeout raises OSError (within deadline), connect() closes raw_sock.
+
+    The budget is well within limits so the deadline-exhausted branch is not
+    taken; the OSError branch closes the socket and raises
+    ``no_response_class='connection'``.
+
+    Mutation: remove ``raw_sock.close()`` from the ``except OSError`` branch
+    inside the settimeout block → ``close_calls`` stays empty and
+    ``len(close_calls) == 1`` fails.
+    """
+    import socket as _socket
+    import time as _time
+
+    from ced.adapters.sec.client import _GatedSecConnection
+
+    close_calls: list[str] = []
+
+    class _SettimeoutRaisesSocket(FakeSocket):
+        def settimeout(self, timeout: Any) -> None:
+            raise OSError("simulated settimeout failure")
+
+        def close(self) -> None:
+            close_calls.append("close")
+
+    def resolve(host: str, port: int, **kwargs: Any) -> list[tuple[Any, ...]]:
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 0, "", ("8.8.8.8", 443))]
+
+    def open_socket(address: Any, timeout: Any = None) -> Any:
+        return _SettimeoutRaisesSocket(b"")
+
+    t0 = _time.monotonic()
+    conn = _GatedSecConnection(
+        "data.sec.gov",
+        resolve=resolve,
+        open_socket=open_socket,
+        wrap=lambda s, server_hostname=None: s,
+    )
+    conn._dns_timeout = 10.0
+    conn._budget_end = None  # skip post-DNS budget check
+    conn._clock = None
+    conn._wall_deadline = t0 + 60.0  # well within deadline
+    conn.timeout = 10.0
+
+    with pytest.raises(SecClientError) as exc_info:
+        conn.connect()
+
+    assert exc_info.value.no_response_class == "connection"
+    assert len(close_calls) == 1, (
+        f"raw_sock.close() must be called on settimeout OSError; got {close_calls!r}"
+    )

@@ -58,7 +58,7 @@ Every document belongs to exactly one, and the maintenance rule differs:
 
 - **living** — must match current reality, and is updated in the same change as
   anything that affects it. Drift is a bug, not debt. `CHARTER.md`,
-  `architecture/*`, `product/*`, `knowledge/*` and active `specs/*`.
+  `architecture/*`, `guides/*`, `product/*`, `knowledge/*` and active `specs/*`.
 - **frozen** — an immutable record of what was decided or delivered. Status
   fields may still change (Accepted → Superseded); bodies may not. Never edited
   to reflect a later change; superseded by a new record that cites it. `adr/*`,

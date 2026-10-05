@@ -20,6 +20,7 @@ refusal and proved terminal before the endpoint returns 409.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 
@@ -29,6 +30,7 @@ import pytest
 from ced.adapters.objectstore.client import (
     ANALYSIS_SCOPE,
     SNAPSHOT_SCOPE,
+    ObjectStoreError,
     write_payload,
     write_payload_bytes,
 )
@@ -695,5 +697,98 @@ def test_read_analysis_refuses_an_artifact_outside_the_published_schema(
         epoch = _lease_step(step_id, _READ_TEST_POOL_CLASS)
         _complete_run(run_id, step_id, epoch, payload_ref=artifact_ref)
         assert api_server.get(f"/runs/{run_id}/analysis").status == 409
+    finally:
+        _cleanup(run_id)
+
+
+# ---------------------------------------------------------------------------
+# Advisory 8: per-reason-class log checks for object-store failures
+# ---------------------------------------------------------------------------
+
+
+def test_read_analysis_missing_object_logs_artifact_not_found_reason_class(
+    api_server: Client,
+    require_substrate: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Advisory 8: a missing artifact logs reason_class='artifact_not_found'.
+
+    The artifact_ref points to a non-existent MinIO key, which raises
+    ``ObjectNotFoundError``.  The route must log with
+    ``extra={'reason_class': 'artifact_not_found'}`` and return 409.
+
+    Mutation: remove the ``ObjectNotFoundError`` except clause → the exception
+    propagates as 500 (FastAPI's default), status != 409, and the assertion fails.
+    Mutation: log under a different key (e.g., ``reason_class='missing'``) →
+    ``record.reason_class == 'artifact_not_found'`` fails.
+    """
+    # A random digest, so no other test can have stored an object under it.
+    fake_ref = f"{ANALYSIS_SCOPE}/{uuid.uuid4().hex}{uuid.uuid4().hex}"
+
+    run_id, step_id = _make_run()
+    try:
+        epoch = _lease_step(step_id, _READ_TEST_POOL_CLASS)
+        _complete_run(run_id, step_id, epoch, payload_ref=fake_ref)
+
+        with caplog.at_level(logging.ERROR, logger="ced.api.main"):
+            response = api_server.get(f"/runs/{run_id}/analysis")
+
+        assert response.status == 409
+        not_found_records = [
+            r
+            for r in caplog.records
+            if getattr(r, "reason_class", None) == "artifact_not_found"
+        ]
+        got = [getattr(r, "reason_class", None) for r in caplog.records]
+        assert len(not_found_records) >= 1, (
+            f"expected reason_class='artifact_not_found'; got {got}"
+        )
+    finally:
+        _cleanup(run_id)
+
+
+def test_read_analysis_store_unavailable_logs_artifact_store_unavailable_reason_class(
+    api_server: Client,
+    require_substrate: None,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Advisory 8: an ObjectStoreError logs reason_class='artifact_store_unavailable'.
+
+    Monkeypatches ``read_payload_bytes_checked`` in ``ced.api.main`` to raise
+    ``ObjectStoreError``.  The route must log with
+    ``extra={'reason_class': 'artifact_store_unavailable'}`` and return 409.
+
+    Mutation: remove the ``ObjectStoreError`` except clause → the exception
+    propagates as 500, status != 409, and the assertion fails.
+    Mutation: log under a different key → ``record.reason_class`` assertion fails.
+    """
+    # Write any valid-format artifact_ref so the route reaches the read call.
+    fake_sha256 = "d" * 64
+    fake_ref = f"{ANALYSIS_SCOPE}/{fake_sha256}"
+
+    run_id, step_id = _make_run()
+    try:
+        epoch = _lease_step(step_id, _READ_TEST_POOL_CLASS)
+        _complete_run(run_id, step_id, epoch, payload_ref=fake_ref)
+
+        monkeypatch.setattr(
+            "ced.api.main.read_payload_bytes_checked",
+            lambda ref: (_ for _ in ()).throw(ObjectStoreError("simulated store failure")),
+        )
+
+        with caplog.at_level(logging.ERROR, logger="ced.api.main"):
+            response = api_server.get(f"/runs/{run_id}/analysis")
+
+        assert response.status == 409
+        store_error_records = [
+            r
+            for r in caplog.records
+            if getattr(r, "reason_class", None) == "artifact_store_unavailable"
+        ]
+        got = [getattr(r, "reason_class", None) for r in caplog.records]
+        assert len(store_error_records) >= 1, (
+            f"expected reason_class='artifact_store_unavailable'; got {got}"
+        )
     finally:
         _cleanup(run_id)

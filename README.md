@@ -21,7 +21,7 @@ recorded limits in
 | --- | --- | --- |
 | **Quarantine boundary** | Untrusted content reaching a component that holds tool authority. Free prose does not cross; validated references, closed-vocabulary labels and typed scalars do. Reference *selection* stays an attacker-influenced channel, and is recorded as unmitigated | [§ 4 Trust boundaries](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#trust-boundaries) |
 | **Argument-value authorization** | A well-typed but *unauthorised* tool call — the case a schema check passes and a permission check misses | [§ 9 Decisions](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#decisions) |
-| **Commit-before-action** | An action taking effect while the record of the decision that allowed it is lost | [§ Identity — two layers](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#identity--two-layers) |
+| **Commit-before-action** | An action taking effect while the record of the decision that allowed it is lost | [§ 4 Identity — two layers](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#identity--two-layers) |
 | **Delegated authority ceiling** | An agent doing something the human who invoked it could not have done directly | [§ 4 Identity — two layers](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#identity--two-layers) |
 | **Claim–commit–work with lease fencing** | A worker the platform killed mid-run acting twice, or a zombie worker writing after its lease expired | [§ 3 Runtime Model](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#3-runtime-model) |
 | **Append-only event log with a resumable stream** | A run whose history can only be recovered by re-running it — which you cannot do against as-of-dated evidence | [§ 3 Runtime Model](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#3-runtime-model) |
@@ -38,7 +38,12 @@ diligence.
 **Publish an evidence-backed analysis on your machine.** One command stores an
 SEC filing snapshot, one `POST /runs` starts the analysis, and one `GET` returns
 a memo with an evidence manifest. Every figure links back to the filing's XBRL
-facts. It needs Python 3.13 and Docker:
+facts, the tagged numbers inside the filing. It needs Python 3.13 and Docker.
+
+The three calls below are the shape of the flow, not a paste-ready script.
+First start the local services and the API, following steps 1 and 3 of
+[the how-to guide](docs/guides/how-to/publish-first-analysis.md). The guide
+also fills in the two placeholders for you.
 
 ```bash
 ./.venv/bin/ced-ingest --offline-fixture      # prints the snapshot_ref
@@ -49,12 +54,11 @@ curl -s -X POST http://127.0.0.1:58080/runs -H 'content-type: application/json' 
 curl -s http://127.0.0.1:58080/runs/<run_id>/analysis
 ```
 
-[The how-to guide](docs/guides/how-to/publish-first-analysis.md) has the full
-steps, including starting the local services and the API.
-
 **Decide whether detection-based injection defence is right for your system.**
-Start at the [evidence survey](docs/product/research/prompt-injection-defence-survey.md),
-then read § Four grounded facts and § Alternatives Considered → *Detection-based
+Start at the [evidence survey](docs/product/research/prompt-injection-defence-survey.md).
+Then read two sections of the runtime architecture:
+[§ Four grounded facts](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#four-grounded-facts-the-design-rests-on) and
+[§ Alternatives considered](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#alternatives-considered) → *Detection-based
 injection defence*. In-band detection "collapsed from near-zero to **>90%
 success** under adaptive attacks"; six production guardrails, including Azure
 Prompt Shield and Meta Prompt Guard, were evaded at **up to 100%**. Then read
@@ -70,14 +74,16 @@ it. Each constraint appears in exactly one place; everything else cites it.
 
 ## Status: partly built
 
-The runtime architecture was ratified on 2026-09-18, with five recorded gaps
-accepted as open. Its security posture rests on moderate, self-assessed
+The runtime architecture was ratified on 2026-09-18, with its
+[recorded gaps](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#accepted-limits--open-and-not-a-task-list) accepted as open. Its security posture rests on moderate, self-assessed
 confidence rather than independent replication. The architecture states this
 itself rather than leaving a reader to find it.
 
-The walking skeleton and the first published analysis ship. The analysis
-covers one company, one filing and one deterministic calculation, through the
-API only. Its two companion designs, for observability and for the user
+Two pieces ship. The first is the walking skeleton: the smallest end-to-end
+runtime, with the event log, the worker pool and the HTTP API working together.
+The second is the first published analysis, which covers one company, one
+filing and one deterministic calculation, through the API only. The
+architecture's two companion designs, for observability and for the user
 experience, are still Draft.
 
 ## How this repository is organised

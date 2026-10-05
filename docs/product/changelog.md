@@ -29,7 +29,8 @@ when that matches its release model.
   memo with an evidence manifest, read from `GET /runs/{run_id}/analysis`. The
   memo reports Apple Inc.'s quarterly net sales change year over year, as of
   2026-07-31. Every figure links back to the filing's XBRL facts. No model is
-  called, and the same snapshot always gives the same bytes.
+  called. The same snapshot bytes and request always produce byte-identical
+  memo and manifest JSON.
 - Its limits: it covers one company, one filing and one calculation; it is
   read through the API only; and any caller who can reach the API and knows a
   run id can read the result. See

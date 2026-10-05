@@ -679,9 +679,10 @@ Red: `test_filing_digest_mismatch_against_manifest_produces_failed_events` — t
 
 ### Fence and ordering mutations
 
-**Guard: Phase 4 completion appends are fenced on lease_epoch.**
-Mutation: omit `lease_epoch` from the `append_step_event` call in Phase 4, or pass a stale epoch.
-Red: `test_stale_epoch_on_phase4_append_leaves_run_nonterminal` — the injected `Fenced` exception (simulating a stale epoch) must leave `step.completed` absent from events; without the fence argument the DB procedure commits regardless of epoch and the test passes even with a stale epoch, making the guard invisible.
+**Guard: a `Fenced` raised at `step.completed` stops Phase 4 and leaves the run non-terminal.**
+Mutation: swallow the `Fenced` exception from `append_step_event` in Phase 4 and proceed to `run.completed`.
+Red: `test_stale_epoch_on_phase4_append_leaves_run_nonterminal` — swallowing the exception lets `run.completed` land and the run becomes terminal, so the check's assertion that `run.completed` is absent fires.
+Note (override round, 2026-10-05): this check injects `Fenced` via a mock on the second `append_step_event` call and does not drive the real database fence or a stale epoch. It pins that a `Fenced` exception at `step.completed` stops Phase 4; it does not pin that the DB procedure rejects a stale epoch.
 
 **Guard: step.completed is appended before run.completed.**
 Mutation: swap the `append_step_event("step.completed")` and `append_run_terminal("run.completed")` calls in Phase 4.
@@ -1432,3 +1433,151 @@ the detached-descriptor cause was found.
 | Mutation | Reds | Observed |
 | --- | --- | --- |
 | clamp before the wrap removed | `test_a_late_connect_then_a_silent_tls_peer_ends_at_the_budget` | red, about 1.5 s against a 1.0 s budget |
+
+**Owner decisions, 2026-10-05, after the specialist reviews:**
+
+- **One override round.** The review-retry cap was reached. The owner
+  approved one further fix round, for the findings the specialist reviews
+  sustained, followed by a confirming review.
+- **The observation's "start" is the dispatch instant.** AC-0417's "one start
+  per second" is read as the instant the command dispatches each scheduled
+  attempt, before the request gate. That is what `start_times` records, so
+  the committed live record stays valid and is not re-run. The request gate
+  separately keeps the starts of the actual requests at least 0.125 s apart.
+- **Duplicate step events after a re-claim are accepted.** A worker can die
+  between two separately committed events and have its step re-claimed. The
+  run can then carry duplicate `step.started` or `step.completed` events. That
+  is accepted, provided the run still ends with exactly one terminal event and
+  either a readable artifact or a terminal failure. A substrate check pins
+  this.
+
+
+### Override round repairs, 2026-10-05
+
+Fixes for the sustained findings from the specialist reviews. Each entry names
+the source change, the mutation that reds the check, and the check.
+
+**Blocker 1 — pool_class='analysis' asserted before fixture rewrite (AC-0412).**
+`http_analysis_run` in `tests/e2e/test_analysis_publication.py` now reads
+`pool_class` from the `steps` row immediately after POST /runs and before it
+updates the class for the in-process worker. Mutation: change
+`ANALYSIS_POOL_CLASS` to `'default'` in `main.py` → the row carries `'default'`
+and the assertion fires. Module docstring updated to say the helpers hand-lease
+the step.
+
+**Concern 3 — re-claim convergence at each partial commit point (AC-0413).**
+`tests/e2e/test_analysis_publication.py` adds `test_reclaim_after_step_started_converges_to_terminal`,
+`test_reclaim_after_step_completed_before_run_completed_converges`, and
+`test_reclaim_after_step_failed_before_run_failed_converges`. Each sets up the
+partial state directly via SQL and `append_step_event`, force-expires the lease,
+then re-claims via the ordinary `claim_one` path. Mutation (all): remove the
+`state = 'leased' AND lease_expires_at < now()` branch from the `claim_one`
+predicate → `claim_one` returns None and the assertion fires.
+
+**Concern 4 — live-seam checks for each path refusal (AC-0401).**
+`tests/ingestion/test_cli.py` extends
+`test_a_live_metadata_refusal_makes_no_filing_request_and_no_write` with
+non-object-document, non-object-filings, non-object-recent,
+misplaced-dash-accession, and non-canonical-primary-doc cases. A separate test,
+`test_live_primary_doc_traversal_makes_no_filing_request_and_no_write`, covers
+the traversal path (`../x.htm`) with `pytest.raises(IngestionError,
+match="dot segment")`. Mutation for traversal: replace `_validate_primary_doc`
+call with a plain assignment → `"../x.htm"` reaches the canonical check, raising
+a non-matching message, and `match="dot segment"` fails.
+
+**Concern 5 — open_postgres_gate release error swallowed (AC-0403).**
+The `finally` block in `open_postgres_gate` now catches `psycopg.Error` on the
+unlock call and logs at warning without re-raising, so the original outcome
+reaches the caller. `test_open_postgres_gate_swallows_release_error_and_propagates_original`
+in `tests/ingestion/test_rate_gate.py` verifies this with a mock connection.
+Mutation: re-raise the error → the original `SecClientError` is replaced and
+`pytest.raises(SecClientError)` fails.
+
+**Concern 9 — raw_sock closed and settimeout failure classified (AC-0402).**
+`_GatedSecConnection.connect()` now closes `raw_sock` before raising on
+deadline exhaustion, and wraps `settimeout` in an `except OSError` that closes
+the socket and raises `SecClientError` classed `connection` (or `total_timeout`
+if the deadline was also exceeded). Two tests in `tests/ingestion/test_sec_client.py`
+verify each branch with a recording socket:
+`test_deadline_exhausted_before_handshake_closes_raw_socket` and
+`test_settimeout_oserror_closes_raw_socket_and_raises_connection`. Mutation for
+each: remove `raw_sock.close()` from the relevant branch → `len(close_calls)`
+stays at 0 and the assertion fires.
+
+**Advisory 2 — Phase 4 fence ledger row re-scoped.**
+The row at line 682 now states the guard as: "a `Fenced` raised at
+`step.completed` stops Phase 4 and leaves the run non-terminal." The note
+records that the check injects `Fenced` via a mock and does not drive the real
+database fence or a stale epoch.
+
+**Advisory 7 — analysis failure log names run_id, step_id, phase, exc_type (AC-0413).**
+`analysis.py` Phase 3 now logs
+`"analysis: run %s step %s failed phase=3 exc_type=%s"` with `exc_info=True`.
+`test_phase3_failure_log_includes_run_id_step_id_exc_type_but_not_principal`
+in `tests/worker/test_analysis.py` mocks `read_payload` to raise `RuntimeError`,
+then checks caplog. Mutations: remove `run_id` → its UUID absent from message;
+remove `exc_info=True` → `record.exc_info` is None; add `principal` → the
+absent-principal assertion fires.
+
+**Advisory 8 — read route uses read_payload_bytes_checked with distinct reason classes (AC-0414).**
+`GET /runs/{run_id}/analysis` now catches `ObjectNotFoundError` and
+`ObjectStoreError` separately, logging `reason_class='artifact_not_found'` or
+`reason_class='artifact_store_unavailable'` respectively. Both return 409 unchanged.
+Two new checks in `tests/api/test_read_analysis.py`:
+`test_read_analysis_missing_object_logs_artifact_not_found_reason_class` and
+`test_read_analysis_store_unavailable_logs_artifact_store_unavailable_reason_class`.
+Mutations: remove the separate `except` clause → exception propagates as 500;
+change `reason_class` key → the `getattr(r, 'reason_class', None)` assertion
+fires.
+
+**Nit 9 — watchdog comment names only phases the watchdog reaches.**
+The comment near `src/ced/adapters/sec/client.py:835` now reads: "Watchdog:
+shut the TLS socket at the budget deadline to unblock any in-flight recv/send
+(AC-0402 hard wall-clock bound). The handshake is not reachable from here —
+wrapping detaches the raw socket's descriptor, so shutting the raw object down
+does nothing — so a clamp before the wrap bounds it instead." No executable
+change; the comment matches the actual mechanism.
+
+### Override round, controller corrections
+
+- **A failed step stays failed after a re-claim (AC-0413).** The implementer's
+  re-claim check expected a step that had recorded `step.failed` to be retried
+  and end in `run.completed`. AC-0413 allows no `run.completed` after a
+  refusal, and the owner's duplicates decision covers repeated
+  `step.started`/`step.completed`, not a failed step that later succeeds. The
+  worker now checks for a prior `step.failed` on the step and finishes the
+  failure with `run.failed`. The check
+  `test_reclaim_after_step_failed_before_run_failed_converges` asserts exactly
+  one terminal event, `run.failed`, and no `step.completed`. With the
+  already-failed check removed, it reds.
+- **The re-claim checks never ran.** `_setup_partial_commit` expired the lease
+  before appending the partial events, and the fence refuses appends on an
+  expired lease, so all three re-claim checks failed in setup. They had run
+  only in the offline suite, where they were deselected. The helper now appends
+  under a live lease and expires it afterwards, and all three pass.
+- **Mutation spot-checks run by the controller:**
+
+| Mutation | Observed |
+| --- | --- |
+| `POST /runs` passes `pool_class="default"` | the `http_analysis_run` fixture's `pool_class == "analysis"` assertion errors |
+| gate release no longer swallows `psycopg.Error` | the offline gate-release check in `tests/ingestion/test_rate_gate.py` reds |
+| already-failed check removed | `test_reclaim_after_step_failed_before_run_failed_converges` reds |
+
+- **Watchdog tolerance.** The watchdog now also ignores a socket-like object
+  with no `shutdown`. Before this, a test double raised in the watchdog thread
+  and pytest reported an unhandled thread exception.
+
+Gates for the override round: the whole suite ran in one process on a fresh
+substrate, with 1,627 passed and 3 skipped in 6 min 13 s. The edited how-to
+guide was then run as written on a wiped volume:
+
+- `RUN_ID` was captured from the `201`.
+- `GET /runs/$RUN_ID/analysis` returned `200`, with the same artifact digest as
+  before (`72329a90…`).
+- The events read listed `run.requested`, `step.started`, `step.completed`,
+  `run.completed`.
+- `docker-compose … ps worker-analysis` showed the worker running.
+
+The first full run of this round failed one new check. It used a fixed fake
+digest that another check deliberately stores bytes under. It now uses a
+random digest.

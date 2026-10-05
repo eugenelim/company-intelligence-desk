@@ -1146,6 +1146,65 @@ def test_stale_epoch_on_phase4_append_leaves_run_nonterminal(
         _cleanup(run_id)
 
 
+def test_phase3_failure_log_includes_run_id_step_id_exc_type_but_not_principal(
+    require_substrate: None,
+    real_snapshot: tuple[str, str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Advisory 7: Phase 3 failure log names run_id, step_id, exc_type, not principal.
+
+    Mocks ``read_payload`` to raise ``RuntimeError`` in Phase 3 and checks that
+    the error log record includes the identifying fields and excludes the
+    principal value.
+
+    Mutation 1: remove ``lease.run_id`` from the log format → ``str(run_id)``
+    is absent from the message and the assertion fails.
+    Mutation 2: remove ``type(exc).__name__`` from the format → ``exc_type=``
+    value is missing and the assertion fails.
+    Mutation 3: add ``principal`` to the log message → the principal-absent
+    assertion fails.
+    Mutation 4: remove ``exc_info=True`` → ``record.exc_info`` is None and the
+    assertion fails.
+    """
+    import logging
+
+    import ced.worker.analysis as _analysis_mod
+
+    snapshot_ref, _, _ = real_snapshot
+    run_id, step_id = _make_failing_run(snapshot_ref)
+
+    body = make_analysis_step_body()
+    try:
+        with caplog.at_level(logging.ERROR, logger="ced.worker.analysis"):
+            with mock.patch.object(
+                _analysis_mod,
+                "read_payload",
+                side_effect=RuntimeError("simulated phase3 failure"),
+            ):
+                try:
+                    _run_via_worker(run_id, step_id, _ANALYSIS_CONFIG, body)
+                except Exception:
+                    pass
+    finally:
+        _cleanup(run_id)
+
+    phase3_records = [
+        r for r in caplog.records if r.levelno == logging.ERROR and "phase=3" in r.getMessage()
+    ]
+    assert len(phase3_records) >= 1, (
+        f"expected a Phase 3 error log; records: {[r.getMessage() for r in caplog.records]}"
+    )
+    msg = phase3_records[0].getMessage()
+
+    assert str(run_id) in msg, f"run_id must appear in the failure log; got {msg!r}"
+    assert str(step_id) in msg, f"step_id must appear in the failure log; got {msg!r}"
+    assert "RuntimeError" in msg, f"exc_type must appear in the failure log; got {msg!r}"
+    assert phase3_records[0].exc_info is not None, (
+        "exc_info=True must be set so the traceback is captured"
+    )
+    assert "test-principal" not in msg, "principal must not appear in the Phase 3 failure log"
+
+
 def test_an_unreadable_principal_makes_the_pool_record_failure(require_substrate: None) -> None:
     """With no principal no event can be built, but the step must not read as done.
 

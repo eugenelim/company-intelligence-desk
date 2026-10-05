@@ -1,16 +1,17 @@
 """AC-0413, AC-0416: end-to-end analysis publication.
 
-Drives the ordinary Worker claim path: a real snapshot is created via the
-offline ingestion path, a real analysis run is started (via ``start_run``
-or via POST /runs), and an in-process Worker with a dedicated pool_class
-claims and executes the step.  No direct event appends stand in for the
-worker.
+The direct-start helpers (``_claim_and_run``, ``_claim_and_run_http``) hand-lease
+the step via a direct SQL UPDATE and call the analysis body directly.  They do
+not use the real Worker ``claim_one`` poll path.  The ``http_analysis_run``
+fixture starts the run through the public HTTP API (AC-0416) but also
+hand-leases the step for the in-process body call.
 
 The suite proves:
 - The committed event sequence matches the expected order.
 - The artifact bytes resolve by digest (SHA-256 in key == SHA-256 of bytes).
 - The artifact parses via ``parse_published_analysis``.
 - ``step.completed`` and ``run.completed`` carry the same artifact reference.
+- POST /runs stores ``pool_class='analysis'`` before any fixture rewrite (AC-0412).
 - POST /runs creates the analysis run via the public HTTP API (AC-0416).
 - GET /runs/{run_id}/analysis returns the typed artifact (AC-0416).
 """
@@ -35,10 +36,10 @@ from ced.adapters.objectstore.client import (
     write_payload,
 )
 from ced.adapters.postgres.dsn import database_url
-from ced.adapters.postgres.event_log import read_events, start_run
+from ced.adapters.postgres.event_log import append_step_event, read_events, start_run
 from ced.domain.diligence import parse_published_analysis
 from ced.worker.analysis import ANALYSIS_ROLE, make_analysis_step_body
-from ced.worker.pool import Lease, PoolConfig
+from ced.worker.pool import Lease, PoolConfig, claim_one
 from tests.api.conftest import Client
 
 pytestmark = pytest.mark.substrate
@@ -381,6 +382,17 @@ def http_analysis_run(
     run_id = uuid.UUID(run_id_str)
     step_id = uuid.UUID(step_id_str)
 
+    # AC-0412 (Blocker 1): assert POST /runs stored pool_class='analysis' before
+    # any fixture rewrite.  Mutation: change ANALYSIS_POOL_CLASS to 'default' in
+    # main.py → this assertion fails because the stored class is 'default'.
+    with psycopg.connect(database_url("migration")) as check_conn:
+        pc_row = check_conn.execute(
+            "SELECT pool_class FROM steps WHERE step_id = %s", (step_id,)
+        ).fetchone()
+    assert pc_row is not None and pc_row[0] == "analysis", (
+        f"POST /runs must store pool_class='analysis' before fixture rewrite; got {pc_row!r}"
+    )
+
     # Update the pool_class so the in-process worker can claim this step.
     with psycopg.connect(database_url("migration")) as conn:
         conn.execute(
@@ -404,8 +416,9 @@ def test_http_api_start_run_creates_analysis_run(
 ) -> None:
     """AC-0416: POST /runs with analysis object creates the analysis step.
 
-    Verifies the run was started via the HTTP API and the step exists
-    with the analysis role.
+    Verifies the run was started via the HTTP API and the step exists with the
+    analysis role.  pool_class='analysis' was asserted inside the fixture before
+    any rewrite (AC-0412 Blocker 1).
 
     Break: return 201 without creating the step.
     Red: the step row is absent.
@@ -421,6 +434,7 @@ def test_http_api_start_run_creates_analysis_run(
 
     assert row is not None, "step row must exist after POST /runs"
     # The fixture updated pool_class to _HTTP_POOL_CLASS; check agent_role.
+    # pool_class='analysis' was already verified in the fixture before the update.
     assert row[0] == ANALYSIS_ROLE, f"expected agent_role={ANALYSIS_ROLE!r}; got {row[0]!r}"
 
 
@@ -461,3 +475,176 @@ def test_http_api_read_analysis_returns_complete_artifact(
     assert "evidence_manifest" in artifact
     assert "sources" in artifact["evidence_manifest"]
     assert "calculations" in artifact["evidence_manifest"]
+
+
+# ---------------------------------------------------------------------------
+# Concern 3 (AC-0413): re-claim convergence at each partial commit point
+# ---------------------------------------------------------------------------
+
+
+def _setup_partial_commit(
+    run_id: uuid.UUID,
+    step_id: uuid.UUID,
+    partial_types: list[str],
+    principal: str = "e2e-test-principal",
+) -> None:
+    """Manually build a partial-commit state and force-expire the lease.
+
+    Sets the step to state='leased' at lease_epoch=1 under a live lease, and
+    appends each event in ``partial_types`` at that epoch. It moves the run to
+    'running' when step.started is included, matching what Phase 2 commits
+    atomically. It then expires the lease, which makes the step claimable
+    through the ordinary ``claim_one`` recovery path.
+    """
+    with psycopg.connect(database_url("migration")) as conn:
+        conn.execute(
+            """
+            UPDATE steps
+               SET state = 'leased',
+                   owner = 'partial-commit-sim',
+                   lease_epoch = 1,
+                   lease_expires_at = now() + interval '1 minute'
+             WHERE step_id = %s
+            """,
+            (step_id,),
+        )
+        if "step.started" in partial_types:
+            conn.execute(
+                "UPDATE runs SET state = 'running' WHERE run_id = %s AND state = 'requested'",
+                (run_id,),
+            )
+        conn.commit()
+
+    with psycopg.connect(database_url("worker")) as conn:
+        for event_type in partial_types:
+            append_step_event(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                lease_epoch=1,
+                type=event_type,
+                principal=principal,
+                agent_role=ANALYSIS_ROLE,
+            )
+
+    # The fence admits appends only under a live lease, so expire it after the
+    # partial events are written, as a crashed worker's lease would expire.
+    with psycopg.connect(database_url("migration")) as conn:
+        conn.execute(
+            "UPDATE steps SET lease_expires_at = now() - interval '1 second'"
+            " WHERE step_id = %s",
+            (step_id,),
+        )
+        conn.commit()
+
+
+def _reclaim_and_run(run_id: uuid.UUID) -> list[str]:
+    """Re-claim via claim_one (the ordinary recovery path) and run the body."""
+    with psycopg.connect(database_url("worker")) as conn:
+        lease = claim_one(conn, _E2E_CONFIG)
+    assert lease is not None, "claim_one must find the expired lease"
+
+    body = make_analysis_step_body()
+    body(lease, threading.Event())
+
+    with psycopg.connect(database_url("worker")) as conn:
+        events = read_events(conn, run_id=run_id)
+    return [e.type for e in events]
+
+
+def test_reclaim_after_step_started_converges_to_terminal(
+    published_analysis_run: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """AC-0413 (Concern 3): re-claim after step.started reaches run.completed.
+
+    Simulates a crash between Phase 2 (step.started committed, run state set to
+    'running') and Phase 3 completion.  The step is in 'leased' state with an
+    expired lease.  Re-claiming via ``claim_one`` and re-running the body must
+    produce exactly one terminal event (run.completed) and a readable artifact.
+
+    Mutation: remove the ``state = 'leased' AND lease_expires_at < now()``
+    branch from the ``claim_one`` predicate → ``claim_one`` returns None for
+    the expired step and the assertion fails.
+    """
+    run_id, step_id = published_analysis_run
+    _setup_partial_commit(run_id, step_id, ["step.started"])
+
+    event_types = _reclaim_and_run(run_id)
+
+    terminal_events = [t for t in event_types if t in ("run.completed", "run.failed")]
+    assert len(terminal_events) == 1, (
+        f"exactly one terminal event expected after re-claim; got {terminal_events!r}"
+    )
+    assert terminal_events[0] == "run.completed", (
+        f"re-claim after step.started must reach run.completed; got {terminal_events[0]!r}"
+    )
+
+    with psycopg.connect(database_url("worker")) as conn:
+        events = read_events(conn, run_id=run_id)
+    completed = next(e for e in events if e.type == "run.completed")
+    assert completed.payload_ref is not None
+    artifact_bytes = read_payload_bytes(completed.payload_ref)
+    assert len(artifact_bytes) > 0, "artifact bytes must be readable and non-empty"
+
+
+def test_reclaim_after_step_completed_before_run_completed_converges(
+    published_analysis_run: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """AC-0413 (Concern 3): re-claim after step.completed reaches run.completed.
+
+    Simulates a crash after Phase 3 appended step.completed but before Phase 4
+    appended run.completed.  Each append is a separate committed transaction, so
+    this window is real.  Re-claiming and re-running must produce exactly one
+    terminal event.
+
+    Mutation: remove the expired-lease branch from the claim predicate →
+    ``claim_one`` returns None and the assertion fails.
+    """
+    run_id, step_id = published_analysis_run
+    _setup_partial_commit(run_id, step_id, ["step.started", "step.completed"])
+
+    event_types = _reclaim_and_run(run_id)
+
+    terminal_events = [t for t in event_types if t in ("run.completed", "run.failed")]
+    assert len(terminal_events) == 1, (
+        f"exactly one terminal event expected after re-claim; got {terminal_events!r}"
+    )
+    assert terminal_events[0] == "run.completed"
+
+    with psycopg.connect(database_url("worker")) as conn:
+        events = read_events(conn, run_id=run_id)
+    completed = next(e for e in events if e.type == "run.completed")
+    assert completed.payload_ref is not None
+    artifact_bytes = read_payload_bytes(completed.payload_ref)
+    assert len(artifact_bytes) > 0
+
+
+def test_reclaim_after_step_failed_before_run_failed_converges(
+    published_analysis_run: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """AC-0413: a re-claim after step.failed finishes the failure, not a retry.
+
+    Simulates a crash after ``_append_failure`` committed step.failed but
+    before it committed run.failed. Re-claiming must end the run with exactly
+    one terminal event, `run.failed`, and no `run.completed` or artifact, even
+    though the snapshot itself is valid.
+
+    Mutation: drop the already-failed check in `_analysis_body`. The re-claim
+    then retries, the run ends `run.completed`, and this check reds.
+    """
+    run_id, step_id = published_analysis_run
+    _setup_partial_commit(run_id, step_id, ["step.started", "step.failed"])
+
+    with psycopg.connect(database_url("worker")) as conn:
+        lease = claim_one(conn, _E2E_CONFIG)
+    assert lease is not None, "claim_one must find the expired lease"
+    with pytest.raises(Exception, match="already failed"):
+        make_analysis_step_body()(lease, threading.Event())
+
+    with psycopg.connect(database_url("worker")) as conn:
+        event_types = [e.type for e in read_events(conn, run_id=run_id)]
+    terminal_events = [t for t in event_types if t in ("run.completed", "run.failed")]
+    assert terminal_events == ["run.failed"], (
+        f"a failed step must end in exactly one run.failed; got {terminal_events!r}"
+    )
+    assert "step.completed" not in event_types

@@ -68,6 +68,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import ipaddress
+import logging
 import os
 import socket
 import ssl
@@ -76,6 +77,8 @@ import time
 from collections.abc import Callable, Generator
 from http import client as http_client
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "SEC_CONTACT_ENV",
@@ -420,11 +423,30 @@ class _GatedSecConnection(http_client.HTTPSConnection):
         if self._wall_deadline is not None:
             _handshake_left = self._wall_deadline - time.monotonic()
             if _handshake_left <= 0:
+                try:
+                    raw_sock.close()
+                except Exception:  # noqa: BLE001
+                    pass
                 raise SecClientError(
                     "the connect consumed the entire budget",
                     no_response_class="total_timeout",
                 )
-            raw_sock.settimeout(min(_CONNECT_TIMEOUT, _handshake_left))
+            try:
+                raw_sock.settimeout(min(_CONNECT_TIMEOUT, _handshake_left))
+            except OSError:
+                try:
+                    raw_sock.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                if time.monotonic() >= self._wall_deadline:
+                    raise SecClientError(
+                        "settimeout failed after budget exhausted",
+                        no_response_class="total_timeout",
+                    ) from None
+                raise SecClientError(
+                    "settimeout failed",
+                    no_response_class="connection",
+                ) from None
 
         # Retain the original SEC hostname for TLS certificate verification.
         try:
@@ -500,8 +522,16 @@ def open_postgres_gate(dsn: str) -> Generator[float]:
             remaining = _GATE_INTERVAL - elapsed
             if remaining > 0:
                 time.sleep(remaining)
-            conn.execute("SELECT pg_advisory_unlock(%s)", [_GATE_LOCK_KEY])
-            conn.commit()
+            try:
+                conn.execute("SELECT pg_advisory_unlock(%s)", [_GATE_LOCK_KEY])
+                conn.commit()
+            except psycopg.Error:
+                # Connection loss already releases the advisory lock (AC-0403).
+                # Swallow so the original outcome reaches the caller; log at
+                # warning without the error value to avoid leaking session state.
+                _log.warning(
+                    "open_postgres_gate: release failed; lock released by connection close"
+                )
 
 
 @contextlib.contextmanager
@@ -802,9 +832,11 @@ def _real_fetch(
     conn._budget_end = budget_end
     conn._clock = clock
 
-    # Watchdog: close the connection at the budget deadline so any in-flight
-    # recv/send/handshake is unblocked immediately (AC-0402 hard wall-clock
-    # bound).  Cancelled in finally regardless of outcome.
+    # Watchdog: shut the TLS socket at the budget deadline to unblock any
+    # in-flight recv/send (AC-0402 hard wall-clock bound).  The handshake is
+    # not reachable from here — wrapping detaches the raw socket's descriptor,
+    # so shutting the raw object down does nothing — so a clamp before the
+    # wrap bounds it instead.  Cancelled in finally regardless of outcome.
     def _watchdog() -> None:
         # Closing a socket from another thread does not interrupt a blocked
         # recv; shutting it down does, on every platform this runs on.
@@ -812,7 +844,8 @@ def _real_fetch(
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
+            except (OSError, AttributeError):
+                # Already closed, or a socket-like object with no shutdown.
                 pass
 
     _wt: threading.Timer | None = None

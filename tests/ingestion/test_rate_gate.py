@@ -6,22 +6,23 @@ and race to acquire the shared advisory lock. The tests verify:
 1. The gate serialises request starts by at least ``_GATE_INTERVAL`` seconds
    while both sessions are live.
 2. Terminating the holder process releases the contender without deadlock.
+3. A psycopg.Error raised during lock release (unlock) is swallowed so the
+   original outcome reaches the caller (Concern 5).
 
-These are substrate tests: they need the Compose Postgres substrate.
+The process-isolation tests are substrate tests; the swallowing test is offline.
 """
 
 from __future__ import annotations
 
 import multiprocessing
 import time
+from typing import Any
 
+import psycopg
 import pytest
 
 from ced.adapters.postgres.dsn import database_url
-from ced.adapters.sec.client import _GATE_INTERVAL, open_postgres_gate
-
-pytestmark = pytest.mark.substrate
-
+from ced.adapters.sec.client import _GATE_INTERVAL, SecClientError, open_postgres_gate
 
 # ---------------------------------------------------------------------------
 # Worker functions (run in child processes via spawn)
@@ -62,6 +63,7 @@ def _gate_worker_long(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.substrate
 def test_two_processes_gate_admission_separated(require_substrate: None) -> None:
     """Two spawned processes have their gate-admission times separated by at
     least ``_GATE_INTERVAL`` seconds.
@@ -114,6 +116,7 @@ def test_two_processes_gate_admission_separated(require_substrate: None) -> None
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.substrate
 def test_holder_termination_releases_contender(require_substrate: None) -> None:
     """Terminating the holder process releases the contender without deadlock.
 
@@ -172,4 +175,61 @@ def test_holder_termination_releases_contender(require_substrate: None) -> None:
     assert contender_admitted, (
         "contender must be admitted after holder process is terminated; "
         "the Postgres session-level advisory lock must be released on connection close"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Concern 5 (AC-0403): release-failure swallowing — offline, no substrate
+# ---------------------------------------------------------------------------
+
+
+def test_open_postgres_gate_swallows_release_error_and_propagates_original(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """open_postgres_gate swallows psycopg.Error on release and lets the original
+    outcome reach the caller.
+
+    A fake connection acquires the lock successfully (first execute) and raises
+    ``psycopg.OperationalError`` on the unlock call (second execute).  The
+    original ``SecClientError`` raised inside the gate body must propagate, not
+    the release error.
+
+    Mutation: re-raise the psycopg.Error from release instead of swallowing it
+    → the original ``SecClientError`` is replaced by the ``psycopg.OperationalError``
+    and ``pytest.raises(SecClientError)`` fails.
+    """
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    execute_count: list[int] = [0]
+
+    class _FakeConn:
+        def execute(self, query: str, params: Any = None) -> None:
+            execute_count[0] += 1
+            if execute_count[0] >= 2:
+                # Second execute is the pg_advisory_unlock call; simulate failure.
+                raise psycopg.OperationalError("simulated release failure")
+
+        def commit(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def __enter__(self) -> _FakeConn:
+            return self
+
+        def __exit__(self, *args: Any) -> bool:
+            return False
+
+    monkeypatch.setattr("psycopg.connect", lambda dsn, **kw: _FakeConn())
+
+    original_exc = SecClientError("original error from body")
+
+    with pytest.raises(SecClientError) as exc_info:
+        with open_postgres_gate("fake-dsn"):
+            raise original_exc
+
+    assert exc_info.value is original_exc, (
+        "the original SecClientError must reach the caller; "
+        "psycopg.Error from release must not replace it"
     )

@@ -165,7 +165,36 @@ def _analysis_body(lease: Lease, stop: threading.Event) -> None:
             " ORDER BY seq LIMIT 1",
             (lease.run_id,),
         ).fetchone()
+        already_failed = (
+            conn.execute(
+                "SELECT 1 FROM events WHERE step_id = %s AND type = 'step.failed' LIMIT 1",
+                (lease.step_id,),
+            ).fetchone()
+            is not None
+        )
         conn.commit()
+
+    # ── Phase 1a: a step that already failed stays failed ──────────────────
+    # A worker can die after appending step.failed and before run.failed. A
+    # re-claim must finish that failure, not retry it: AC-0413 allows no
+    # run.completed after a refusal.
+    if already_failed:
+        log.error(
+            "analysis: run %s step %s already failed; completing the failure",
+            lease.run_id,
+            lease.step_id,
+        )
+        with psycopg.connect(database_url("worker")) as conn:
+            append_run_terminal(
+                conn,
+                run_id=lease.run_id,
+                step_id=lease.step_id,
+                lease_epoch=lease.epoch,
+                type="run.failed",
+                principal=principal,
+                agent_role=ANALYSIS_ROLE,
+            )
+        raise _AnalysisBodyFailed("step already failed before this claim")
 
     # ── Phase 1b: role dispatch ──────────────────────────────────────────────
     # This body handles only ANALYSIS_ROLE.  An unexpected role is a fatal
@@ -266,7 +295,13 @@ def _analysis_body(lease: Lease, stop: threading.Event) -> None:
         artifact_ref = write_payload_bytes(artifact_bytes, owner_scope=ANALYSIS_SCOPE)
 
     except Exception as exc:
-        log.error("analysis: step %s failed: %s", lease.step_id, exc)
+        log.error(
+            "analysis: run %s step %s failed phase=3 exc_type=%s",
+            lease.run_id,
+            lease.step_id,
+            type(exc).__name__,
+            exc_info=True,
+        )
         _append_failure(lease, principal)
         raise _AnalysisBodyFailed("analysis step failed") from exc
 

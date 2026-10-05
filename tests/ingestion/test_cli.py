@@ -253,12 +253,60 @@ def _duplicate_canonical_entry() -> dict[str, Any]:
     return {key: values + [values[index]] for key, values in recent.items()}
 
 
+def _submissions_with_non_object_filings() -> bytes:
+    """Fixture submissions where ``filings`` is a list, not a dict."""
+    doc = json.loads(_FIXTURE_JSON.read_bytes())
+    doc["filings"] = []
+    return json.dumps(doc).encode()
+
+
+def _submissions_with_non_object_recent() -> bytes:
+    """Fixture submissions where ``filings.recent`` is a list, not a dict."""
+    doc = json.loads(_FIXTURE_JSON.read_bytes())
+    doc["filings"]["recent"] = []
+    return json.dumps(doc).encode()
+
+
+def _submissions_with_misplaced_dash_accession() -> bytes:
+    """Fixture submissions where the canonical accession has a misplaced dash.
+
+    The bare digits are the same as the canonical accession, so ``_select_filing``
+    still matches it; but the filer prefix derived from the first dash-delimited
+    segment disagrees with the canonical CIK.
+    """
+    doc = json.loads(_FIXTURE_JSON.read_bytes())
+    recent = doc["filings"]["recent"]
+    idx = recent["accessionNumber"].index("0000320193-26-000020")
+    # "00003201932-6-000020": bare = "000032019326000020" (matches), filer prefix mismatch.
+    recent["accessionNumber"][idx] = "00003201932-6-000020"
+    return json.dumps(doc).encode()
+
+
+def _submissions_with_non_canonical_primary_doc() -> bytes:
+    """Fixture submissions where the canonical primaryDocument is valid but non-canonical."""
+    doc = json.loads(_FIXTURE_JSON.read_bytes())
+    recent = doc["filings"]["recent"]
+    idx = recent["accessionNumber"].index("0000320193-26-000020")
+    recent["primaryDocument"][idx] = "other-20260627.htm"
+    return json.dumps(doc).encode()
+
+
 @pytest.mark.parametrize(
     "submissions",
     [
         pytest.param(_submissions_with(cik="789019"), id="other-company-cik"),
         pytest.param(
             _submissions_with(**_duplicate_canonical_entry()), id="duplicate-accession"
+        ),
+        # Concern 4 (AC-0401): live-path refusals not previously covered.
+        pytest.param(b"[1, 2, 3]", id="non-object-document"),
+        pytest.param(_submissions_with_non_object_filings(), id="non-object-filings"),
+        pytest.param(_submissions_with_non_object_recent(), id="non-object-recent"),
+        pytest.param(
+            _submissions_with_misplaced_dash_accession(), id="misplaced-dash-accession"
+        ),
+        pytest.param(
+            _submissions_with_non_canonical_primary_doc(), id="non-canonical-primary-doc"
         ),
     ],
 )
@@ -268,9 +316,24 @@ def test_a_live_metadata_refusal_makes_no_filing_request_and_no_write(
     """Refusals decided from submission metadata stop before the filing fetch.
 
     The seam counts socket opens, so a filing request would be a second open.
-    The store spy records every write. Mutation: drop the submissions CIK check,
-    or restore the first-match ``break`` in ``_select_filing``. Its case then
-    reaches the filing request, and this check reds.
+    The store spy records every write.
+
+    Covered refusals and their mutations:
+    - other-company-cik: remove ``_validate_submissions_cik`` call → second socket open.
+    - duplicate-accession: restore first-match ``break`` → second socket open.
+    - non-object-document: remove ``isinstance(submissions, dict)`` check → code
+      proceeds to ``_validate_submissions_cik(list, …)``; ``list.get`` raises
+      ``AttributeError``, which is not ``IngestionError``; ``pytest.raises`` fails.
+    - non-object-filings: remove ``isinstance(filings, dict)`` check → code calls
+      ``[].get("recent")``; ``AttributeError``; ``pytest.raises`` fails.
+    - non-object-recent: remove ``isinstance(recent, dict)`` check → ``_select_filing``
+      receives a list; ``list.get`` raises ``AttributeError``; ``pytest.raises`` fails.
+    - misplaced-dash-accession: remove ``_validate_accession_filer_prefix`` call → code
+      proceeds to primary-doc validation, which passes; reaches filing request → second
+      socket open; ``len(opens) == 1`` fails.
+    - non-canonical-primary-doc: remove ``if primary_doc != CANONICAL_PRIMARY_DOC`` check
+      at line 568 → code proceeds to filing request → second socket open; ``len(opens) == 1``
+      fails.
     """
     monkeypatch.setenv("SEC_CONTACT", _CONTACT)
     monkeypatch.setattr("ced.adapters.postgres.dsn.database_url", lambda role: "unused-dsn")
@@ -411,3 +474,67 @@ def test_offline_fixture_missing_error_has_exactly_one_error_prefix(
     assert "--offline-fixture needs a source checkout" in captured.err, (
         f"stderr must contain the user guidance; got: {captured.err!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Concern 4 (AC-0401): primary-document traversal on the live path
+# ---------------------------------------------------------------------------
+
+
+def test_live_primary_doc_traversal_makes_no_filing_request_and_no_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A traversal primary document (``../x.htm``) stops before the filing fetch.
+
+    The seam counts socket opens, so a filing request would be a second open.
+    The store spy records every write.
+
+    Mutation: replace the ``_validate_primary_doc(filing_info["primary_doc"])``
+    call with a plain assignment ``primary_doc = filing_info["primary_doc"]`` →
+    ``"../x.htm"`` passes validation and hits the canonical-document check at
+    line 568, which raises ``IngestionError`` with "does not match the canonical",
+    not "dot segment".  ``pytest.raises(IngestionError, match="dot segment")``
+    therefore fails.
+    """
+    import json as _json
+
+    monkeypatch.setenv("SEC_CONTACT", _CONTACT)
+    monkeypatch.setattr("ced.adapters.postgres.dsn.database_url", lambda role: "unused-dsn")
+    from ced.adapters.objectstore import client as obj_client
+
+    writes: list[str] = []
+    monkeypatch.setattr(
+        obj_client, "write_payload_bytes", lambda b, **kw: writes.append("bytes")
+    )
+    monkeypatch.setattr(obj_client, "write_payload", lambda d, **kw: writes.append("json"))
+
+    opens: list[Any] = []
+
+    # Build a submissions document where the canonical primaryDocument is a traversal.
+    doc = _json.loads(_FIXTURE_JSON.read_bytes())
+    recent = doc["filings"]["recent"]
+    idx = recent["accessionNumber"].index("0000320193-26-000020")
+    recent["primaryDocument"][idx] = "../x.htm"
+    traversal_bytes = _json.dumps(doc).encode()
+
+    response = make_http_response(200, {}, traversal_bytes)
+
+    def resolve(host: str, port: int, **kwargs: Any) -> list[tuple[Any, ...]]:
+        import socket as _socket
+
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
+
+    def open_socket(address: Any, timeout: Any = None) -> Any:
+        opens.append(address)
+        return FakeSocket(response)
+
+    with pytest.raises(IngestionError, match="dot segment"):
+        _ingest_live(
+            gate_factory=_make_gate_factory(),
+            resolve=resolve,
+            open_socket=open_socket,
+            wrap=lambda sock, server_hostname=None: sock,
+        )
+
+    assert len(opens) == 1, f"only the submissions request may be made; saw {len(opens)}"
+    assert writes == [], f"no object may be written; saw {writes}"
