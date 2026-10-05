@@ -273,8 +273,50 @@ rather than bunching them. The command writes a JSON record with:
 - the count of each outcome;
 - whether any `403` or `429` blocked the client;
 - one record per attempt: gate wait, duration, zero retries, stop condition,
-  and either an HTTP status class or one of `dns`, `tls`, `connect_timeout`,
-  `read_timeout` or `total_timeout`.
+  HTTP status class, no-response class, and blocked flag.
+
+**Outcome classes (AC-0417).** Every attempt record carries at least one of
+`http_status_class` or `no_response_class`:
+
+- `http_status_class`: `"1xx"`–`"5xx"` for statuses 100–599, `"other"` for
+  any status outside that range.
+- `no_response_class`: `"dns"`, `"tls"`, `"connect_timeout"`, `"read_timeout"`,
+  `"total_timeout"`, or `"connection"` for any attempt that ends without a
+  complete HTTP response.
+
+`blocked` is `true` when `403` or `429` was received, regardless of what ends
+the attempt (a transport failure after a blocked status keeps `blocked: true`).
+
+**Stop condition order (AC-0417).** When both fields are set, the record's
+`stop_condition` follows this fixed priority:
+
+1. `no_response_class` — transport failure wins over all HTTP-level outcomes.
+2. `"blocked"` — a blocked status wins over redirect, refused, or HTTP class.
+3. `"redirect"` — any 3xx.
+4. `"refused"` — size cap exceeded (declared or streaming), malformed
+   Content-Length (sign, non-ASCII, duplicate, or non-digit chars), or 1xx /
+   out-of-range status.
+5. `"http_4xx"` or `"http_5xx"`.
+6. `"refused"` — 1xx or status outside 100–599 not caught at step 4.
+7. `"success"` — 2xx only.
+
+**Content-Length strictness (AC-0402, AC-0417).** A declared Content-Length
+must be exactly one header whose value is ASCII digit characters only (no sign,
+no whitespace, no non-ASCII, no comma). A duplicate or malformed header is
+refused before reading, and a body shorter than the declared length is a
+`connection` failure.
+
+**Declared-client validation (AC-0402).** The `SEC_CONTACT` value is
+validated on the raw (unstripped) value before the gate is entered: 1 to 256
+characters, each in U+0020–U+007E, with at least one non-space. A value that
+fails the check causes the command to refuse with an error naming the variable
+but never echoing the value.
+
+**DNS resolution (AC-0402).** DNS runs in a daemon thread bounded by the
+remaining total budget. A thread that does not finish in time produces
+`no_response_class="total_timeout"`. Only public unicast non-multicast
+addresses are admitted; a result containing only non-public addresses is
+`no_response_class="dns"`.
 
 **How to read it.** `blocked: true` means SEC refused the declared client at
 least once. That is a valid observation, not a failed command, and the command

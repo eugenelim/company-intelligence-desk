@@ -5,26 +5,41 @@ Design constraints (AC-0402, AC-0403, AC-0417):
 - HTTPS only, to the two admitted hosts (``data.sec.gov``, ``www.sec.gov``).
 - TLS certificate verification is always on; ``check_hostname=True``,
   ``CERT_REQUIRED``; no parameter disables it.
-- DNS resolution uses ``socket.getaddrinfo``; only public unicast non-multicast
-  addresses are admitted. Connection uses ``socket.create_connection`` to one
-  validated address with the SEC hostname retained for TLS
-  (``wrap_socket(server_hostname=host)``).  All three socket operations are
-  injectable for tests; the single production code path always runs.
-- Connect timeout: 5 s, clamped to remaining total budget. Read timeout: 15 s,
-  clamped to remaining total budget per chunk. Total budget: 30 s from gate
-  admission through the end of the bounded body read; refused as
+- DNS resolution uses ``socket.getaddrinfo`` run in a daemon thread; the
+  thread is abandoned when the total budget expires (``total_timeout``).  Only
+  public unicast non-multicast addresses are admitted.  Connection uses
+  ``socket.create_connection`` to one validated address with the SEC hostname
+  retained for TLS (``wrap_socket(server_hostname=host)``).  All three socket
+  operations are injectable for tests; the single production code path always
+  runs.
+- Connect timeout: 5 s, clamped to remaining total budget.  Read timeout:
+  15 s, clamped to remaining total budget per chunk.  Total budget: 30 s from
+  gate admission through the end of the bounded body read; refused as
   ``total_timeout`` when remaining budget reaches zero before any operation.
+  A phase timeout that fires because the budget was shortened is also
+  reported as ``total_timeout`` (AC-0417: total_timeout wins).
 - Response size caps: 5 MiB for submissions, 10 MiB for filings.  A declared
   ``Content-Length`` above the cap refuses before reading; a malformed
-  ``Content-Length`` is refused (fail-closed) before reading; a stream first
-  crossing the cap is stopped and refused.
-- No automatic retry. ``403`` / ``429`` are recorded as ``blocked``.
-- The runtime declared-client value (``SEC_CONTACT``) is read only when building
-  the ``User-Agent`` header and must never appear in exceptions, logs, records,
+  ``Content-Length`` is refused (fail-closed) before reading; a duplicate
+  ``Content-Length`` header is refused; a stream first crossing the cap is
+  stopped and refused.  A body shorter than its declared length is a
+  transport failure (``connection``).
+- No automatic retry.  ``403`` / ``429`` are recorded as ``blocked``.
+- The runtime declared-client value (``SEC_CONTACT``) must be 1–256 printable
+  ASCII characters (U+0020–U+007E), with at least one non-space.  It is
+  validated on the raw value before any trimming, before the gate is entered
+  or a socket is opened.  It must never appear in exceptions, logs, records,
   stdout / stderr, or stored objects.
 - Every SEC request passes through the shared Postgres rate gate, which
-  acquires a session-level advisory lock, records the admission time, and holds
-  the lock for at least ``_GATE_INTERVAL`` seconds after admission.
+  acquires a session-level advisory lock, records the admission time, and
+  holds the lock for at least ``_GATE_INTERVAL`` seconds after admission.
+- ``status_class`` (``http_status_class``) is the class of any HTTP status
+  received: ``"1xx"``–``"5xx"``, or ``"other"`` for any status outside
+  100–599.  ``no_response_class`` is set for any transport failure: one of
+  ``"dns"``, ``"tls"``, ``"connect_timeout"``, ``"read_timeout"``,
+  ``"total_timeout"``, or ``"connection"``.  Every attempt carries at least
+  one of the two.  ``blocked`` is true when a received status is 403 or 429,
+  whatever ends the attempt.  Stop condition follows AC-0417's fixed order.
 
 Injection seam for tests: ``_GatedSecConnection`` accepts optional ``resolve``,
 ``open_socket``, and ``wrap`` callables that replace ``socket.getaddrinfo``,
@@ -39,8 +54,13 @@ dependency in offline unit tests.
 
 ``no_response_class`` on ``SecClientError``: every failure that produces no HTTP
 response carries a string class (``"dns"``, ``"tls"``, ``"connect_timeout"``,
-``"read_timeout"``, ``"total_timeout"``, ``"connection"``).  The ``AttemptRecord`` field of the
-same name is populated from this attribute in the catch block of ``fetch_url``.
+``"read_timeout"``, ``"total_timeout"``, ``"connection"``).  The ``AttemptRecord``
+field of the same name is populated from this attribute in the catch block of
+``fetch_url``.
+
+``received_status`` on ``SecClientError``: when the status line has been parsed
+before the failure, this carries the HTTP status integer so the catch block in
+``fetch_url`` can record ``http_status_class`` and ``blocked`` correctly.
 """
 
 from __future__ import annotations
@@ -51,6 +71,7 @@ import ipaddress
 import os
 import socket
 import ssl
+import threading
 import time
 from collections.abc import Callable, Generator
 from http import client as http_client
@@ -115,11 +136,22 @@ class SecClientError(Exception):
     ``"total_timeout"``, or ``"connection"`` for a refused, reset or garbled
     connection.  HTTP-level failures and configuration errors
     leave it ``None``.
+
+    When the HTTP status line was received before the failure,
+    ``received_status`` carries the integer status code so the caller can
+    record ``http_status_class`` and ``blocked`` even for a failed attempt.
     """
 
-    def __init__(self, msg: str, *, no_response_class: str | None = None) -> None:
+    def __init__(
+        self,
+        msg: str,
+        *,
+        no_response_class: str | None = None,
+        received_status: int | None = None,
+    ) -> None:
         super().__init__(msg)
         self.no_response_class: str | None = no_response_class
+        self.received_status: int | None = received_status
         #: The attempt as ``fetch_url`` recorded it, so a caller keeps the real
         #: gate wait and stop condition of a failed attempt.
         self.attempt_record: AttemptRecord | None = None
@@ -160,17 +192,18 @@ class AttemptRecord:
     """Always 0 — this client never retries."""
 
     stop_condition: str
-    """One of "success", "blocked", "redirect", or a no-response class string."""
+    """AC-0417 stop condition: "success", "blocked", "redirect", "refused",
+    "http_4xx", "http_5xx", or a no-response class string."""
 
     http_status_class: str | None
-    """"2xx", "4xx", "5xx", or ``None`` when no HTTP response was received."""
+    """"1xx" to "5xx", "other", or ``None`` when no HTTP response was received."""
 
     no_response_class: str | None
     """One of "dns", "tls", "connect_timeout", "read_timeout", "total_timeout",
     "connection", or ``None`` when an HTTP response was received."""
 
     blocked: bool
-    """True when HTTP 403 or 429 was received."""
+    """True when HTTP 403 or 429 was received, whatever ends the attempt."""
 
     def to_dict(self) -> dict[str, object]:
         """Canonical serialisation for JSON records."""
@@ -226,11 +259,16 @@ _SSL_CTX: ssl.SSLContext = _tls_context()
 
 
 class _GatedSecConnection(http_client.HTTPSConnection):
-    """HTTPSConnection that resolves once and connects to one validated address.
+    """HTTPSConnection that resolves once (in a thread) and connects to one
+    validated public-unicast address.
 
     ``connect()`` is overridden so there is no second DNS resolution while the
-    socket is being created. The original hostname is retained for TLS
+    socket is being created.  The original hostname is retained for TLS
     certificate verification (``wrap(sock, server_hostname=host)``).
+
+    DNS resolution runs in a daemon thread so it can be abandoned when the
+    total budget expires.  Callers set ``_dns_timeout`` before calling
+    ``connect()`` to bound the wait.
 
     The three injectable callables replace the real platform operations in
     tests so the production code path runs without a live network:
@@ -261,21 +299,58 @@ class _GatedSecConnection(http_client.HTTPSConnection):
             open_socket if open_socket is not None else socket.create_connection
         )
         self._wrap: _WrapFn = wrap if wrap is not None else _SSL_CTX.wrap_socket
+        #: DNS timeout in seconds; set by _real_fetch before calling connect().
+        #: None means no timeout (should not occur in production).
+        self._dns_timeout: float | None = None
 
     def connect(self) -> None:
-        """Resolve, validate, and connect to one public-unicast address.
+        """Resolve (in a thread), validate, and connect to one public-unicast address.
+
+        DNS resolution runs in a daemon thread bounded by ``self._dns_timeout``.
+        A thread that does not finish in time causes a ``total_timeout`` error;
+        the thread may continue running after abandonment and its result is
+        discarded.
 
         Uses ``self.timeout`` for the connect-level deadline so callers can
         clamp it to the remaining total budget before calling this method.
         """
-        try:
-            results = self._resolve(self._sec_host, 443, type=socket.SOCK_STREAM)
-        except socket.gaierror as exc:
+        # --- DNS resolution in a daemon thread ---
+        _results: list[list[tuple[Any, ...]]] = []
+        _error: list[Exception] = []
+
+        def _resolve_thread() -> None:
+            try:
+                _results.append(self._resolve(self._sec_host, 443, type=socket.SOCK_STREAM))
+            except socket.gaierror as exc:
+                _error.append(exc)
+            except Exception as exc:  # noqa: BLE001
+                _error.append(exc)
+
+        t = threading.Thread(target=_resolve_thread, daemon=True)
+        t.start()
+        t.join(timeout=self._dns_timeout)
+
+        if t.is_alive():
             raise SecClientError(
-                "DNS resolution failed",
+                "DNS resolution did not complete within the total budget",
+                no_response_class="total_timeout",
+            )
+
+        if _error:
+            exc = _error[0]
+            if isinstance(exc, socket.gaierror):
+                raise SecClientError(
+                    "DNS resolution failed",
+                    no_response_class="dns",
+                ) from exc
+            raise SecClientError(
+                "DNS resolution error",
                 no_response_class="dns",
             ) from exc
 
+        results = _results[0] if _results else []
+
+        # --- Address filtering: public unicast only ---
         valid: list[str] = []
         for _af, _socktype, _proto, _canonname, sockaddr in results:
             # sockaddr is (host_str, port) for IPv4;
@@ -316,7 +391,7 @@ class _GatedSecConnection(http_client.HTTPSConnection):
         except (ssl.SSLError, TimeoutError, OSError) as exc:
             try:
                 raw_sock.close()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             # A handshake timeout is a connect timeout, an ssl.SSLError is a
             # TLS failure, and any other socket error is a dropped connection.
@@ -389,35 +464,74 @@ def _fake_gate(
 
 
 # ---------------------------------------------------------------------------
-# Contact value
+# Contact value validation
 # ---------------------------------------------------------------------------
+
+
+def _validate_contact(contact: str) -> None:
+    """Validate the declared-client value before it becomes the User-Agent header.
+
+    Rules (AC-0402): 1 to 256 characters, each in U+0020–U+007E (printable
+    ASCII, no control characters), with at least one character that is not a
+    space (U+0020).
+
+    Raises ``SecClientError`` naming the environment variable without echoing
+    the value itself.  The check runs on the raw value before any trimming.
+    """
+    if not (1 <= len(contact) <= 256):
+        raise SecClientError(f"{SEC_CONTACT_ENV} value must be 1 to 256 characters")
+    for ch in contact:
+        if not ("\x20" <= ch <= "\x7e"):
+            raise SecClientError(
+                f"{SEC_CONTACT_ENV} value contains a character outside "
+                f"U+0020 to U+007E; each character must be a printable ASCII byte"
+            )
+    if all(ch == "\x20" for ch in contact):
+        raise SecClientError(
+            f"{SEC_CONTACT_ENV} value must contain at least one non-space character"
+        )
 
 
 def acquire_contact() -> str:
     """Read the runtime declared-client value from the environment.
 
-    Raises ``SecClientError`` naming the variable when it is absent or blank.
-    The returned value is used only as the ``User-Agent`` header and must never
-    be copied into an exception message, log record, stored object, or output.
+    Raises ``SecClientError`` naming the variable when it is absent or when the
+    raw value fails the AC-0402 character and length rules.  The returned value
+    is used only as the ``User-Agent`` header and must never be copied into an
+    exception message, log record, stored object, or output.
+
+    The check runs on the raw (unstripped) value, as required by AC-0402.
     """
     raw = os.environ.get(SEC_CONTACT_ENV)
-    if not raw or not raw.strip():
+    if raw is None:
         raise SecClientError(
-            f"{SEC_CONTACT_ENV} is unset or blank; set it to the declared "
+            f"{SEC_CONTACT_ENV} is unset; set it to the declared "
             f"User-Agent string required by SEC developer policy before "
             f"making any live request"
         )
-    return raw.strip()
+    _validate_contact(raw)
+    return raw
+
+
+# ---------------------------------------------------------------------------
+# HTTP status class helper
+# ---------------------------------------------------------------------------
+
+
+def _http_status_class(status: int) -> str:
+    """Return the AC-0417 status class for an HTTP status code.
+
+    Returns ``"1xx"``–``"5xx"`` for statuses 100–599, and ``"other"`` for any
+    status outside that range.
+    """
+    if 100 <= status <= 599:
+        return f"{status // 100}xx"
+    return "other"
 
 
 # ---------------------------------------------------------------------------
 # Core fetch implementation
 # ---------------------------------------------------------------------------
-
-
-def _http_status_class(status: int) -> str:
-    """Return the class string ("1xx"–"5xx") for an HTTP status code."""
-    return f"{status // 100}xx"
 
 
 def fetch_url(
@@ -447,7 +561,8 @@ def fetch_url(
         ``"submissions"`` or ``"filing"`` — recorded in the attempt record.
     contact:
         The runtime declared-client value, used only as the ``User-Agent``
-        header. Must not appear in any exception, log, or record.
+        header.  Validated on the raw value before the gate is entered.
+        Must not appear in any exception, log, or record.
     gate:
         A context manager (open or fake) that yields the admission time.
     resolve:
@@ -467,6 +582,10 @@ def fetch_url(
             f"host {host!r} is not in the admitted set; "
             f"only {sorted(_ALLOWED_HOSTS)} are permitted"
         )
+
+    # Validate the declared-client value on the raw value, before the gate
+    # is entered or any socket is opened (AC-0402).
+    _validate_contact(contact)
 
     headers: dict[str, str] = {
         "User-Agent": contact,
@@ -499,6 +618,13 @@ def fetch_url(
                 wrap,
             )
 
+            # Set http_status_class and blocked immediately from the received
+            # status, before any check that might raise.
+            cls = _http_status_class(status)
+            http_status_class = cls
+            if status in (403, 429):
+                blocked = True
+
             # Final budget gate after _real_fetch returns (covers the gap
             # between the last chunk read and here; _real_fetch already
             # enforces the budget internally).
@@ -508,24 +634,35 @@ def fetch_url(
                     no_response_class="total_timeout",
                 )
 
-            cls = _http_status_class(status)
-            http_status_class = cls
-
+            # AC-0417 stop condition order (for statuses from _real_fetch):
+            # 1. no-response class — N/A here (_real_fetch returned normally)
+            # 2. blocked (403 or 429)
+            # 3. redirect (3xx)
+            # 4. refused (length/cap, size) — N/A here (_real_fetch returned)
+            # 5. http_4xx or http_5xx
+            # 6. refused (1xx or other)
+            # 7. success (2xx only)
             if 300 <= status <= 399:
                 stop_condition = "redirect"
                 raise SecRedirectError(
                     f"server returned HTTP {status} (redirect); this client follows no redirect"
                 )
-            if status in (403, 429):
-                blocked = True
+            if blocked:
                 stop_condition = "blocked"
                 raise SecBlockedError(
                     "SEC returned HTTP status indicating the declared client is blocked"
                 )
-            if status >= 400:
+            if 400 <= status <= 599:
                 stop_condition = f"http_{cls}"
                 raise SecClientError(f"SEC returned HTTP {status}")
+            if status < 200 or status > 599:
+                # 1xx and status outside 100–599 ("other") are refused.
+                stop_condition = "refused"
+                raise SecClientError(
+                    f"SEC returned HTTP {status}; 1xx and status outside 100–599 are refused"
+                )
 
+            # Only 2xx reaches here.
             duration = _clock() - budget_start
             record = AttemptRecord(
                 request_class=request_class,
@@ -540,18 +677,37 @@ def fetch_url(
             return body, record
 
         except SecClientError as exc:
+            # Carry received_status from _real_fetch exceptions so
+            # http_status_class and blocked survive transport failures.
+            _recv = exc.received_status
+            if _recv is not None and http_status_class is None:
+                http_status_class = _http_status_class(_recv)
+            if _recv is not None and _recv in (403, 429):
+                blocked = True
+
             # For network-level failures, carry the no_response_class through
             # to the record.  SecRedirectError and SecBlockedError are HTTP-
             # level failures and leave no_response_class as None.
             if not isinstance(exc, (SecRedirectError, SecBlockedError)):
-                nrc = exc.no_response_class
-                no_response_class = nrc
-                if nrc is not None and stop_condition == "success":
-                    stop_condition = nrc
+                _nrc = exc.no_response_class
+                no_response_class = _nrc
+
+            # Determine stop_condition using AC-0417 order if not already set.
             if stop_condition == "success":
-                # Over-cap, malformed-length and similar refusals carry no
-                # network class, but the attempt still did not succeed.
-                stop_condition = "refused"
+                if no_response_class is not None:
+                    # Step 1: transport failure.
+                    stop_condition = no_response_class
+                elif blocked:
+                    # Step 2: blocked (403/429 received), no transport failure.
+                    stop_condition = "blocked"
+                elif _recv is not None and 300 <= _recv <= 399:
+                    # Step 3: redirect (from _real_fetch size/length refusal on
+                    # a 3xx response — unusual but handled).
+                    stop_condition = "redirect"
+                else:
+                    # Step 4/6: length/cap refusal or 1xx/other.
+                    stop_condition = "refused"
+
             duration = _clock() - budget_start
             record = AttemptRecord(
                 request_class=request_class,
@@ -580,8 +736,13 @@ def _real_fetch(
 ) -> tuple[int, dict[str, str], bytes]:
     """Execute the HTTPS request using the injectable connection class.
 
-    All budget enforcement, timeout clamping, and size-cap checks live here
-    so there is exactly one production fetch path.
+    All budget enforcement, timeout clamping, size-cap checks, and strict
+    Content-Length parsing live here so there is exactly one production fetch
+    path.
+
+    When an exception is raised after the HTTP status line has been parsed,
+    ``exc.received_status`` carries the integer status so the caller can record
+    the status class and ``blocked`` flag even for a failed attempt.
     """
     budget_end = budget_start + _TOTAL_BUDGET
 
@@ -595,10 +756,23 @@ def _real_fetch(
                 no_response_class="total_timeout",
             )
         conn.timeout = min(_CONNECT_TIMEOUT, remaining)
+        # Pass remaining budget as DNS timeout for the threaded resolver.
+        conn._dns_timeout = remaining
 
         # connect() converts DNS/TLS/OS errors to SecClientError with
-        # no_response_class already set; propagate unchanged.
-        conn.connect()
+        # no_response_class already set; propagate, upgrading phase timeouts
+        # to total_timeout when the budget was exhausted.
+        try:
+            conn.connect()
+        except SecClientError as exc:
+            # total_timeout wins over a connect-phase timeout the budget
+            # shortened (AC-0417).
+            if exc.no_response_class == "connect_timeout" and clock() >= budget_end:
+                raise SecClientError(
+                    "total budget exceeded during connect phase",
+                    no_response_class="total_timeout",
+                ) from exc
+            raise
 
         # Check budget before issuing the request; clamp read timeout.
         remaining = budget_end - clock()
@@ -609,70 +783,112 @@ def _real_fetch(
             )
         conn.set_read_timeout(min(_READ_TIMEOUT, remaining))
 
+        # The HTTP status received before any body failure; None until parsed.
+        _received_status: int | None = None
+
         try:
             conn.request("GET", path, headers=headers)
             response = conn.getresponse()
         except TimeoutError as exc:
-            raise SecClientError(
-                "read timeout",
-                no_response_class="read_timeout",
-            ) from exc
-        except (OSError, http_client.HTTPException) as exc:
+            nrc = "total_timeout" if clock() >= budget_end else "read_timeout"
+            raise SecClientError("timeout during request", no_response_class=nrc) from exc
+        except Exception as exc:  # noqa: BLE001 — any unexpected Exception → connection
+            # Only Exception subclasses become connection; KeyboardInterrupt /
+            # SystemExit (BaseException, not Exception) propagate past this catch.
             raise SecClientError(
                 "request failed",
                 no_response_class="connection",
             ) from exc
 
-        status = response.status
-        resp_headers: dict[str, str] = {k.lower(): v for k, v in response.getheaders()}
+        _received_status = response.status
+        all_headers = response.getheaders()
+        resp_headers: dict[str, str] = {k.lower(): v for k, v in all_headers}
 
-        # Validate declared Content-Length — fail closed on malformed value.
-        cl_str = resp_headers.get("content-length")
-        if cl_str is not None:
-            try:
-                cl = int(cl_str)
-            except ValueError as exc:
-                raise SecClientError(
+        # --- Strict Content-Length check (AC-0417 "well-formed length") ---
+        # A response without Content-Length is read under the stream cap.
+        # A response with one must carry exactly one header whose value is
+        # ASCII digits alone; otherwise its length is malformed (refused).
+        all_cl_values = [v for k, v in all_headers if k.lower() == "content-length"]
+        if len(all_cl_values) > 1:
+            sec_exc = SecClientError(
+                "malformed Content-Length: duplicate headers; refusing before read"
+            )
+            sec_exc.received_status = _received_status
+            raise sec_exc
+
+        cl: int | None = None
+        if all_cl_values:
+            cl_str = all_cl_values[0]
+            # ASCII digits only: no sign, no whitespace, no non-ASCII digit.
+            if not cl_str or not cl_str.isascii() or not cl_str.isdigit():
+                sec_exc = SecClientError(
                     "malformed Content-Length header; refusing before read"
-                ) from exc
+                )
+                sec_exc.received_status = _received_status
+                raise sec_exc
+            cl = int(cl_str)
             if cl > size_cap:
-                raise SecClientError(
+                sec_exc = SecClientError(
                     f"declared Content-Length {cl} exceeds size cap {size_cap}"
                 )
+                sec_exc.received_status = _received_status
+                raise sec_exc
 
-        # Read with size cap and per-chunk budget enforcement.
+        # --- Read with size cap and per-chunk budget enforcement ---
         chunks: list[bytes] = []
         total_read = 0
         while True:
             remaining = budget_end - clock()
             if remaining <= 0:
-                raise SecClientError(
+                sec_exc = SecClientError(
                     "total budget exceeded during read",
                     no_response_class="total_timeout",
                 )
+                sec_exc.received_status = _received_status
+                raise sec_exc
             if conn.sock is not None:
                 conn.sock.settimeout(min(_READ_TIMEOUT, remaining))
             try:
                 chunk = response.read(65536)
             except TimeoutError as exc:
-                raise SecClientError(
-                    "read timeout during body",
-                    no_response_class="read_timeout",
-                ) from exc
-            except (OSError, http_client.HTTPException) as exc:
-                raise SecClientError(
+                nrc = "total_timeout" if clock() >= budget_end else "read_timeout"
+                sec_exc = SecClientError("timeout during body read", no_response_class=nrc)
+                sec_exc.received_status = _received_status
+                raise sec_exc from exc
+            except Exception as exc:  # noqa: BLE001 — any unexpected Exception → connection
+                # Only Exception subclasses become connection; KeyboardInterrupt /
+                # SystemExit (BaseException, not Exception) propagate past this catch.
+                sec_exc = SecClientError(
                     "read error during body",
                     no_response_class="connection",
-                ) from exc
+                )
+                sec_exc.received_status = _received_status
+                raise sec_exc from exc
             if not chunk:
                 break
             total_read += len(chunk)
             if total_read > size_cap:
-                raise SecClientError(f"response body exceeded size cap {size_cap} during read")
+                sec_exc = SecClientError(
+                    f"response body exceeded size cap {size_cap} during read"
+                )
+                sec_exc.received_status = _received_status
+                raise sec_exc
             chunks.append(chunk)
 
+        # --- Short body detection (AC-0417 "connection") ---
+        # http.client returns b"" at early EOF of a fixed-length body, so an
+        # explicit comparison is required (AC-0402 contract fact).
+        if cl is not None and total_read != cl:
+            sec_exc = SecClientError(
+                "response body shorter than declared Content-Length",
+                no_response_class="connection",
+            )
+            sec_exc.received_status = _received_status
+            raise sec_exc
+
         body = b"".join(chunks)
-        return status, resp_headers, body
+        assert _received_status is not None  # set by response.status above
+        return _received_status, resp_headers, body
 
     finally:
         conn.close()

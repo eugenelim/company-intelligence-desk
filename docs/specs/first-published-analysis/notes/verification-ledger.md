@@ -1233,3 +1233,133 @@ the post-implementation review. The owner's defaults for the open choices:
 lookup that admits no public unicast address records `dns`, as the shipped
 client already does. `total_timeout` wins over a connect or read timeout that
 the budget shortened, which applies the sixth-review default.
+
+## T6 — Every SEC attempt follows the AC-0402 and AC-0417 rules
+
+### Matrix structure
+
+`tests/ingestion/test_attempt_matrix.py` generates rows programmatically from
+two axes: nine received statuses (200, 103, 301, 304, 403, 429, 404, 500, 600)
+× seventeen body-side endings (complete, short_body, over_cap, five malformed
+Content-Length forms, stream_over_cap, five body-read faults, two budget
+endings), minus unreachable cells. Fifteen no-status site rows cover
+resolution, connect, handshake, and request failures. Per-phase real-clock cap
+rows verify that each phase timeout is clamped to the remaining budget.
+
+An oracle written from the AC-0417 text (independent of client code) sets each
+row's expected `http_status_class`, `no_response_class`, `blocked`, and
+`stop_condition`. Each parametrized row is named `{status}x{ending}`.
+
+### Mutation table
+
+Each entry names the mutation, the test or matrix row that reds it, and the
+observed failure mode. Each was run and confirmed to red the named assertion.
+
+**Stop-condition ordering — pairs where the order determines the output:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Step 1 (transport) after step 2 (blocked) | `test_matrix_status_ending[403xfault_reset]` | `stop_condition` = `"blocked"` not `"connection"` |
+| Step 1 (transport) after step 3 (redirect) | `test_matrix_status_ending[301xfault_reset]` | `stop_condition` = `"redirect"` not `"connection"` |
+| Step 1 (transport) after step 4 (refused) | `test_matrix_status_ending[200xfault_reset]` | `stop_condition` = `"refused"` not `"connection"` |
+| Step 2 (blocked) before step 1 (transport) | `test_matrix_status_ending[403xshort_body]` | oracle expects `"connection"`; mutant gives `"blocked"` |
+| Step 4 (refused) before step 2 (blocked) | `test_matrix_status_ending[403xover_cap]` | oracle expects `"blocked"`; mutant gives `"refused"` |
+| Step 6 (refused 1xx) before step 1 (transport) | `test_matrix_status_ending[103xfault_reset]` is unreachable; use `test_matrix_status_ending[103xshort_body]` — oracle expects `"connection"`; mutant gives `"refused"` |
+| Step 7 (success) without 2xx guard | `test_matrix_status_ending[103xcomplete]` | no raise; `stop_condition` = `"success"` |
+
+**Status carry — `received_status` surviving a failure after the status line:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Omit `sec_exc.received_status = _received_status` on over-cap exception | `test_received_status_survives_on_over_cap_exception` | `attempt_record.http_status_class` is `None` not `"4xx"` |
+| Same omission on duplicate Content-Length exception | `test_matrix_status_ending[403xmal_two_agreeing]` | `http_status_class` = `None`, `blocked` = False |
+| Same omission on short-body exception | `test_matrix_status_ending[403xshort_body]` | `http_status_class` = `None`, `blocked` = False |
+| Same omission on body-read fault exception | `test_matrix_status_ending[403xfault_reset]` | `http_status_class` = `None`, `blocked` = False |
+| Same omission on budget-read exception | `test_matrix_status_ending[403xbudget_read]` | `http_status_class` = `None`, `blocked` = False |
+
+**Class mapping:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Map 600 to `"6xx"` instead of `"other"` | `test_matrix_status_ending[600xcomplete]`, `test_600_status_is_refused_as_other` | `http_status_class` = `"6xx"` not `"other"` |
+| Map 1xx to `"success"` | `test_matrix_status_ending[103xcomplete]`, `test_1xx_status_is_refused` | no raise |
+| Map DNS failure to `"tls"` | `test_matrix_no_status_dns_failure` | `no_response_class` = `"tls"` not `"dns"` |
+| Map connect_timeout to `"connection"` | `test_matrix_no_status_connect_timeout` | `no_response_class` = `"connection"` not `"connect_timeout"` |
+| Map body-read timeout to `"connection"` | `test_matrix_status_ending[200xfault_timeout]` | `no_response_class` = `"connection"` not `"read_timeout"` |
+| Map SSL handshake failure to `"connection"` | `test_matrix_no_status_handshake_ssl` | `no_response_class` = `"connection"` not `"tls"` |
+
+**Malformed Content-Length acceptance:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| `int("+100")` instead of strict digit check | `test_content_length_with_sign_is_refused`, `test_matrix_status_ending[200xmal_sign]` | no raise |
+| Strip trailing whitespace before parsing | `test_content_length_with_trailing_space_is_refused`, `test_matrix_status_ending[200xmal_ws]` | no raise |
+| Use `getheader()` (last value) instead of duplicate detection | `test_duplicate_content_length_headers_refused`, `test_matrix_status_ending[200xmal_two_agreeing]` | no raise |
+| Accept two disagreeing Content-Length headers by using the smaller | `test_matrix_status_ending[200xmal_two_disagreeing]` | no raise |
+| Accept non-ASCII digit (e.g. U+00A0) as valid length | `test_matrix_status_ending[200xmal_non_ascii]` | no raise |
+
+**1xx and 600 acceptance:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Remove `status < 200` branch | `test_1xx_status_is_refused`, `test_matrix_status_ending[103xcomplete]` | no raise; `stop_condition` = `"success"` |
+| Return a class for 600 (`"6xx"`) and skip the `> 599` branch | `test_600_status_is_refused_as_other`, `test_matrix_status_ending[600xcomplete]` | no raise; `stop_condition` = `"success"` |
+
+**Short-body acceptance:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Remove `total_read != cl` check | `test_short_body_maps_to_connection_class`, `test_matrix_status_ending[200xshort_body]` | no raise; truncated body returned as success |
+
+**DNS after the fact — unbounded resolution:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Call `getaddrinfo` directly (no thread, no timeout) | `test_dns_thread_abandoned_at_budget_expiry_reports_total_timeout`, `test_matrix_no_status_dns_timeout` | hangs 0.2 s or reports `"dns"` instead of `"total_timeout"` |
+
+**Budget cap on each phase — removed `min(..., remaining)` for that phase:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Remove connect-phase `min(_CONNECT_TIMEOUT, remaining)` | `test_connect_phase_budget_cap` | elapsed > 1.5 s (socket sleeps for uncapped 5-s timeout) |
+| Remove request-phase `min(_READ_TIMEOUT, remaining)` on `set_read_timeout` | `test_request_phase_budget_cap` | elapsed > 1.5 s (sendall sleeps for uncapped 15-s timeout) |
+| Remove body-read-phase `min(_READ_TIMEOUT, remaining)` in the read loop | `test_body_read_phase_budget_cap` | elapsed > 1.5 s (read sleeps for uncapped 15-s timeout) |
+| Remove `clock() >= budget_end` upgrade after connect timeout | `test_connect_timeout_upgrades_to_total_timeout_when_budget_exhausted` | `no_response_class` = `"connect_timeout"` not `"total_timeout"` |
+| Upgrade every connect timeout (remove budget check) | `test_connect_timeout_stays_connect_timeout_when_budget_not_exhausted` | `no_response_class` = `"total_timeout"` not `"connect_timeout"` |
+
+**Declared-client validation — gate and socket not entered:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Remove `_validate_contact` from `fetch_url` | `test_fetch_url_refuses_invalid_contact_at_the_user_agent_sink`, `test_invalid_contact_refused_at_fetch_url_gate_not_entered[FC-TAB-MARKER]` | `pytest.raises` does not fire; gate IS entered |
+| Widen range to include U+0009 (tab) | `test_contact_validation_rejects_tab_character`, `test_invalid_contact_refused_at_fetch_url_gate_not_entered[FC-TAB-MARKER]` | no raise |
+| Strip value before validating | `test_contact_validation_rejects_trailing_newline`, `test_invalid_contact_refused_at_fetch_url_gate_not_entered[FC-TRAIL-NL-MARKER]` | no raise — stripped value passes |
+| Echo value in refusal message | `test_contact_validation_error_does_not_echo_value`, all `test_invalid_contact_refused_at_fetch_url_gate_not_entered[*]` | marker found in traceback chain or capfd output |
+
+**Fail-closed live ingestion:**
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| Not catching `SecClientError` in `_ingest_live` | `test_live_ingest_fail_closed_connection_refused` | exception propagates as non-`SecClientError` |
+| Calling `_store_and_return` before the exception check | `test_live_ingest_fail_closed_403` | store spy called on 403 |
+| Not running gate `finally` on exception | `test_live_ingest_fail_closed_short_body` (gate tracker `exits` empty) | gate remains held |
+| Catching `BaseException` instead of `Exception` in body-read loop | `test_keyboard_interrupt_exits_gate_in_live_ingest` | `KeyboardInterrupt` swallowed |
+
+**Unreachable cells (listed with stdlib reason; no test row):**
+
+For every status in {103, 304} paired with an ending in {stream_over_cap,
+fault_reset, fault_exc, fault_ssl, fault_timeout, fault_value}: `http.client`
+sets `length = 0` for 1xx statuses and for 304 (NOT_MODIFIED) in `begin()`,
+overriding any Content-Length header. `response.read()` returns `b""` immediately
+without reading from the socket, so none of these endings can be triggered. The
+full enumeration is in `_UNREACHABLE` in `test_attempt_matrix.py`, verified by
+`test_unreachable_cells_are_documented`.
+
+### T6 controller spot-check
+
+The controller ran two mutations of its own against the 160-row matrix:
+
+- With `blocked` checked before the transport class, 16 rows fail.
+- With the `redirect` step dropped on the failure path, 15 rows fail.
+
+All 160 rows pass on the restored code.
