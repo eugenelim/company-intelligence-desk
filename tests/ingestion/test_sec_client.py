@@ -2190,3 +2190,47 @@ def test_keyboard_interrupt_exits_gate_in_run_observation(
         )
 
     assert gate_exits, "gate must exit even on KeyboardInterrupt during run_observation"
+
+
+def test_a_short_body_at_the_deadline_records_total_timeout() -> None:
+    """An early EOF found at or after the deadline is the budget's doing (AC-0417).
+
+    The watchdog's shutdown at the deadline makes a blocked read return EOF, so
+    the body ends short. This check fixes the race on a clock that passes the
+    deadline once the body has been read. Mutation: drop the clock check in the
+    short-body branch. The record then says `connection`, and this check reds.
+    """
+
+    class _EofPastDeadline(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            data = super().read(size)
+            if not data:
+                past_deadline[0] = True
+            return data
+
+    class _Socket(FakeSocket):
+        def makefile(self, mode: str, buffering: int = -1) -> io.BytesIO:
+            return _EofPastDeadline(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello")
+
+    past_deadline = [False]
+
+    def clock() -> float:
+        return 1_000.0 if past_deadline[0] else 0.0
+
+    resolve, _open_socket, wrap = make_seam(_OK_RESPONSE)
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _SUBMISSIONS_CAP,
+            "submissions",
+            _CONTACT,
+            _fake_gate(clock=clock),
+            resolve=resolve,
+            open_socket=lambda address, timeout=None: _Socket(b""),
+            wrap=wrap,
+            clock=clock,
+        )
+    assert exc_info.value.no_response_class == "total_timeout"
+    record = exc_info.value.attempt_record
+    assert record is not None and record.http_status_class == "2xx"

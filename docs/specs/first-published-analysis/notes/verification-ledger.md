@@ -1315,7 +1315,7 @@ observed failure mode. Each was run and confirmed to red the named assertion.
 
 | Mutation | Reds | Observed |
 | --- | --- | --- |
-| Call `getaddrinfo` directly (no thread, no timeout) | `test_dns_thread_abandoned_at_budget_expiry_reports_total_timeout`, `test_matrix_no_status_dns_timeout` | hangs 0.2 s or reports `"dns"` instead of `"total_timeout"` |
+| Call `getaddrinfo` directly (no thread, no timeout) | `test_matrix_no_status_dns_timeout` | red: the inline resolver sleeps 0.3 s against a 0.20 s elapsed limit. `test_dns_thread_abandoned_at_budget_expiry_reports_total_timeout` stays green under this mutant, because the post-DNS recompute still reports `total_timeout`; it pins the class only |
 
 **Budget cap on each phase — removed `min(..., remaining)` for that phase:**
 
@@ -1400,3 +1400,17 @@ substrate built from this commit, with 1,610 passed and 3 skipped in 6 min 1 s.
 An earlier run reused a nine-hour-old database and failed two checks: the
 rate gate saw no admissions, and lease ownership moved between workers. Both
 passed on their own, and neither failed on the fresh substrate.
+
+### Review round 4 repairs
+
+- **Short body at the deadline.** When the watchdog's shutdown ends a body
+  read at the deadline, the body ends short. The short-body branch now
+  records `total_timeout` when the clock has reached the deadline, the same
+  upgrade the other failure sites apply. Before this, a race recorded
+  `connection` in 2 of 30 plain-TCP runs. The check is
+  `test_a_short_body_at_the_deadline_records_total_timeout`, which uses a clock
+  that passes the deadline once the body is read. With the clock check removed
+  from that branch alone, the check reds.
+- **DNS ledger row.** The row above now credits the inline-resolver mutant
+  only to the check that reds under it.
+

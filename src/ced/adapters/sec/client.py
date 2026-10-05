@@ -959,9 +959,11 @@ def _real_fetch(
         # http.client returns b"" at early EOF of a fixed-length body, so an
         # explicit comparison is required (AC-0402 contract fact).
         if cl is not None and total_read != cl:
+            # The watchdog's shutdown at the deadline also ends the read early,
+            # so a short body at or past the deadline is the budget's doing.
             sec_exc = SecClientError(
                 "response body shorter than declared Content-Length",
-                no_response_class="connection",
+                no_response_class="total_timeout" if clock() >= budget_end else "connection",
             )
             sec_exc.received_status = _received_status
             raise sec_exc
