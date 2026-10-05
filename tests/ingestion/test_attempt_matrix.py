@@ -1345,3 +1345,75 @@ def test_a_real_trickling_peer_is_cut_off_at_the_budget(
     assert exits and exits[0] - t0 < 0.5 + 0.2, "the gate was not released within the budget"
     assert exc_info.value.attempt_record is not None
     assert exc_info.value.attempt_record.no_response_class == "total_timeout"
+
+
+def test_a_late_connect_then_a_silent_tls_peer_ends_at_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Slow DNS, a slow connect, then a peer that never answers the handshake.
+
+    The real TLS context wraps the socket, which detaches its descriptor from
+    the watchdog's reach, so only the handshake's own timeout can end it.
+    Mutant: drop the wall-clock clamp before the wrap. The handshake then gets a
+    fresh connect timeout, the attempt runs about 1.5 s against a 1 s budget,
+    and this check reds.
+    """
+    import contextlib
+    import socket as _sock
+
+    _patch_budget(monkeypatch, 1.0)
+    server = _sock.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(5)
+    port = int(server.getsockname()[1])
+    held: list[Any] = []
+
+    def accept_silently() -> None:
+        while True:
+            try:
+                conn, _ = server.accept()
+            except OSError:
+                return
+            held.append(conn)
+
+    threading.Thread(target=accept_silently, daemon=True).start()
+
+    def resolve(host: str, p: int, **kw: Any) -> list[Any]:
+        time.sleep(0.5)
+        return [(_sock.AF_INET, _sock.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
+
+    def open_socket(address: Any, timeout: float | None = None) -> Any:
+        assert timeout is not None
+        time.sleep(timeout * 0.9)
+        return _sock.create_connection(("127.0.0.1", port), timeout=timeout)
+
+    exits: list[float] = []
+
+    @contextlib.contextmanager
+    def gate() -> Iterator[float]:
+        try:
+            yield time.monotonic()
+        finally:
+            exits.append(time.monotonic())
+
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(SecClientError) as exc_info:
+            fetch_url(
+                _HOST,
+                _PATH,
+                10**6,
+                "submissions",
+                _CONTACT,
+                gate(),
+                resolve=resolve,
+                open_socket=open_socket,
+            )
+    finally:
+        server.close()
+        for conn in held:
+            conn.close()
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.0 + 0.2, f"the handshake held the attempt for {elapsed:.2f}s"
+    assert exits and exits[0] - t0 < 1.0 + 0.2, "the gate was not released within the budget"
+    assert exc_info.value.no_response_class == "total_timeout"

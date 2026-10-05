@@ -306,6 +306,9 @@ class _GatedSecConnection(http_client.HTTPSConnection):
         #: recompute the connect timeout after DNS returns and can classify
         #: failures that arrive at or after the deadline as total_timeout.
         self._budget_end: float | None = None
+        #: The watchdog's wall-clock deadline. The handshake timeout is clamped to
+        #: it, because wrapping detaches the raw socket from the watchdog's reach.
+        self._wall_deadline: float | None = None
         #: Injected clock function; mirrors the one used in _real_fetch.
         self._clock: _ClockFn | None = None
 
@@ -409,6 +412,19 @@ class _GatedSecConnection(http_client.HTTPSConnection):
                 "unexpected error during connect",
                 no_response_class="connection",
             ) from exc
+
+        # The handshake must also end by the deadline (AC-0402 hard bound). The
+        # watchdog cannot reach it: wrapping detaches the raw socket's
+        # descriptor, so shutting the raw object down does nothing. Give the
+        # handshake only the wall-clock time the watchdog has left instead.
+        if self._wall_deadline is not None:
+            _handshake_left = self._wall_deadline - time.monotonic()
+            if _handshake_left <= 0:
+                raise SecClientError(
+                    "the connect consumed the entire budget",
+                    no_response_class="total_timeout",
+                )
+            raw_sock.settimeout(min(_CONNECT_TIMEOUT, _handshake_left))
 
         # Retain the original SEC hostname for TLS certificate verification.
         try:
@@ -813,6 +829,7 @@ def _real_fetch(
         conn._dns_timeout = remaining
 
         # Arm the watchdog after computing the initial remaining budget.
+        conn._wall_deadline = time.monotonic() + remaining
         _wt = threading.Timer(remaining, _watchdog)
         _wt.daemon = True
         _wt.start()

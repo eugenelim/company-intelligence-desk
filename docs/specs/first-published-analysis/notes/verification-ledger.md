@@ -1414,3 +1414,21 @@ passed on their own, and neither failed on the fresh substrate.
 - **DNS ledger row.** The row above now credits the inline-resolver mutant
   only to the check that reds under it.
 
+
+### Review round 5 repair: the TLS handshake ends by the deadline
+
+After slow DNS and a late TCP connect, the handshake started with a fresh
+connect timeout. The watchdog could not stop it either: wrapping moves the raw
+socket's descriptor into the TLS socket, so shutting the raw object down does
+nothing. Against a real loopback peer that accepts but never speaks TLS, with
+a 1 s budget, the attempt and the gate ran for 1.46 s.
+
+The handshake timeout is now clamped to the time left on the watchdog's
+wall-clock deadline. A connect that leaves no time records `total_timeout`.
+The same run now ends at 1.003 s, and the gate is released then. A
+watchdog-only variant was tried first and still ran for 1.457 s, which is how
+the detached-descriptor cause was found.
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| clamp before the wrap removed | `test_a_late_connect_then_a_silent_tls_peer_ends_at_the_budget` | red, about 1.5 s against a 1.0 s budget |
