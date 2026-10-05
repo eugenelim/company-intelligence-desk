@@ -1264,7 +1264,7 @@ observed failure mode. Each was run and confirmed to red the named assertion.
 | Step 1 (transport) after step 4 (refused) | `test_matrix_status_ending[200xfault_reset]` | `stop_condition` = `"refused"` not `"connection"` |
 | Step 2 (blocked) before step 1 (transport) | `test_matrix_status_ending[403xshort_body]` | oracle expects `"connection"`; mutant gives `"blocked"` |
 | Step 4 (refused) before step 2 (blocked) | `test_matrix_status_ending[403xover_cap]` | oracle expects `"blocked"`; mutant gives `"refused"` |
-| Step 6 (refused 1xx) before step 1 (transport) | `test_matrix_status_ending[103xfault_reset]` is unreachable; use `test_matrix_status_ending[103xshort_body]` — oracle expects `"connection"`; mutant gives `"refused"` |
+| Step 6 (refused 1xx) before step 1 (transport) | `test_matrix_status_ending[103xshort_body]` | oracle expects `"connection"`; mutant gives `"refused"` |
 | Step 7 (success) without 2xx guard | `test_matrix_status_ending[103xcomplete]` | no raise; `stop_condition` = `"success"` |
 
 **Status carry — `received_status` surviving a failure after the status line:**
@@ -1363,3 +1363,40 @@ The controller ran two mutations of its own against the 160-row matrix:
 - With the `redirect` step dropped on the failure path, 15 rows fail.
 
 All 160 rows pass on the restored code.
+
+**Owner decision, 2026-10-05, after post-implementation review round 3:** the
+AC-0417 short-body rule applies as written to every status, including `304`
+and `1xx` responses that declare a `Content-Length` but carry no body. Such an
+attempt records `connection`. Both readings fail closed, and SEC does not send
+`304` or `1xx` to these unconditional requests, so AC-0417 is not amended.
+
+### Review round 3, controller correction: the watchdog must shut the socket down
+
+Against a real loopback server that trickles one byte every 100 ms, the
+round-3 repair still overran. A 1-second budget held both the attempt and the
+gate for 4.28 s on a body trickle, and for 4.33 s on a header trickle. The
+cause: the watchdog called `conn.close()`, and closing a socket from another
+thread does not wake a `recv` that is already blocked. The watchdog now calls
+`sock.shutdown(SHUT_RDWR)`. The same runs then end at 1.01 s, and the gate is
+released at that moment.
+
+The earlier header-trickle and body-trickle rows used fake sockets that stood
+in for the kernel. They passed even with the watchdog disabled, so they are
+replaced by
+`test_a_real_trickling_peer_is_cut_off_at_the_budget[header|body]`. That check
+runs a real loopback server sending one byte every 50 ms against a 0.5 s
+budget.
+
+| Mutation | Reds | Observed |
+| --- | --- | --- |
+| watchdog calls `conn.close()` instead of `shutdown` | `test_a_real_trickling_peer_is_cut_off_at_the_budget[header]`, `[body]` | both red, with each attempt running about 2 s |
+| watchdog removed | same rows | both red |
+
+Any ledger row above that cites `test_header_trickle_released_within_budget`
+or `test_body_trickle_released_within_budget` is superseded by this one.
+
+Gates for the round-3 repairs: the whole suite ran in one process on a fresh
+substrate built from this commit, with 1,610 passed and 3 skipped in 6 min 1 s.
+An earlier run reused a nine-hour-old database and failed two checks: the
+rate gate saw no admissions, and lease ownership moved between workers. Both
+passed on their own, and neither failed on the fresh substrate.

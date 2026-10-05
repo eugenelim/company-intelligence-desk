@@ -3,7 +3,7 @@
 Rows are generated programmatically from two axes:
   - received status: 200, 103, 301, 304, 403, 429, 404, 500, 600
   - ending (with-status body path): 17 categories (see _BODY_ENDINGS)
-  - no-status site: 15 categories across resolution, connect, handshake, request
+  - no-status site: 17 categories across resolution, connect, handshake, request
 
 The oracle is written directly from the AC-0417 text; it does not call
 any client code.
@@ -23,16 +23,18 @@ _UNREACHABLE with its stdlib reason):
     sets length=0 for 1xx/304 and returns b'' immediately from read(); the
     socket data-read path is never reached.
 
-Real-clock rows (per-phase budget cap, dns_timeout):
+Real-clock rows (per-phase budget cap, dns_timeout, watchdog trickle):
   - _TOTAL_BUDGET is patched per-test to ≤ 0.5 s so each row finishes fast.
-  - Each asserts wall time < 2 * patched budget.
+  - Each asserts wall time < patched budget + 0.2 s and gate release.
 """
 
 from __future__ import annotations
 
 import io
 import ssl
+import threading
 import time
+from collections.abc import Iterator
 from http import client as http_client
 from typing import Any
 
@@ -123,15 +125,17 @@ _NO_STATUS_ROWS: list[tuple[str, str]] = [
     # Connect
     ("connect_refused", "connection"),
     ("connect_timeout", "connect_timeout"),
+    ("connect_value", "connection"),  # unexpected Exception at open_socket
     ("budget_pre_connect", "total_timeout"),
     # Handshake
     ("handshake_ssl", "tls"),
     ("handshake_reset", "connection"),
     ("handshake_timeout", "connect_timeout"),
+    ("handshake_value", "connection"),  # unexpected Exception at wrap
     # Request
     ("request_reset", "connection"),
     ("request_exc", "connection"),
-    ("request_ssl", "connection"),
+    ("request_ssl", "tls"),  # ssl.SSLError → tls per AC-0417
     ("request_timeout", "read_timeout"),
     ("request_value", "connection"),
     ("budget_pre_request", "total_timeout"),
@@ -155,7 +159,7 @@ _BODY_NRC: dict[str, str] = {
     "short_body": "connection",
     "fault_reset": "connection",
     "fault_exc": "connection",
-    "fault_ssl": "connection",
+    "fault_ssl": "tls",  # ssl.SSLError during body read → tls per AC-0417
     "fault_timeout": "read_timeout",
     "fault_value": "connection",
     "budget_read": "total_timeout",
@@ -453,50 +457,96 @@ def test_matrix_no_status_dns_no_public() -> None:
     _assert_matrix_row(None, "dns_no_public", response=b"", resolve_fn=private_resolve)
 
 
-def test_matrix_no_status_dns_timeout() -> None:
-    """DNS thread abandoned at budget expiry → total_timeout.
+def test_matrix_no_status_dns_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DNS thread abandoned at budget expiry → total_timeout, gate released.
 
-    Real-clock row: _TOTAL_BUDGET patched to 0.08 s; resolver sleeps 0.2 s.
+    Real-clock row: _TOTAL_BUDGET patched to 0.05 s; resolver sleeps 0.3 s.
+    Without the threaded-DNS mechanism, the resolver runs inline for 0.3 s,
+    which exceeds the budget + 0.15 s margin → test reds.
+    With the thread, the thread is abandoned at the budget and the attempt
+    raises immediately; elapsed < 0.15 s.
     """
-    import ced.adapters.sec.client as _c
+    _patch_budget(monkeypatch, 0.05)
+    import socket as _s
 
-    saved = _c._TOTAL_BUDGET  # type: ignore[assignment]
-    _c._TOTAL_BUDGET = 0.08  # type: ignore[assignment]
-    try:
+    def slow_resolve(host: str, port: int, **kw: Any) -> list[Any]:
+        time.sleep(0.3)
+        return [(_s.AF_INET, _s.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
 
-        def slow_resolve(host: str, port: int, **kw: Any) -> list[Any]:
-            time.sleep(0.2)
-            import socket as _s
-
-            return [(_s.AF_INET, _s.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
-
-        _assert_matrix_row(None, "dns_timeout", response=b"", resolve_fn=slow_resolve)
-    finally:
-        _c._TOTAL_BUDGET = saved  # type: ignore[assignment]
+    t0 = time.monotonic()
+    _assert_matrix_row(None, "dns_timeout", response=b"", resolve_fn=slow_resolve)
+    elapsed = time.monotonic() - t0
+    # Gate must be released within budget + 0.15 s; inline-resolver mutant
+    # takes ≥ 0.3 s, which exceeds this margin.
+    assert elapsed < 0.05 + 0.15, (
+        f"DNS-timeout row took {elapsed:.3f}s; expected < 0.20s with budget=0.05s"
+    )
 
 
 def test_matrix_no_status_connect_refused() -> None:
     """ConnectionRefusedError from open_socket → connection."""
-    clock = _SeqClock([0.0, 0.0, 1.0, 2.0])
     _assert_matrix_row(
         None,
         "connect_refused",
         open_socket_error=ConnectionRefusedError("refused"),
         response=b"",
-        clock=clock,
     )
 
 
 def test_matrix_no_status_connect_timeout() -> None:
     """TimeoutError from open_socket (within budget) → connect_timeout."""
-    clock = _SeqClock([0.0, 0.0, 1.0, 2.0])
     _assert_matrix_row(
         None,
         "connect_timeout",
         open_socket_error=TimeoutError("timed out"),
         response=b"",
-        clock=clock,
     )
+
+
+def test_matrix_no_status_connect_value() -> None:
+    """ValueError (unexpected exception) from open_socket → connection (AC-0417)."""
+    _assert_matrix_row(
+        None,
+        "connect_value",
+        open_socket_error=ValueError("unexpected error from open_socket"),
+        response=b"",
+    )
+
+
+def test_matrix_no_status_handshake_value() -> None:
+    """ValueError (unexpected exception) from wrap → connection (AC-0417)."""
+    import socket as _sock
+
+    def resolve(host: str, port: int, **kw: Any) -> list[Any]:
+        return [(_sock.AF_INET, _sock.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
+
+    _fake_sock = FakeSocket(b"")
+
+    def open_sk(address: Any, timeout: Any = None) -> Any:
+        return _fake_sock
+
+    class _ValueWrap:
+        def __call__(self, sock: Any, server_hostname: Any = None) -> Any:
+            raise ValueError("unexpected error from wrap")
+
+    wrap = _ValueWrap()
+    gate = _fake_gate()
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _CAP,
+            "submissions",
+            _CONTACT,
+            gate,
+            resolve=resolve,
+            open_socket=open_sk,
+            wrap=wrap,
+        )
+    exc = exc_info.value
+    assert exc.attempt_record is not None
+    assert exc.attempt_record.no_response_class == "connection"
+    assert exc.attempt_record.stop_condition == "connection"
 
 
 def test_matrix_no_status_budget_pre_connect() -> None:
@@ -600,34 +650,28 @@ def _make_request_fault_socket(fault: str) -> Any:
 
 def test_matrix_no_status_request_reset() -> None:
     """ConnectionResetError during sendall → connection."""
-    clock = _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0])
     _assert_matrix_row(
         None,
         "request_reset",
         open_socket_fn=_make_request_fault_socket("request_reset"),
-        clock=clock,
     )
 
 
 def test_matrix_no_status_request_exc() -> None:
     """BadStatusLine (HTTPException) during request → connection."""
-    clock = _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0])
     _assert_matrix_row(
         None,
         "request_exc",
         open_socket_fn=_make_request_fault_socket("request_exc"),
-        clock=clock,
     )
 
 
 def test_matrix_no_status_request_ssl() -> None:
-    """ssl.SSLError during sendall (OSError) → connection."""
-    clock = _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0])
+    """ssl.SSLError during sendall → tls (AC-0417: tls for any ssl.SSLError)."""
     _assert_matrix_row(
         None,
         "request_ssl",
         open_socket_fn=_make_request_fault_socket("request_ssl"),
-        clock=clock,
     )
 
 
@@ -644,18 +688,18 @@ def test_matrix_no_status_request_timeout() -> None:
 
 def test_matrix_no_status_request_value() -> None:
     """ValueError during sendall (unexpected) → connection."""
-    clock = _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0])
     _assert_matrix_row(
         None,
         "request_value",
         open_socket_fn=_make_request_fault_socket("request_value"),
-        clock=clock,
     )
 
 
 def test_matrix_no_status_budget_pre_request() -> None:
     """Budget exhausted before request → total_timeout."""
-    clock = _SeqClock([0.0, 0.0, 1.0, 35.0])
+    # [0]=gate_start, [1]=admission, [2]=pre-connect, [3]=post-DNS (in connect()),
+    # [4]=pre-request check → 35.0 > budget_end=30.0 → total_timeout.
+    clock = _SeqClock([0.0, 0.0, 1.0, 2.0, 35.0])
     _assert_matrix_row(None, "budget_pre_request", response=b"", clock=clock)
 
 
@@ -695,22 +739,22 @@ def _clock_for_budget_row(needs_status: bool, zero_body: bool = False) -> _SeqCl
     """
     # Clock sequence legend (admission = 0.0, budget_end = 30.0):
     #   [0] gate_start        [1] fake_gate → admission
-    #   [2] pre-connect       [3] pre-request
-    #   [4..] per-chunk budget checks in the read loop
+    #   [2] pre-connect       [3] post-DNS (connect(), after DNS thread)
+    #   [4] pre-request       [5..] per-chunk budget checks in the read loop
     #   last: the check that fires budget exhaustion
     if needs_status:
-        # Budget fires on the first per-chunk check (call [4] = 35.0).
-        return _SeqClock([0.0, 0.0, 1.0, 2.0, 35.0])
+        # Budget fires on the first per-chunk check ([5] = 35.0).
+        return _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0, 35.0])
     if zero_body:
         # http.client reads 0 bytes: loop runs once (reads b''), breaks.
-        # One per-chunk check ([4] = 3.0, reads b'' → break).
-        # Post-read check in fetch_url ([5] = 35.0) → total_timeout.
-        return _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0, 35.0])
-    else:
-        # Normal body: loop runs twice (reads body, then reads b'' → break).
-        # [4]=3.0 reads body bytes; [5]=4.0 reads b'' → break.
+        # One per-chunk check ([5] = 4.0, reads b'' → break).
         # Post-read check in fetch_url ([6] = 35.0) → total_timeout.
         return _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 35.0])
+    else:
+        # Normal body: loop runs twice (reads body, then reads b'' → break).
+        # [5]=4.0 reads body bytes; [6]=5.0 reads b'' → break.
+        # Post-read check in fetch_url ([7] = 35.0) → total_timeout.
+        return _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 35.0])
 
 
 @pytest.mark.parametrize(
@@ -731,7 +775,10 @@ def test_matrix_status_ending(status: int, ending: str) -> None:  # noqa: C901
 
         if ending == "fault_timeout":
             # Timeout within budget: all clock checks < budget_end=30.
-            clock = _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0, 4.0])
+            # [0]=gate_start, [1]=admission, [2]=pre-connect, [3]=post-DNS,
+            # [4]=pre-request, [5]=body-read loop budget check,
+            # [6]=TimeoutError handler → 5.0 < 30.0 → "read_timeout".
+            clock = _SeqClock([0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
         # Other fault_* rows use real monotonic clock (fast, no sleep).
 
     elif ending == "budget_read":
@@ -789,7 +836,7 @@ def test_unreachable_cells_are_documented() -> None:
 # ---------------------------------------------------------------------------
 
 _CAP_BUDGET = 0.5  # patched _TOTAL_BUDGET for real-clock cap rows
-_CAP_MARGIN = 1.5  # wall-time limit (3 × budget for test jitter)
+_CAP_MARGIN = _CAP_BUDGET + 0.2  # wall-time limit: gate must release within budget
 
 
 def _patch_budget(monkeypatch: pytest.MonkeyPatch, budget: float) -> None:
@@ -1004,3 +1051,297 @@ def test_body_read_phase_budget_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     rec = exc_info.value.attempt_record
     assert rec is not None
     assert rec.no_response_class in ("read_timeout", "total_timeout")
+
+
+# ---------------------------------------------------------------------------
+# total_timeout precedence over read_timeout at request and body-read phases
+# (AC-0417: total_timeout wins over a phase timeout when budget is exhausted)
+# ---------------------------------------------------------------------------
+
+
+def test_request_phase_timeout_at_budget_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TimeoutError during request at budget_end → total_timeout, not read_timeout.
+
+    Mutant: replace ``clock() >= budget_end`` with False at client.py request site.
+    That mutant always records ``read_timeout``; this test reds it.
+    """
+    _patch_budget(monkeypatch, _CAP_BUDGET)
+    import socket as _sock
+
+    def resolve(host: str, port: int, **kw: Any) -> list[Any]:
+        return [(_sock.AF_INET, _sock.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
+
+    class _TimeoutAtBudgetSocket:
+        _timeout: float | None = None
+
+        def makefile(self, mode: str, buffering: int = -1) -> Any:
+            return io.BytesIO(b"")
+
+        def settimeout(self, t: float | None) -> None:
+            self._timeout = t
+
+        def sendall(self, data: bytes) -> None:
+            raise TimeoutError("timeout fires at budget end")
+
+        def close(self) -> None:
+            pass
+
+    _s = _TimeoutAtBudgetSocket()
+
+    def open_socket(address: Any, timeout: float | None = None) -> Any:
+        return _s
+
+    def wrap(sock: Any, server_hostname: Any = None) -> Any:
+        return sock
+
+    # [0]=gate_start, [1]=admission → budget_end=0.5,
+    # [2]=pre-connect, [3]=post-DNS, [4]=pre-request,
+    # [5]=TimeoutError handler: 0.6 >= 0.5 → total_timeout.
+    clock = _SeqClock([0.0, 0.0, 0.0, 0.0, 0.0, 0.6])
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _CAP,
+            "submissions",
+            _CONTACT,
+            _fake_gate(clock=clock),
+            resolve=resolve,
+            open_socket=open_socket,
+            wrap=wrap,
+            clock=clock,
+        )
+    rec = exc_info.value.attempt_record
+    assert rec is not None
+    assert rec.no_response_class == "total_timeout", (
+        f"expected total_timeout, got {rec.no_response_class!r}"
+    )
+
+
+def test_body_read_phase_timeout_at_budget_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TimeoutError during body read at budget_end → total_timeout, not read_timeout.
+
+    Mutant: replace ``clock() >= budget_end`` with False at client.py body-read site.
+    That mutant always records ``read_timeout``; this test reds it.
+    """
+    _patch_budget(monkeypatch, _CAP_BUDGET)
+    import socket as _sock
+
+    def resolve(host: str, port: int, **kw: Any) -> list[Any]:
+        return [(_sock.AF_INET, _sock.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
+
+    _header = b"HTTP/1.1 200 OK\r\n\r\n"
+
+    class _TimeoutBodyIO(io.RawIOBase):
+        def __init__(self) -> None:
+            self._pos = 0
+
+        def read(self, n: int = -1) -> bytes:
+            if self._pos < len(_header):
+                chunk = _header[self._pos : self._pos + n]
+                self._pos += len(chunk)
+                return chunk
+            raise TimeoutError("body read timeout at budget end")
+
+        def readable(self) -> bool:
+            return True
+
+    class _TimeoutBodySocket:
+        _timeout: float | None = None
+
+        def makefile(self, mode: str, buffering: int = -1) -> Any:
+            return _TimeoutBodyIO()
+
+        def settimeout(self, t: float | None) -> None:
+            self._timeout = t
+
+        def sendall(self, data: bytes) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    _s = _TimeoutBodySocket()
+
+    def open_socket(address: Any, timeout: float | None = None) -> Any:
+        return _s
+
+    def wrap(sock: Any, server_hostname: Any = None) -> Any:
+        return sock
+
+    # [0]=gate_start, [1]=admission → budget_end=0.5,
+    # [2]=pre-connect, [3]=post-DNS, [4]=pre-request,
+    # [5]=body-read loop budget check, [6]=TimeoutError handler: 0.6 >= 0.5 → total_timeout.
+    clock = _SeqClock([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.6])
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _CAP,
+            "submissions",
+            _CONTACT,
+            _fake_gate(clock=clock),
+            resolve=resolve,
+            open_socket=open_socket,
+            wrap=wrap,
+            clock=clock,
+        )
+    rec = exc_info.value.attempt_record
+    assert rec is not None
+    assert rec.no_response_class == "total_timeout", (
+        f"expected total_timeout, got {rec.no_response_class!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AC-0402 hard bound: slow DNS followed by a blocking connect
+# ---------------------------------------------------------------------------
+
+_TRICKLE_BUDGET = 0.15  # patched budget for the slow-DNS row
+
+
+def test_slow_dns_then_blocking_connect_released_within_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DNS consuming half the budget leaves the correct remainder for connect.
+
+    Without post-DNS timeout recomputation, the connect uses the full pre-DNS
+    remaining (0.5 s), so total = DNS (0.25 s) + connect (0.5 s) = 0.75 s >
+    budget + 0.2 s = 0.7 s → test reds.  With recomputation, connect uses
+    post-DNS remaining (≈0.25 s), so total ≈ 0.5 s < 0.7 s.
+
+    Mutant: remove the post-DNS ``self.timeout = min(...)`` recomputation.
+    """
+    _patch_budget(monkeypatch, _CAP_BUDGET)  # 0.5 s total budget
+    import socket as _sock
+
+    dns_sleep = _CAP_BUDGET / 2  # 0.25 s → leaves ≈0.25 s for connect
+
+    def slow_resolve(host: str, port: int, **kw: Any) -> list[Any]:
+        time.sleep(dns_sleep)
+        return [(_sock.AF_INET, _sock.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
+
+    def open_socket(address: Any, timeout: float | None = None) -> Any:
+        # Sleep for exactly the given timeout then raise TimeoutError.
+        t = timeout if timeout is not None else 5.0
+        time.sleep(t)
+        raise TimeoutError("connect timed out")
+
+    def wrap(sock: Any, server_hostname: Any = None) -> Any:
+        return sock
+
+    t0 = time.monotonic()
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            _CAP,
+            "submissions",
+            _CONTACT,
+            _fake_gate(),
+            resolve=slow_resolve,
+            open_socket=open_socket,
+            wrap=wrap,
+        )
+    elapsed = time.monotonic() - t0
+    rec = exc_info.value.attempt_record
+    assert rec is not None
+    # Without recomputation: connect uses pre-DNS remaining (0.5 s); total ≈ 0.75 s > 0.7 s.
+    # With recomputation: connect uses post-DNS remaining (≈0.25 s); total ≈ 0.5 s < 0.7 s.
+    assert elapsed < _CAP_BUDGET + 0.2, (
+        f"slow-DNS+connect row held gate for {elapsed:.3f}s; "
+        f"expected < {_CAP_BUDGET + 0.2:.2f}s with budget={_CAP_BUDGET}s"
+    )
+    assert rec.no_response_class in ("connect_timeout", "total_timeout"), (
+        f"unexpected no_response_class {rec.no_response_class!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AC-0402 hard bound against a real trickling peer
+#
+# A fake socket cannot show whether the watchdog unblocks a real `recv`: the
+# kernel does not wake a blocked `recv` when another thread closes the socket.
+# These rows use a real loopback server, so they red when the watchdog closes
+# instead of shutting the socket down, or when it is removed.
+# ---------------------------------------------------------------------------
+
+
+def _serve_trickle(kind: str) -> int:
+    """Start a one-shot loopback server that trickles headers or body; return its port."""
+    import socket as _sock
+
+    server = _sock.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        conn.recv(4096)
+        try:
+            if kind == "body":
+                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+                for _ in range(40):
+                    time.sleep(0.05)
+                    conn.sendall(b"x")
+            else:
+                conn.sendall(b"HTTP/1.1 200 OK\r\n")
+                for i in range(40):
+                    time.sleep(0.05)
+                    conn.sendall(b"X-T%d: v\r\n" % i)
+        except OSError:
+            pass
+        finally:
+            conn.close()
+            server.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return int(server.getsockname()[1])
+
+
+@pytest.mark.parametrize("kind", ["header", "body"])
+def test_a_real_trickling_peer_is_cut_off_at_the_budget(
+    monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """A peer sending one byte every 50 ms ends at the budget, gate released.
+
+    Mutant: the watchdog calls `conn.close()` instead of shutting the socket
+    down, or is removed. The attempt then runs about 2 s against a 0.5 s budget,
+    and this check reds.
+    """
+    import contextlib
+    import socket as _sock
+
+    _patch_budget(monkeypatch, 0.5)
+    port = _serve_trickle(kind)
+    exits: list[float] = []
+
+    @contextlib.contextmanager
+    def gate() -> Iterator[float]:
+        try:
+            yield time.monotonic()
+        finally:
+            exits.append(time.monotonic())
+
+    t0 = time.monotonic()
+    with pytest.raises(SecClientError) as exc_info:
+        fetch_url(
+            _HOST,
+            _PATH,
+            10**6,
+            "submissions",
+            _CONTACT,
+            gate(),
+            resolve=lambda host, p, **kw: [
+                (_sock.AF_INET, _sock.SOCK_STREAM, 0, "", ("8.8.8.8", p))
+            ],
+            open_socket=lambda address, timeout=None: _sock.create_connection(
+                ("127.0.0.1", port), timeout=timeout
+            ),
+            wrap=lambda sock, server_hostname=None: sock,
+        )
+    elapsed = time.monotonic() - t0
+    assert elapsed < 0.5 + 0.2, f"{kind} trickle held the attempt for {elapsed:.2f}s"
+    assert exits and exits[0] - t0 < 0.5 + 0.2, "the gate was not released within the budget"
+    assert exc_info.value.attempt_record is not None
+    assert exc_info.value.attempt_record.no_response_class == "total_timeout"

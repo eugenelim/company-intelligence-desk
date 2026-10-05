@@ -1916,38 +1916,63 @@ def test_live_ingest_fail_closed_reset_during_filing_body(
 def test_live_ingest_fail_closed_ssl_error_after_handshake(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An SSLError during the filing body read raises, exits gate, writes nothing.
+    """An SSLError during the filing request (after the handshake) raises, exits gate.
 
-    The wrap raises for the filing connection only.
+    The handshake completes normally (wrap returns the socket); the SSLError is
+    raised during the filing connection's sendall (request phase).  This
+    exercises the request-site ssl.SSLError branch (no_response_class="tls"),
+    not the handshake-site branch which always produced "tls".
+
+    The filing gate must exit independently of the submissions gate exit.
     """
     import socket as _sock
-
-    call_idx = [0]
 
     def resolve(host: str, port: int, **kw: Any) -> list[Any]:
         return [(_sock.AF_INET, _sock.SOCK_STREAM, 0, "", ("8.8.8.8", port))]
 
-    def open_socket_two(address: Any, timeout: Any = None) -> Any:
+    call_idx = [0]
+
+    class _SSLErrorOnSendSocket:
+        """Socket whose sendall raises ssl.SSLError on the first call."""
+
+        def makefile(self, mode: str, buffering: int = -1) -> Any:
+            return FakeSocket(b"").makefile(mode, buffering)
+
+        def sendall(self, data: bytes) -> None:
+            raise ssl.SSLError("simulated SSL error during filing request")
+
+        def settimeout(self, t: float | None) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    def open_socket_filing(address: Any, timeout: Any = None) -> Any:
         idx = call_idx[0]
         call_idx[0] += 1
-        return FakeSocket(_VALID_SUBMISSIONS_RESP if idx == 0 else b"")
+        # submissions → valid response; filing → socket that SSLErrors on send
+        return FakeSocket(_VALID_SUBMISSIONS_RESP) if idx == 0 else _SSLErrorOnSendSocket()
 
-    wrap_calls = [0]
-
-    def wrap_ssl(sock: Any, server_hostname: Any = None) -> Any:
-        idx = wrap_calls[0]
-        wrap_calls[0] += 1
-        if idx > 0:
-            raise ssl.SSLError("simulated SSLError after handshake")
-        return sock
+    def wrap_normal(sock: Any, server_hostname: Any = None) -> Any:
+        return sock  # handshake always succeeds
 
     exc, tracker, store_calls = _run_fail_closed(
-        monkeypatch, resolve, open_socket_two, wrap_ssl
+        monkeypatch, resolve, open_socket_filing, wrap_normal
     )
 
-    assert store_calls == [], "no object must be written on SSLError"
-    assert len(tracker.exits) >= 1, "gate must exit on SSLError"
+    assert store_calls == [], "no object must be written on SSLError during filing"
+    # Both the submissions gate AND the filing gate must have exited.
+    assert len(tracker.exits) >= 2, (
+        f"filing gate must exit on SSLError; only {len(tracker.exits)} exits recorded"
+    )
     assert "\n" not in str(exc), "error message must be single-line"
+    # SSLError at the request site is classified as tls (AC-0417).
+    from ced.adapters.sec.client import SecClientError as _SecClientError
+
+    if isinstance(exc, _SecClientError) and exc.attempt_record is not None:
+        assert exc.attempt_record.no_response_class == "tls", (
+            f"expected tls, got {exc.attempt_record.no_response_class!r}"
+        )
 
 
 def test_live_ingest_fail_closed_over_cap_refusal(

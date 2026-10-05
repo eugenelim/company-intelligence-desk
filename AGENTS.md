@@ -383,7 +383,7 @@ SEC_CONTACT='<declared client>' ./.venv/bin/ced-ingest observe --out <path>
 `--offline-fixture` reads the two committed files under `tests/fixtures/`, so it
 works only from a source checkout; an installed package, including the worker
 image, refuses it. Both live forms refuse without `SEC_CONTACT`, and refuse a
-value that is not 1 to 256 printable ASCII characters (U+0020 to U+007E). The value is sent only as the
+value that is not 1 to 256 printable ASCII characters (U+0020 to U+007E) with at least one non-space character. The value is sent only as the
 request's declared client, and the command never writes it to a log, record or
 stored object. `observe` sends 60 live requests, one a second, and writes the
 access record described in

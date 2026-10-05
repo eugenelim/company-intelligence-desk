@@ -302,6 +302,12 @@ class _GatedSecConnection(http_client.HTTPSConnection):
         #: DNS timeout in seconds; set by _real_fetch before calling connect().
         #: None means no timeout (should not occur in production).
         self._dns_timeout: float | None = None
+        #: Budget deadline (monotonic); set by _real_fetch so connect() can
+        #: recompute the connect timeout after DNS returns and can classify
+        #: failures that arrive at or after the deadline as total_timeout.
+        self._budget_end: float | None = None
+        #: Injected clock function; mirrors the one used in _real_fetch.
+        self._clock: _ClockFn | None = None
 
     def connect(self) -> None:
         """Resolve (in a thread), validate, and connect to one public-unicast address.
@@ -372,6 +378,20 @@ class _GatedSecConnection(http_client.HTTPSConnection):
 
         chosen = valid[0]
         self._validated_addr = chosen
+
+        # Recompute connect timeout after DNS returned: DNS may have consumed
+        # a significant portion of the budget, so the connect phase must use
+        # whatever remains rather than the full pre-DNS remainder (AC-0402).
+        if self._budget_end is not None and self._clock is not None:
+            _post_dns_remaining = self._budget_end - self._clock()
+            if _post_dns_remaining <= 0:
+                raise SecClientError(
+                    "DNS resolution consumed the entire budget",
+                    no_response_class="total_timeout",
+                )
+            _cur = self.timeout if self.timeout is not None else _CONNECT_TIMEOUT
+            self.timeout = min(_cur, _post_dns_remaining)
+
         try:
             raw_sock = self._open_socket((chosen, 443), timeout=self.timeout)
         except TimeoutError as exc:
@@ -382,6 +402,11 @@ class _GatedSecConnection(http_client.HTTPSConnection):
         except OSError as exc:
             raise SecClientError(
                 "connect failed",
+                no_response_class="connection",
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 — any unexpected Exception → connection
+            raise SecClientError(
+                "unexpected error during connect",
                 no_response_class="connection",
             ) from exc
 
@@ -408,6 +433,15 @@ class _GatedSecConnection(http_client.HTTPSConnection):
             raise SecClientError(
                 "TLS verification failed",
                 no_response_class="tls",
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 — any unexpected Exception → connection
+            try:
+                raw_sock.close()
+            except Exception:  # noqa: BLE001
+                pass
+            raise SecClientError(
+                "unexpected error during TLS handshake",
+                no_response_class="connection",
             ) from exc
 
     def set_read_timeout(self, seconds: float) -> None:
@@ -747,6 +781,25 @@ def _real_fetch(
     budget_end = budget_start + _TOTAL_BUDGET
 
     conn = _GatedSecConnection(host, resolve=resolve, open_socket=open_socket, wrap=wrap)
+    # Pass budget deadline and clock to connect() so it can recompute the
+    # connect timeout after DNS returns and classify deadline failures.
+    conn._budget_end = budget_end
+    conn._clock = clock
+
+    # Watchdog: close the connection at the budget deadline so any in-flight
+    # recv/send/handshake is unblocked immediately (AC-0402 hard wall-clock
+    # bound).  Cancelled in finally regardless of outcome.
+    def _watchdog() -> None:
+        # Closing a socket from another thread does not interrupt a blocked
+        # recv; shutting it down does, on every platform this runs on.
+        sock = conn.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    _wt: threading.Timer | None = None
     try:
         # Check budget before connect; clamp connect timeout to remaining.
         remaining = budget_end - clock()
@@ -759,15 +812,22 @@ def _real_fetch(
         # Pass remaining budget as DNS timeout for the threaded resolver.
         conn._dns_timeout = remaining
 
+        # Arm the watchdog after computing the initial remaining budget.
+        _wt = threading.Timer(remaining, _watchdog)
+        _wt.daemon = True
+        _wt.start()
+
         # connect() converts DNS/TLS/OS errors to SecClientError with
         # no_response_class already set; propagate, upgrading phase timeouts
         # to total_timeout when the budget was exhausted.
         try:
             conn.connect()
         except SecClientError as exc:
-            # total_timeout wins over a connect-phase timeout the budget
-            # shortened (AC-0417).
-            if exc.no_response_class == "connect_timeout" and clock() >= budget_end:
+            # total_timeout wins over a connect-phase timeout or a connection
+            # failure when the deadline was reached (AC-0417).
+            if exc.no_response_class in ("connect_timeout", "connection") and (
+                clock() >= budget_end
+            ):
                 raise SecClientError(
                     "total budget exceeded during connect phase",
                     no_response_class="total_timeout",
@@ -792,12 +852,21 @@ def _real_fetch(
         except TimeoutError as exc:
             nrc = "total_timeout" if clock() >= budget_end else "read_timeout"
             raise SecClientError("timeout during request", no_response_class=nrc) from exc
+        except ssl.SSLError as exc:
+            # ssl.SSLError is a subclass of OSError; classify as tls per AC-0417.
+            raise SecClientError(
+                "SSL error during request",
+                no_response_class="tls",
+            ) from exc
         except Exception as exc:  # noqa: BLE001 — any unexpected Exception → connection
             # Only Exception subclasses become connection; KeyboardInterrupt /
             # SystemExit (BaseException, not Exception) propagate past this catch.
+            # When the deadline has been reached (e.g. watchdog fired), upgrade
+            # to total_timeout (AC-0417 precedence).
+            nrc = "total_timeout" if clock() >= budget_end else "connection"
             raise SecClientError(
                 "request failed",
-                no_response_class="connection",
+                no_response_class=nrc,
             ) from exc
 
         _received_status = response.status
@@ -855,12 +924,23 @@ def _real_fetch(
                 sec_exc = SecClientError("timeout during body read", no_response_class=nrc)
                 sec_exc.received_status = _received_status
                 raise sec_exc from exc
+            except ssl.SSLError as exc:
+                # ssl.SSLError is a subclass of OSError; classify as tls per AC-0417.
+                sec_exc = SecClientError(
+                    "SSL error during body read",
+                    no_response_class="tls",
+                )
+                sec_exc.received_status = _received_status
+                raise sec_exc from exc
             except Exception as exc:  # noqa: BLE001 — any unexpected Exception → connection
                 # Only Exception subclasses become connection; KeyboardInterrupt /
                 # SystemExit (BaseException, not Exception) propagate past this catch.
+                # When the deadline has been reached (e.g. watchdog fired), upgrade
+                # to total_timeout (AC-0417 precedence).
+                nrc = "total_timeout" if clock() >= budget_end else "connection"
                 sec_exc = SecClientError(
                     "read error during body",
-                    no_response_class="connection",
+                    no_response_class=nrc,
                 )
                 sec_exc.received_status = _received_status
                 raise sec_exc from exc
@@ -891,6 +971,8 @@ def _real_fetch(
         return _received_status, resp_headers, body
 
     finally:
+        if _wt is not None:
+            _wt.cancel()
         conn.close()
 
 
