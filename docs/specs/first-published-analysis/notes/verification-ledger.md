@@ -1636,3 +1636,4 @@ guide was then run as written on a wiped volume:
 - **Authority facts:** source and write authority is this branch, through
   review. Merge and any deletion are the owner's decisions, through
   `close-work`.
+- **Pull request:** `pull-request-opened` — #42.
