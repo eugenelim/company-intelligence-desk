@@ -41,8 +41,9 @@ a memo with an evidence manifest. Every figure links back to the filing's XBRL
 facts, the tagged numbers inside the filing. It needs Python 3.13 and Docker.
 
 The three calls below are the shape of the flow, not a paste-ready script.
-First start the local services and the API, following steps 1 and 3 of
-[the how-to guide](docs/guides/how-to/publish-first-analysis.md). The guide
+First install the project and start the local services and the API, following
+[the how-to guide](docs/guides/how-to/publish-first-analysis.md) from "Before
+you start" through step 3. The guide
 also fills in the two placeholders for you.
 
 ```bash

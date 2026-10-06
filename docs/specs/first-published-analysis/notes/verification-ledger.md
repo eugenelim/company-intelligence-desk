@@ -681,7 +681,7 @@ Red: `test_filing_digest_mismatch_against_manifest_produces_failed_events` — t
 
 **Guard: a `Fenced` raised at `step.completed` stops Phase 4 and leaves the run non-terminal.**
 Mutation: swallow the `Fenced` exception from `append_step_event` in Phase 4 and proceed to `run.completed`.
-Red: `test_stale_epoch_on_phase4_append_leaves_run_nonterminal` — swallowing the exception lets `run.completed` land and the run becomes terminal, so the check's assertion that `run.completed` is absent fires.
+Red: `test_fenced_step_completed_stops_phase4_and_leaves_run_nonterminal` — swallowing the exception lets `run.completed` land and the run becomes terminal, so the check's assertion that `run.completed` is absent fires.
 Note (override round, 2026-10-05): this check injects `Fenced` via a mock on the second `append_step_event` call and does not drive the real database fence or a stale epoch. It pins that a `Fenced` exception at `step.completed` stops Phase 4; it does not pin that the DB procedure rejects a stale epoch.
 
 **Guard: step.completed is appended before run.completed.**
@@ -1563,9 +1563,11 @@ change; the comment matches the actual mechanism.
 | gate release no longer swallows `psycopg.Error` | the offline gate-release check in `tests/ingestion/test_rate_gate.py` reds |
 | already-failed check removed | `test_reclaim_after_step_failed_before_run_failed_converges` reds |
 
-- **Watchdog tolerance.** The watchdog now also ignores a socket-like object
-  with no `shutdown`. Before this, a test double raised in the watchdog thread
-  and pytest reported an unhandled thread exception.
+- **Watchdog tolerance.** The watchdog ignores only `OSError`, which a real
+  socket raises when it is already closed or not connected. The test socket
+  doubles now provide `shutdown`, as a real socket does. Proof: with the
+  doubles reverted, the offline ingestion suite run with
+  `-W error::pytest.PytestUnhandledThreadExceptionWarning` reds one check.
 
 Gates for the override round: the whole suite ran in one process on a fresh
 substrate, with 1,627 passed and 3 skipped in 6 min 13 s. The edited how-to
@@ -1581,3 +1583,18 @@ guide was then run as written on a wiped volume:
 The first full run of this round failed one new check. It used a fixed fake
 digest that another check deliberately stores bytes under. It now uses a
 random digest.
+
+## Final round, after the confirming reviews
+
+The owner approved one more small round on 2026-10-06 to close the confirming
+reviews' sustained findings. Gates: the whole suite ran in one process on a
+fresh substrate, with 1,627 passed and 3 skipped in 8 min 23 s. The edited
+guide was then run as written on a wiped volume:
+
+- With the API down, step 4 printed `000` and left `RUN_ID` empty.
+- A wrong as-of date printed `422`, left `RUN_ID` empty, and `run.json` held
+  `{"detail":"unsupported as_of_date"}`.
+- The guide's own request printed `201` and saved the run id.
+- An immediate read returned `409` with `run is not yet completed`.
+- The read then returned `200`, with the same artifact digest as before
+  (`72329a90…`), and `worker-analysis` showed as healthy.

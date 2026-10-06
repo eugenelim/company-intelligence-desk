@@ -132,6 +132,9 @@ class FakeSocket:
     def close(self) -> None:
         pass
 
+    def shutdown(self, how: int) -> None:
+        pass
+
 
 def make_seam(
     response: bytes = b"",

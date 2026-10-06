@@ -322,6 +322,9 @@ def _make_fault_socket(status: int, ending: str) -> Any:
         def close(self) -> None:
             pass
 
+        def shutdown(self, how: int) -> None:
+            pass
+
     _sock = _FaultSocket()
 
     def open_socket(address: Any, timeout: Any = None) -> Any:
@@ -640,6 +643,9 @@ def _make_request_fault_socket(fault: str) -> Any:
         def close(self) -> None:
             pass
 
+        def shutdown(self, how: int) -> None:
+            pass
+
     _sock_inst = _FaultSendSocket()
 
     def open_socket(address: Any, timeout: Any = None) -> Any:
@@ -863,6 +869,9 @@ class _ConnectCapSocket:
     def close(self) -> None:
         pass
 
+    def shutdown(self, how: int) -> None:
+        pass
+
 
 def test_connect_phase_budget_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     """Connect timeout is clamped to remaining budget.
@@ -941,6 +950,9 @@ def test_request_phase_budget_cap(monkeypatch: pytest.MonkeyPatch) -> None:
             raise TimeoutError("request timed out")
 
         def close(self) -> None:
+            pass
+
+        def shutdown(self, how: int) -> None:
             pass
 
     _s = _SlowSendSocket()
@@ -1023,6 +1035,9 @@ def test_body_read_phase_budget_cap(monkeypatch: pytest.MonkeyPatch) -> None:
         def close(self) -> None:
             pass
 
+        def shutdown(self, how: int) -> None:
+            pass
+
     _s = _SlowBodySocket()
 
     def open_socket(address: Any, timeout: float | None = None) -> Any:
@@ -1084,6 +1099,9 @@ def test_request_phase_timeout_at_budget_end(monkeypatch: pytest.MonkeyPatch) ->
             raise TimeoutError("timeout fires at budget end")
 
         def close(self) -> None:
+            pass
+
+        def shutdown(self, how: int) -> None:
             pass
 
     _s = _TimeoutAtBudgetSocket()
@@ -1159,6 +1177,9 @@ def test_body_read_phase_timeout_at_budget_end(monkeypatch: pytest.MonkeyPatch) 
             pass
 
         def close(self) -> None:
+            pass
+
+        def shutdown(self, how: int) -> None:
             pass
 
     _s = _TimeoutBodySocket()

@@ -538,11 +538,30 @@ def _setup_partial_commit(
         conn.commit()
 
 
-def _reclaim_and_run(run_id: uuid.UUID) -> list[str]:
-    """Re-claim via claim_one (the ordinary recovery path) and run the body."""
+def _reclaim(step_id: uuid.UUID) -> Lease:
+    """Re-claim via claim_one (the ordinary recovery path) and check its step."""
     with psycopg.connect(database_url("worker")) as conn:
         lease = claim_one(conn, _E2E_CONFIG)
     assert lease is not None, "claim_one must find the expired lease"
+    assert lease.step_id == step_id, (
+        f"claim_one leased step {lease.step_id}, not this test's step {step_id}; "
+        "a leftover row in the pool class was claimed first"
+    )
+    return lease
+
+
+def _assert_artifact_resolves(payload_ref: str) -> None:
+    """The stored bytes hash to the digest in the key and parse as an analysis."""
+    artifact_bytes = read_payload_bytes(payload_ref)
+    assert hashlib.sha256(artifact_bytes).hexdigest() == payload_ref.rsplit("/", 1)[-1], (
+        "artifact bytes SHA-256 must match the hex encoded in the key"
+    )
+    parse_published_analysis(artifact_bytes)
+
+
+def _reclaim_and_run(run_id: uuid.UUID, step_id: uuid.UUID) -> list[str]:
+    """Re-claim via claim_one (the ordinary recovery path) and run the body."""
+    lease = _reclaim(step_id)
 
     body = make_analysis_step_body()
     body(lease, threading.Event())
@@ -569,7 +588,7 @@ def test_reclaim_after_step_started_converges_to_terminal(
     run_id, step_id = published_analysis_run
     _setup_partial_commit(run_id, step_id, ["step.started"])
 
-    event_types = _reclaim_and_run(run_id)
+    event_types = _reclaim_and_run(run_id, step_id)
 
     terminal_events = [t for t in event_types if t in ("run.completed", "run.failed")]
     assert len(terminal_events) == 1, (
@@ -583,8 +602,7 @@ def test_reclaim_after_step_started_converges_to_terminal(
         events = read_events(conn, run_id=run_id)
     completed = next(e for e in events if e.type == "run.completed")
     assert completed.payload_ref is not None
-    artifact_bytes = read_payload_bytes(completed.payload_ref)
-    assert len(artifact_bytes) > 0, "artifact bytes must be readable and non-empty"
+    _assert_artifact_resolves(completed.payload_ref)
 
 
 def test_reclaim_after_step_completed_before_run_completed_converges(
@@ -603,7 +621,7 @@ def test_reclaim_after_step_completed_before_run_completed_converges(
     run_id, step_id = published_analysis_run
     _setup_partial_commit(run_id, step_id, ["step.started", "step.completed"])
 
-    event_types = _reclaim_and_run(run_id)
+    event_types = _reclaim_and_run(run_id, step_id)
 
     terminal_events = [t for t in event_types if t in ("run.completed", "run.failed")]
     assert len(terminal_events) == 1, (
@@ -615,8 +633,7 @@ def test_reclaim_after_step_completed_before_run_completed_converges(
         events = read_events(conn, run_id=run_id)
     completed = next(e for e in events if e.type == "run.completed")
     assert completed.payload_ref is not None
-    artifact_bytes = read_payload_bytes(completed.payload_ref)
-    assert len(artifact_bytes) > 0
+    _assert_artifact_resolves(completed.payload_ref)
 
 
 def test_reclaim_after_step_failed_before_run_failed_converges(
@@ -635,9 +652,7 @@ def test_reclaim_after_step_failed_before_run_failed_converges(
     run_id, step_id = published_analysis_run
     _setup_partial_commit(run_id, step_id, ["step.started", "step.failed"])
 
-    with psycopg.connect(database_url("worker")) as conn:
-        lease = claim_one(conn, _E2E_CONFIG)
-    assert lease is not None, "claim_one must find the expired lease"
+    lease = _reclaim(step_id)
     with pytest.raises(Exception, match="already failed"):
         make_analysis_step_body()(lease, threading.Event())
 

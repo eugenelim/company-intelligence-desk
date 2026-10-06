@@ -844,8 +844,8 @@ def _real_fetch(
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
-            except (OSError, AttributeError):
-                # Already closed, or a socket-like object with no shutdown.
+            except OSError:
+                # Already closed or not connected.
                 pass
 
     _wt: threading.Timer | None = None

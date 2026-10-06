@@ -1042,6 +1042,9 @@ def test_http_exception_during_request_produces_attempt_record() -> None:
         def close(self) -> None:
             pass
 
+        def shutdown(self, how: int) -> None:
+            pass
+
     def open_bad_socket(address: Any, timeout: Any = None) -> Any:
         return _BadSocket()
 
@@ -1096,6 +1099,9 @@ def test_http_exception_during_body_read_produces_attempt_record() -> None:
             pass
 
         def close(self) -> None:
+            pass
+
+        def shutdown(self, how: int) -> None:
             pass
 
     class _IncompleteReadIO(io.RawIOBase):
@@ -1888,6 +1894,9 @@ def test_live_ingest_fail_closed_reset_during_filing_body(
         def close(self) -> None:
             pass
 
+        def shutdown(self, how: int) -> None:
+            pass
+
     import socket as _sock
 
     call_idx = [0]
@@ -1945,6 +1954,9 @@ def test_live_ingest_fail_closed_ssl_error_after_handshake(
             pass
 
         def close(self) -> None:
+            pass
+
+        def shutdown(self, how: int) -> None:
             pass
 
     def open_socket_filing(address: Any, timeout: Any = None) -> Any:
@@ -2068,6 +2080,9 @@ def test_live_ingest_fail_closed_value_error_during_request(
             pass
 
         def close(self) -> None:
+            pass
+
+        def shutdown(self, how: int) -> None:
             pass
 
     def resolve(host: str, port: int, **kw: Any) -> list[Any]:

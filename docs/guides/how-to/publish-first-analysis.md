@@ -71,24 +71,29 @@ Run this in the first terminal, where `snapshot.json` is:
 
 ```bash
 SNAPSHOT_REF=$(python3 -c "import json; print(json.load(open('snapshot.json'))['snapshot_ref'])")
-RUN_ID=$(curl -s -X POST http://127.0.0.1:58080/runs \
+rm -f run.json
+curl -s -o run.json -w '%{http_code}\n' -X POST http://127.0.0.1:58080/runs \
   -H 'content-type: application/json' \
   -d "{\"principal\": \"user@example.com\",
        \"agent_role\": \"first-published-analysis\",
        \"analysis\": {\"cik\": \"0000320193\",
                       \"as_of_date\": \"2026-07-31\",
-                      \"snapshot_ref\": \"$SNAPSHOT_REF\"}}" \
-  | python3 -c "import json, sys; print(json.load(sys.stdin)['run_id'])")
+                      \"snapshot_ref\": \"$SNAPSHOT_REF\"}}"
+RUN_ID=$(python3 -c "import json; print(json.load(open('run.json')).get('run_id', ''))" 2>/dev/null)
 echo "$RUN_ID"
 ```
 
 `principal` names who the run acts for. `agent_role` picks which configured
 role runs it, and `first-published-analysis` is the one for this analysis.
 
-A `201` response carries the new `run_id`, which the command saves as
-`RUN_ID`. The API checks the snapshot before
-it creates the run. A wrong company, date or reference, or a snapshot that
-does not match, returns `422`, and no run is created.
+The command prints the HTTP status, saves the response body in `run.json`, and
+saves the new run id as `RUN_ID`. A `201` means the run was created.
+
+The API checks the snapshot before it creates the run. A wrong company, date
+or reference, or a snapshot that does not match, returns `422`, and no run is
+created. Any status other than `201` leaves `RUN_ID` empty, and
+`cat run.json` shows the reason. A status of `000` means the API is not
+reachable. **Do not go on to step 5 with an empty `RUN_ID`.**
 
 ## 5. Read the result
 
@@ -100,10 +105,14 @@ curl -s http://127.0.0.1:58080/runs/$RUN_ID/analysis
 ```
 
 - `200` returns the whole artifact.
-- `409` means the run has not finished, or it failed. To tell which, read
-  `curl -s http://127.0.0.1:58080/runs/$RUN_ID/events`. A `run.failed` event
-  means the run failed. No `run.completed` or `run.failed` event yet means it
-  is still pending.
+- `409` means there is no artifact to return. Its `detail` says why:
+  - `run is not yet completed` means the run is still pending.
+  - `run did not complete successfully` means the run failed.
+  - Any other `detail`, such as `artifact not found`, means the run completed
+    but no valid artifact could be served for it.
+
+  To see the run's events, read
+  `curl -s http://127.0.0.1:58080/runs/$RUN_ID/events`.
 - If it stays pending, check that the worker is still up with
   `docker-compose -f deploy/compose.yaml ps worker-analysis`. A worker that
   cannot reach the object store exits at start.
@@ -123,7 +132,7 @@ Stop the API with Ctrl-C, then remove the services and their data:
 
 ```bash
 docker-compose -f deploy/compose.yaml down -v
-rm snapshot.json
+rm snapshot.json run.json
 ```
 
 ## What this does not cover

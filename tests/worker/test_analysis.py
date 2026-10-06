@@ -1089,21 +1089,19 @@ def test_filing_digest_mismatch_against_manifest_produces_failed_events(
 # ---------------------------------------------------------------------------
 
 
-def test_stale_epoch_on_phase4_append_leaves_run_nonterminal(
+def test_fenced_step_completed_stops_phase4_and_leaves_run_nonterminal(
     require_substrate: None,
     real_snapshot: tuple[str, str, str],
 ) -> None:
     """AC-0413 fence: Fenced on Phase 4's step.completed leaves no completion events.
 
-    Injects Fenced on the second append_step_event call (Phase 4's
-    step.completed), which simulates passing a stale lease_epoch to the
-    completion appends.  Phase 2's step.started commit uses call #1 and
-    succeeds; Phase 4's step.completed uses call #2 and raises Fenced.
-    No step.completed or run.completed is committed.
+    Injects Fenced through a mock on the second append_step_event call (Phase
+    4's step.completed). Phase 2's step.started commit uses call #1 and
+    succeeds. No step.completed or run.completed is committed. This pins how
+    the body handles Fenced; it does not drive the database fence itself.
 
-    Mutation: omitting the lease_epoch fence argument from append_step_event
-    would let the DB procedure commit step.completed on any epoch, making the
-    Fenced path unreachable and this test green even without the fence.
+    Mutation: swallow Fenced in Phase 4 and go on to run.completed. The run
+    then ends terminal and the run.completed assertion fires.
     """
     import ced.worker.analysis as _analysis_mod
 
@@ -1117,7 +1115,7 @@ def test_stale_epoch_on_phase4_append_leaves_run_nonterminal(
     def fenced_on_second_call(*args: Any, **kwargs: Any) -> Any:
         call_count[0] += 1
         if call_count[0] == 2:
-            raise Fenced(f"injected stale epoch on Phase 4 step event (call {call_count[0]})")
+            raise Fenced(f"injected Fenced on Phase 4 step event (call {call_count[0]})")
         return real_fn(*args, **kwargs)
 
     try:

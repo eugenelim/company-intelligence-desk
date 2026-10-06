@@ -5,6 +5,9 @@ module owns the analysis path end-to-end:
 
 1. Read the run's initiating principal and the request payload reference from
    the committed ``run.requested`` event.
+1a. If this step already recorded ``step.failed`` under an earlier claim, append
+    only terminal ``run.failed`` and raise. A re-claim finishes that failure;
+    it never appends ``step.started`` again or retries the step.
 1b. Check ``lease.agent_role == ANALYSIS_ROLE``; a mismatch commits
     ``step.started`` then appends fenced failure events before raising.
 1c. Validate the ``payload_ref`` is present; a missing ref commits
