@@ -198,3 +198,53 @@ services:
       # does arm it.
       CED_STEP_DEADLINE_SECONDS: "0.174862"
       CED_STEP_BODY_SECONDS: "600"
+
+  # One analysis-class worker (AC-0413, AC-0416, AC-0418).  Its pool_class
+  # predicate ('analysis') cannot claim the default-class rows the API suite
+  # creates, and cannot claim the fault-injection rows worker-a/worker-b take,
+  # so all three partitions remain isolated.
+  #
+  # This worker runs the deterministic analysis body rather than the default
+  # sleep body: pool.run() detects pool_class='analysis', performs the AC-0418
+  # object-store readiness check, and injects make_analysis_step_body().
+  #
+  # Object-store env is required for the container to reach minio:9000 — the
+  # S3 client reads CED_OBJECT_STORE_ENDPOINT, CED_OBJECT_STORE_ACCESS_KEY,
+  # and CED_OBJECT_STORE_SECRET_KEY from the environment.  Without them the
+  # client falls back to 127.0.0.1:59000, which is not reachable inside the
+  # Compose network.
+  worker-analysis:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    healthcheck:
+      test: ["CMD", "ced-liveness"]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 35s
+    environment:
+      CED_WORKER_ID: worker-analysis
+      CED_DATABASE_URL_WORKER: postgresql://app_worker:local_only_not_a_secret@postgres:5432/ced
+      CED_DATABASE_URL_POLICY: postgresql://app_policy:local_only_not_a_secret@postgres:5432/ced
+      CED_POOL_CLASS: analysis
+      CED_POOL_DEFAULT_LIMITS: >-
+        {"per_request_input_tokens_limit": 20000,
+         "input_tokens_limit": 200000,
+         "request_limit": 20,
+         "tool_calls_limit": 40,
+         "count_tokens_before_request": false}
+      CED_POOL_ALLOWED_MODEL_IDS: '["stub:counting"]'
+      CED_POOL_NON_PROVIDER_MODEL_IDS: '["stub:counting"]'
+      CED_STEP_DEADLINE_SECONDS: "0.174862"
+      # Object-store connection inside the Compose network.
+      CED_OBJECT_STORE_ENDPOINT: http://minio:9000
+      CED_OBJECT_STORE_ACCESS_KEY: local_only_not_a_secret
+      CED_OBJECT_STORE_SECRET_KEY: local_only_not_a_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: "no"
+    stop_grace_period: 75s

@@ -243,12 +243,21 @@ def start_run(
     step_id: UUID,
     principal: str,
     agent_role: str,
+    pool_class: str = "default",
+    payload_ref: str | None = None,
 ) -> StartedRun:
     """Commit the run row, its coordinator step, and `run.requested` together.
 
     AC-0002. All three or none: a run row with no coordinator step is a run
     nothing will ever claim, and an event log that records a request for a run
     that does not exist is a log that cannot be reconstructed.
+
+    ``pool_class`` sets the step's pool-class partition (AC-0412); it defaults
+    to ``"default"`` so existing callers are unchanged.
+
+    ``payload_ref`` pins a pre-written request object on the ``run.requested``
+    event (AC-0412).  When ``None`` the event carries no payload reference,
+    preserving the existing behaviour for non-analysis runs.
 
     There is no failure-injection parameter here. AC-0002's test forces the step
     insert to fail by passing a `step_id` that already exists, which is a real
@@ -261,13 +270,13 @@ def start_run(
             (run_id,),
         )
         conn.execute(
-            "INSERT INTO steps (step_id, run_id, state, agent_role) "
-            "VALUES (%s, %s, 'runnable', %s)",
-            (step_id, run_id, agent_role),
+            "INSERT INTO steps (step_id, run_id, state, agent_role, pool_class) "
+            "VALUES (%s, %s, 'runnable', %s, %s)",
+            (step_id, run_id, agent_role, pool_class),
         )
         row = conn.execute(
-            "SELECT append_run_event(%s, 'run.requested', %s)",
-            (run_id, principal),
+            "SELECT append_run_event(%s, 'run.requested', %s, %s)",
+            (run_id, principal, payload_ref),
         ).fetchone()
         assert row is not None
         return StartedRun(run_id=run_id, step_id=step_id, seq=row[0])

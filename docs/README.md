@@ -14,6 +14,7 @@ goes stale, and current state recorded as a decision never gets updated.
 | [`CHARTER.md`](CHARTER.md) | Mission, domain, scope, principles — the why. Stable for years | living, changed only by RFC |
 | [`architecture/`](architecture/) | How the code is organized today — the map you read to find things, and the golden path new work conforms to | living |
 | [`product/`](product/) | What the product is doing today: direction, release history, the intents and briefs behind in-flight work, and answered research | living |
+| [`guides/`](guides/) | How to use what ships today, organized by Diátaxis | living |
 | [`specs/`](specs/) | The engineering contract for one feature, with its implementation plan | living while building, frozen once shipped |
 | [`knowledge/`](knowledge/) | Practitioner residue — patterns, gotchas and antipatterns scoped to a file glob | living |
 | [`adr/`](adr/) | Why we chose X over Y, one decision per record | frozen |
@@ -57,7 +58,7 @@ Every document belongs to exactly one, and the maintenance rule differs:
 
 - **living** — must match current reality, and is updated in the same change as
   anything that affects it. Drift is a bug, not debt. `CHARTER.md`,
-  `architecture/*`, `product/*`, `knowledge/*` and active `specs/*`.
+  `architecture/*`, `guides/*`, `product/*`, `knowledge/*` and active `specs/*`.
 - **frozen** — an immutable record of what was decided or delivered. Status
   fields may still change (Accepted → Superseded); bodies may not. Never edited
   to reflect a later change; superseded by a new record that cites it. `adr/*`,

@@ -10,7 +10,11 @@ what assert that; this module is only the thing they constrain.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -20,10 +24,16 @@ from uuid import UUID
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
-from ced.adapters.objectstore.client import write_payload
+from ced.adapters.objectstore.client import (
+    ObjectNotFoundError,
+    ObjectStoreError,
+    read_payload_bytes_checked,
+    write_payload,
+)
 from ced.adapters.postgres import event_log
 from ced.adapters.postgres.dsn import database_url
 from ced.api.models import (
@@ -31,12 +41,67 @@ from ced.api.models import (
     DecisionResult,
     Event,
     EventPage,
+    PublishedAnalysis,
     Snapshot,
     StartedRun,
     StartRunRequest,
 )
 from ced.api.stream import committed_event_stream, highest_committed_seq, selected_cursor
+from ced.domain.diligence import DiligenceError, parse_published_analysis
 from ced.domain.events import APPROVAL_GRANTED, APPROVAL_REJECTED
+from ced.worker.analysis import ANALYSIS_ROLE
+from ced.worker.pool import ANALYSIS_POOL_CLASS
+
+log = logging.getLogger("ced.api.analysis")
+
+#: Canonical company identifier accepted by the analysis route.
+_CANONICAL_CIK = "0000320193"
+
+#: Canonical as-of date accepted by the analysis route.
+_CANONICAL_AS_OF = "2026-07-31"
+
+#: Compiled pattern for snapshot reference validation.  Using ``fullmatch``
+#: anchors at both ends without relying on ``$``, which matches before a
+#: trailing newline and would admit ``"...<hex>\n"`` (AC-0411).
+_SNAPSHOT_REF_RE = re.compile(r"ced-first-published-analysis-snapshot/[0-9a-f]{64}")
+
+#: The exact key set `ced-ingest` writes into a snapshot manifest.
+_MANIFEST_KEYS = frozenset(
+    {
+        "schema_version",
+        "cik",
+        "as_of_date",
+        "form",
+        "filing_date",
+        "report_date",
+        "accession",
+        "source_url",
+        "retrieved_at",
+        "filing_sha256",
+        "filing_ref",
+    }
+)
+
+
+def _is_snapshot_manifest(manifest: object, *, cik: str, as_of_date: str) -> bool:
+    """Whether parsed bytes are a snapshot manifest agreeing with the request.
+
+    Any other object in the snapshot scope, such as filing bytes that happen to
+    parse, fails here rather than reaching a run.
+    """
+    if not isinstance(manifest, dict) or set(manifest) != _MANIFEST_KEYS:
+        return False
+    if not all(isinstance(value, str) for value in manifest.values()):
+        return False
+    filing_ref = manifest["filing_ref"]
+    return (
+        manifest["schema_version"] == "1"
+        and manifest["cik"] == cik
+        and manifest["as_of_date"] == as_of_date
+        and _SNAPSHOT_REF_RE.fullmatch(filing_ref) is not None
+        and filing_ref.rsplit("/", 1)[-1] == manifest["filing_sha256"]
+    )
+
 
 #: Environment variable for the require_distinct_approver flag.
 #: When set to "1", "true", or "yes" (case-insensitive), the approval route
@@ -161,22 +226,264 @@ def _guard_same_origin(request: Request, *, require_origin: bool) -> None:
     summary="Start a run",
     description=(
         "Commits the run row, its coordinator step and the `run.requested` "
-        "event in one transaction. All three or none."
+        "event in one transaction. All three or none. When `agent_role` is "
+        "`first-published-analysis`, the `analysis` object is required and "
+        "the snapshot it names is validated before the run is created."
     ),
     responses={
-        400: {"description": "A present Origin header does not match the API's origin."}
+        400: {"description": "A present Origin header does not match the API's origin."},
+        503: {
+            "x-spec": (
+                "docs/specs/first-published-analysis/spec.md"
+                "#publishing-through-the-existing-run-boundary"
+            ),
+            "description": "Object store dependency unavailable.",
+        },
     },
 )
 def start_run(request: StartRunRequest, raw_request: Request, conn: Conn) -> StartedRun:
+    """AC-0411: start a run, optionally with an analysis snapshot."""
     _guard_same_origin(raw_request, require_origin=False)
-    started = event_log.start_run(
-        conn,
-        run_id=uuid.uuid4(),
-        step_id=uuid.uuid4(),
-        principal=request.principal,
-        agent_role=request.agent_role,
-    )
+
+    if request.agent_role == ANALYSIS_ROLE:
+        # Analysis role requires the analysis object.
+        if request.analysis is None:
+            raise HTTPException(
+                status_code=422,
+                detail="analysis object is required for role first-published-analysis",
+            )
+        ana = request.analysis
+
+        # Validate canonical values before any object-store access.
+        if ana.cik != _CANONICAL_CIK:
+            raise HTTPException(status_code=422, detail="unsupported cik")
+        if ana.as_of_date != _CANONICAL_AS_OF:
+            raise HTTPException(status_code=422, detail="unsupported as_of_date")
+        if not _SNAPSHOT_REF_RE.fullmatch(ana.snapshot_ref):
+            raise HTTPException(status_code=422, detail="malformed snapshot_ref")
+
+        # Read and validate the snapshot from the object store.
+        snapshot_ref = ana.snapshot_ref
+        try:
+            snapshot_bytes = read_payload_bytes_checked(snapshot_ref)
+        except ObjectNotFoundError as exc:
+            log.error(
+                "analysis start_run: snapshot_not_found",
+                extra={"reason_class": "snapshot_not_found"},
+            )
+            raise HTTPException(status_code=422) from exc
+        except ObjectStoreError as exc:
+            log.error(
+                "analysis start_run: snapshot_store_unavailable",
+                extra={"reason_class": "snapshot_store_unavailable"},
+            )
+            raise HTTPException(status_code=503) from exc
+
+        # Verify raw-byte digest against the key before parsing.
+        expected_sha256 = snapshot_ref.rsplit("/", 1)[-1]
+        if hashlib.sha256(snapshot_bytes).hexdigest() != expected_sha256:
+            log.error(
+                "analysis start_run: snapshot_digest_mismatch",
+                extra={"reason_class": "snapshot_digest_mismatch"},
+            )
+            raise HTTPException(status_code=422)
+
+        # Parse the snapshot manifest and verify it agrees with the request.
+        try:
+            manifest = json.loads(snapshot_bytes)
+        except Exception:
+            log.error(
+                "analysis start_run: snapshot_manifest_mismatch (not JSON)",
+                extra={"reason_class": "snapshot_manifest_mismatch"},
+            )
+            raise HTTPException(status_code=422) from None
+
+        if not _is_snapshot_manifest(manifest, cik=ana.cik, as_of_date=ana.as_of_date):
+            log.error(
+                "analysis start_run: snapshot_manifest_mismatch",
+                extra={"reason_class": "snapshot_manifest_mismatch"},
+            )
+            raise HTTPException(status_code=422)
+
+        # Write the request object — only the three canonical fields.
+        # Object write precedes event append per r5 § 3: an unreferenced object
+        # is less harmful than a dangling payload_ref on a committed event.
+        # The request lives outside the snapshot scope, so a request reference
+        # can never be offered back as a snapshot reference.
+        try:
+            request_ref = write_payload(
+                {
+                    "cik": ana.cik,
+                    "as_of_date": ana.as_of_date,
+                    "snapshot_ref": snapshot_ref,
+                }
+            )
+        except Exception as exc:
+            log.error(
+                "analysis start_run: request_store_unavailable",
+                extra={"reason_class": "request_store_unavailable"},
+            )
+            raise HTTPException(status_code=503) from exc
+
+        started = event_log.start_run(
+            conn,
+            run_id=uuid.uuid4(),
+            step_id=uuid.uuid4(),
+            principal=request.principal,
+            agent_role=request.agent_role,
+            pool_class=ANALYSIS_POOL_CLASS,
+            payload_ref=request_ref,
+        )
+
+    elif request.analysis is not None:
+        # Any non-analysis role with an analysis object is refused.
+        raise HTTPException(
+            status_code=422,
+            detail="analysis object is not allowed for this agent_role",
+        )
+
+    else:
+        # Existing non-analysis behaviour unchanged.
+        started = event_log.start_run(
+            conn,
+            run_id=uuid.uuid4(),
+            step_id=uuid.uuid4(),
+            principal=request.principal,
+            agent_role=request.agent_role,
+        )
+
     return StartedRun(run_id=started.run_id, step_id=started.step_id, seq=started.seq)
+
+
+#: Terminal event types that mark a completed or failed run.
+_TERMINAL_TYPES: frozenset[str] = frozenset({"run.completed", "run.failed"})
+
+
+@app.get(
+    "/runs/{run_id}/analysis",
+    status_code=200,
+    operation_id="read_analysis",
+    summary="Read a completed analysis artifact",
+    description=(
+        "Returns the complete typed analysis artifact when the run completed "
+        "successfully. No authentication is required: the artifact contains "
+        "only public SEC evidence. The Phase 1 direct-read posture applies "
+        "(AC-0415): any caller that can reach the loopback-bound API and knows "
+        "a run id may read it. The response omits initiating-principal and "
+        "SEC-contact values."
+    ),
+    response_model=PublishedAnalysis,
+    openapi_extra={
+        "x-spec": (
+            "docs/specs/first-published-analysis/spec.md"
+            "#publishing-through-the-existing-run-boundary"
+        ),
+    },
+    responses={
+        200: {"description": "The complete typed analysis artifact."},
+        404: {"description": "No such run."},
+        409: {
+            "description": (
+                "Run is not completed, is not an analysis run, or the artifact "
+                "reference is absent, unreadable, digest-mismatched, "
+                "or schema-invalid."
+            )
+        },
+    },
+)
+def read_analysis(run_id: UUID, conn: Conn) -> Response:
+    """AC-0414/0415: return the typed artifact for a completed analysis run."""
+    # 404 for unknown run.
+    _require_run(conn, run_id)
+
+    # Read all events to find the terminal event.
+    events = event_log.read_events(conn, run_id=run_id)
+    terminal = next((e for e in events if e.type in _TERMINAL_TYPES), None)
+
+    if terminal is None:
+        log.error(
+            "analysis read: pending run_id=%s reason=run_pending",
+            run_id,
+            extra={"reason_class": "run_pending"},
+        )
+        raise HTTPException(status_code=409, detail="run is not yet completed")
+
+    if terminal.type != "run.completed":
+        log.error(
+            "analysis read: failed terminal run_id=%s reason=run_failed",
+            run_id,
+            extra={"reason_class": "run_failed"},
+        )
+        raise HTTPException(status_code=409, detail="run did not complete successfully")
+
+    # Non-analysis run: check agent_role on the terminal event.
+    if terminal.agent_role != ANALYSIS_ROLE:
+        log.error(
+            "analysis read: non-analysis run_id=%s agent_role=%r reason=not_analysis_run",
+            run_id,
+            terminal.agent_role,
+            extra={"reason_class": "not_analysis_run"},
+        )
+        raise HTTPException(status_code=409, detail="run is not an analysis run")
+
+    # Missing artifact reference.
+    if terminal.payload_ref is None:
+        log.error(
+            "analysis read: missing artifact ref run_id=%s reason=missing_artifact_ref",
+            run_id,
+            extra={"reason_class": "missing_artifact_ref"},
+        )
+        raise HTTPException(status_code=409, detail="artifact reference is absent")
+
+    artifact_ref = terminal.payload_ref
+
+    # Read raw artifact bytes from the object store, distinguishing absence from
+    # store unavailability so each carries its own closed reason class.
+    try:
+        artifact_bytes = read_payload_bytes_checked(artifact_ref)
+    except ObjectNotFoundError:
+        log.error(
+            "analysis read: artifact absent run_id=%s reason=artifact_not_found",
+            run_id,
+            extra={"reason_class": "artifact_not_found"},
+        )
+        raise HTTPException(status_code=409, detail="artifact not found") from None
+    except ObjectStoreError:
+        log.error(
+            "analysis read: store unavailable run_id=%s reason=artifact_store_unavailable",
+            run_id,
+            extra={"reason_class": "artifact_store_unavailable"},
+        )
+        raise HTTPException(status_code=409, detail="artifact not found") from None
+
+    # Verify raw-byte digest against the key before parsing.
+    expected_sha256 = artifact_ref.rsplit("/", 1)[-1]
+    if hashlib.sha256(artifact_bytes).hexdigest() != expected_sha256:
+        log.error(
+            "analysis read: digest mismatch run_id=%s reason=artifact_digest_mismatch",
+            run_id,
+            extra={"reason_class": "artifact_digest_mismatch"},
+        )
+        raise HTTPException(status_code=409, detail="artifact digest mismatch")
+
+    # Validate against the published 200 schema, which forbids unknown keys and
+    # coerces nothing, then require complete claim lineage.
+    try:
+        PublishedAnalysis.model_validate_json(artifact_bytes, strict=True)
+        if parse_published_analysis(artifact_bytes).unresolved_claim_ids():
+            raise DiligenceError("artifact lineage is incomplete")
+    except (ValidationError, DiligenceError):
+        log.error(
+            "analysis read: schema invalid run_id=%s reason=artifact_schema_invalid",
+            run_id,
+            extra={"reason_class": "artifact_schema_invalid"},
+        )
+        raise HTTPException(status_code=409, detail="artifact schema invalid") from None
+
+    # Return the canonical bytes directly so the response is byte-identical to
+    # the stored artifact. FastAPI does not re-serialise a Response object even
+    # when response_model is set, so byte-identity is preserved (AC-0410).
+    return Response(content=artifact_bytes, media_type="application/json")
 
 
 @app.get(

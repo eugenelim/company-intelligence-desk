@@ -1,7 +1,7 @@
 # Plan: First published analysis
 
 - **Spec:** [`spec.md`](spec.md)
-- **Status:** Approved <!-- Drafting | Approved | Executing | Done -->
+- **Status:** Done <!-- Drafting | Approved | Executing | Done -->
 - **Repository anchors:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) §§ 4, 5, and 10 for deterministic ingestion, quarantine, evidence, and Phase 2; [`src/ced/domain/quarantine/mint.py`](../../../src/ced/domain/quarantine/mint.py) and [`tests/quarantine/test_mint_constrains_identities.py`](../../../tests/quarantine/test_mint_constrains_identities.py) for the standard-library Inline XBRL parser and its hostile-input checks; [`src/ced/adapters/objectstore/client.py`](../../../src/ced/adapters/objectstore/client.py) for content-addressed writes; [`src/ced/adapters/postgres/event_log.py`](../../../src/ced/adapters/postgres/event_log.py), [`src/ced/worker/executor.py`](../../../src/ced/worker/executor.py), and [`tests/e2e/test_ac_0327_committed_run.py`](../../../tests/e2e/test_ac_0327_committed_run.py) for request, fenced publication, and end-to-end construction; [`src/ced/api/main.py`](../../../src/ced/api/main.py), [`contracts/openapi/runs.yaml`](../../../contracts/openapi/runs.yaml), and [`tests/api/test_contract_agreement.py`](../../../tests/api/test_contract_agreement.py) for the HTTP contract. Deviation: no ingestion component or local egress proxy exists; this slice adds one serialized SEC acquisition path inside the existing adapter/worker boundaries and records that it does not prove fleet proxy behavior.
 
 > **Plan contract:** this is the implementation strategy. It may change
@@ -264,9 +264,9 @@ serialization and publication.
 ### Failure, edge cases & resilience
 
 - The SEC client uses normal TLS certificate verification, follows no redirect, and
-  performs no automatic retry. A `403`, `429`, DNS failure, TLS verification failure,
-  any AC-0402 timeout, redirect, oversized response, malformed JSON, or filing refusal
-  ends ingestion, releases the gate session, stores no source or snapshot object, and
+  performs no automatic retry. Every attempt that does not end in AC-0417
+  `success`, including one ended by an unexpected exception, and every malformed
+  JSON or filing refusal, ends ingestion, releases the gate session, stores no source or snapshot object, and
   records only redacted attempt metadata.
 - One Postgres session-level advisory lock is held from immediately before each SEC
   request start through AC-0403's minimum interval. It serializes all SEC hosts and
@@ -565,7 +565,7 @@ analysis is the only successful response shape.
 
 **Owner:** controller
 
-**Depends on:** T1-T4
+**Depends on:** T1-T4, T6
 
 **Touches:** `README.md`, `AGENTS.md`, `docs/README.md`, `docs/product/README.md`, `docs/guides/README.md`, `docs/guides/how-to/publish-first-analysis.md`, `docs/architecture/README.md`, `docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md`, `docs/architecture/pydantic-ai-worker-runtime/operations.md`, `docs/product/changelog.md`, `docs/specs/first-published-analysis/notes/verification-ledger.md`
 
@@ -596,6 +596,111 @@ manual QA for the real CLI-to-API flow.
 mapped in both repository documentation maps and the living product map, its how-to
 reproduces the accepted flow, durable outputs match the tree and contract, all gates
 pass, and the two Draft companions have no diff.
+
+### T6: Every SEC attempt follows the AC-0402 and AC-0417 rules, checked by one matrix
+
+**Owner:** implementer
+
+**Depends on:** T1
+
+**Touches:** `src/ced/adapters/sec/client.py`, `src/ced/worker/ingestion.py`, `tests/ingestion/test_sec_client.py`, `tests/ingestion/test_attempt_matrix.py`, `tests/ingestion/test_observation.py`, `tests/ingestion/test_snapshot_storage.py`, `docs/architecture/pydantic-ai-worker-runtime/operations.md`, `docs/specs/first-published-analysis/notes/verification-ledger.md`
+
+**Verification mode:** TDD. One table-driven matrix covers every attempt
+outcome. Focused checks cover the declared-client value and fail-closed
+behaviour.
+
+**TDD stub disposition:** `no stub (implementation-discovered)`. The client
+already classifies most failures; this task replaces the per-site handling
+with the AC-0417 rule and closes the AC-0402 gaps:
+
+- one validator of the declared-client value, called at the `User-Agent` sink in
+  `fetch_url` on the exact configured value, and reused by `acquire_contact`;
+- one classifier from exception to no-response class, applied at every site in
+  `connect`, the request, the body read, and the `fetch_url` post-read budget
+  check, with any unexpected exception becoming `connection`;
+- the received status carried out of `_real_fetch` on every failure, so the
+  status class and `blocked` survive whatever ends the attempt;
+- one function choosing the stop condition in AC-0417's order;
+- DNS resolution run in a thread that is abandoned when the total budget runs
+  out;
+- a strict `Content-Length` reader;
+- `run_observation` and `run()` turning every failure into a record and one
+  `error:` line, with no traceback.
+
+**Tests:**
+
+- AC-0417, the attempt matrix in `tests/ingestion/test_attempt_matrix.py`. It
+  drives the real `fetch_url` through the injected seam. An oracle written in
+  the test from the AC-0417 text sets each row's expected status class,
+  no-response class, `blocked`, and stop condition. The matrix covers:
+  - every reachable pairing of a received status (`200`, `103`, `301`, `304`,
+    `403`, `429`, `404`, `500`, `600`) with an ending. The endings are a complete
+    body; a body shorter than its declared length; a well-formed length over
+    the cap; each malformed length; a stream crossing the cap; a fault during
+    the body read; and the total budget spent inside the read loop or at the
+    post-read check;
+  - every no-status site: resolution, connect, handshake, and request, each
+    with its faults and the total budget spent before or during it.
+
+  Pairings `http.client` cannot produce are listed in the test with the stdlib
+  reason. For example, a `1xx` or `304` has no body to fault.
+- Mutation proof. The ledger records a table of each mutation and the row that
+  reds it, covering:
+  - every pair of stop-condition steps that can apply to one attempt and give
+    different outputs;
+  - dropping the status carry at each failure site after a received status;
+  - each class mapping;
+  - accepting each malformed-length form the AC refuses, including a sign, a
+    separator, trailing whitespace, a non-ASCII digit, and two `Content-Length`
+    headers, agreeing or not;
+  - letting a `1xx` or `600` succeed;
+  - accepting a short body;
+  - accounting for DNS after the fact rather than bounding it;
+  - removing the remaining-budget cap on the connect, the request, or the body
+    read, each as its own mutant. Each has its own real-clock row that blocks in
+    that phase only. The row uses a total budget below that phase's uncapped
+    timeout: under 5 s for connect, and under 15 s for the request and the body
+    read. It asserts that `fetch_url` returns, and the gate is released, within
+    that budget. The class is the same with or without the cap, so the class is
+    not the red.
+- AC-0402, the 30-second budget. A resolver that blocks past the budget makes
+  `fetch_url` return `total_timeout` and release the gate within the budget,
+  measured on the real clock with a shortened budget.
+- AC-0402, the declared-client value. Each case goes to `acquire_contact` and
+  directly to `fetch_url`, and is refused before the gate is entered or a socket
+  opened:
+  - a tab, a lone `\r`, a lone `\n`, a trailing newline, a newline followed
+    by a space, `\x7f`, a non-ASCII character, and a 257-character value, each
+    built around distinctive marker text. The absence check fails on the
+    marker text in any rendering across every refusal, record, log record,
+    stdout, stderr, and the full `traceback.format_exception` chain;
+  - an empty value and an all-space value, which assert refusal only.
+
+  Moving the check after trimming, swapping the rule for `string.printable` or
+  a `$`-anchored pattern, or a refusal that interpolates `{raw!r}` each reds a
+  case.
+- AC-0402, fail closed. Live ingestion, with a store spy and a gate spy, runs
+  each of these cases:
+  - a refused connection;
+  - a reset during the filing body read;
+  - an `ssl.SSLError` after the handshake;
+  - an over-cap refusal;
+  - a short body;
+  - a `403`;
+  - a `103`;
+  - an unexpected `ValueError` during the request.
+
+  Each fails with one `error:` line and no traceback, exits the gate, and
+  writes no object. An injected `KeyboardInterrupt` stops `run_observation`
+  and live ingestion, exits the gate, and writes nothing.
+- `run_observation` records every failed attempt and carries on. The
+  `{"refused": 2}` outcome check stays green.
+- Security: a `security-reviewer` pass on the diff covers the validator, the
+  redaction path, the classifier, and the bounded resolver.
+
+**Done when:** the matrix and every focused check are green, each named
+mutation reds as stated, the results are recorded in the verification ledger,
+and `operations.md` § Access observation states the AC-0417 rules.
 
 ## Rollout
 
@@ -636,3 +741,13 @@ pass, and the two Draft companions have no diff.
 
 - 2026-10-03: spec approved by ini-001-owner
 - 2026-10-03: plan approved by ini-001-owner
+- 2026-10-04: AC-0402 and AC-0417 amended by owner decisions recorded in
+  `notes/verification-ledger.md` § Finding 6 and its later decision blocks. The
+  amendment adds the `connection` class and records both the status class and
+  the no-response class. `blocked` follows any `403` or `429`, and the stop
+  condition has a fixed order with only `2xx` as success. The declared-client
+  value is limited to U+0020 to U+007E and checked at the header. Every failed
+  attempt fails closed, DNS counts against the budget, and the `Content-Length`
+  reading is strict. T6 adds the matching matrix.
+- 2026-10-04: amended spec approved by ini-001-owner
+- 2026-10-04: amended plan approved by ini-001-owner

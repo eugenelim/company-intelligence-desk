@@ -2,7 +2,9 @@
 
 This file carries the operational measurements for the worker runtime. Values
 recorded here drive the `CED_STEP_DEADLINE_SECONDS` configuration and supply
-the evidence for AC-0306 through AC-0311.
+the evidence for AC-0306 through AC-0311. [§ SEC acquisition](#sec-acquisition)
+covers how live SEC ingestion is configured, bounded and observed, for
+`first-published-analysis`.
 
 See
 [`docs/specs/walking-skeleton-evidence/spec.md`](../../specs/walking-skeleton-evidence/spec.md)
@@ -202,3 +204,132 @@ which Phase 1 does not run.
 
 **It is a point-in-time read.** AWS quota values change on request and by
 service update; the date above is part of the value.
+
+## SEC acquisition
+
+`ced-ingest` is the only code that reads from SEC. It stores one snapshot
+before a run starts, and no run or API request ever fetches from SEC. The
+acceptance criteria are AC-0401 through AC-0405 and AC-0417 in
+[`first-published-analysis`](../../specs/first-published-analysis/spec.md).
+Their test and mutation record is in that spec's
+[verification ledger](../../specs/first-published-analysis/notes/verification-ledger.md).
+
+### Configuration
+
+`SEC_CONTACT` holds the declared client that SEC asks automated clients to
+send, usually a name and a contact email. It is required for live ingestion
+and for `observe`; `--offline-fixture` does not read it. The value is sent
+only as the request's `User-Agent`. It never appears in an exception, log,
+attempt record, stored object, or command output.
+
+Each live request also takes a Postgres advisory lock, so the local substrate
+must be up. See [§ Request gate](#request-gate).
+
+### Request bounds
+
+All bounds are fixed in `src/ced/adapters/sec/client.py`; none is
+configurable.
+
+| Bound | Value |
+| --- | --- |
+| Hosts | `data.sec.gov` and `www.sec.gov`, HTTPS only |
+| Address | Resolved once. Only an address Python's `ipaddress` calls global and not multicast is used, and the connection goes to that address while TLS still verifies the SEC hostname |
+| TLS | Certificate and hostname verification always on |
+| Redirects | None followed; any `3xx` is refused |
+| Connect timeout | 5 s |
+| Read timeout | 15 s per read, cut to whatever remains of the total budget |
+| Total budget | 30 s, counted from when the request gate admits the request. It is a hard wall-clock bound on the attempt and the gate, including a DNS lookup that has not returned |
+| Submissions response | 5 MiB cap |
+| Filing response | 10 MiB cap; a declared or streamed length over the cap is refused |
+| Retries | None |
+
+A refused or failed request stores nothing and releases the request gate.
+
+### Request gate
+
+Every SEC request, from any `ced-ingest` process sharing the substrate, takes
+one Postgres session-level advisory lock. The holder keeps the lock for at
+least 0.125 s after its request starts, so request starts are at least 0.125 s
+apart. That is at most 8 a second, below SEC's published ceiling of 10 a
+second.
+
+The interval holds only while the holder's database session stays alive. If a
+holder process dies, Postgres releases the lock at once, and the next request
+can start sooner. This gate is not crash-safe quota accounting, and it is not
+the fleet egress proxy the architecture calls for. It covers one local
+substrate.
+
+### Access observation
+
+`SEC_CONTACT=<declared client> ced-ingest observe --out <path>` sends 60
+requests for the Apple submissions document, one start per second. Each start
+waits at least 1 s after the previous one, so a slow response delays the rest
+rather than bunching them. The command writes a JSON record with:
+
+- planned and started counts, which must both be 60;
+- the target interval and the smallest interval observed, which must be at
+  least 1 s;
+- the time from first to last start;
+- the count of each outcome;
+- whether any `403` or `429` blocked the client;
+- one record per attempt: gate wait, duration, zero retries, stop condition,
+  HTTP status class, no-response class, and blocked flag.
+
+**Outcome classes (AC-0417).** Every attempt record carries at least one of
+`http_status_class` or `no_response_class`:
+
+- `http_status_class`: `"1xx"`–`"5xx"` for statuses 100–599, `"other"` for
+  any status outside that range.
+- `no_response_class`: `"dns"`, `"tls"`, `"connect_timeout"`, `"read_timeout"`,
+  `"total_timeout"`, or `"connection"` for any attempt that ends without a
+  complete HTTP response.
+
+`blocked` is `true` when `403` or `429` was received, regardless of what ends
+the attempt (a transport failure after a blocked status keeps `blocked: true`).
+
+**Stop condition order (AC-0417).** When both fields are set, the record's
+`stop_condition` follows this fixed priority:
+
+1. `no_response_class` — transport failure wins over all HTTP-level outcomes.
+2. `"blocked"` — a blocked status wins over redirect, refused, or HTTP class.
+3. `"redirect"` — any 3xx.
+4. `"refused"` — size cap exceeded (declared or streaming), or malformed
+   Content-Length (sign, non-ASCII, duplicate, or non-digit chars).
+5. `"http_4xx"` or `"http_5xx"`.
+6. `"refused"` — 1xx or status outside 100–599.
+7. `"success"` — 2xx only.
+
+**Content-Length strictness (AC-0402, AC-0417).** A declared Content-Length
+must be exactly one header whose value is ASCII digit characters only (no sign,
+no whitespace, no non-ASCII, no comma). A duplicate or malformed header is
+refused before reading, and a body shorter than the declared length is a
+`connection` failure.
+
+**Declared-client validation (AC-0402).** The `SEC_CONTACT` value is
+validated on the raw (unstripped) value before the gate is entered: 1 to 256
+characters, each in U+0020–U+007E, with at least one non-space. A value that
+fails the check causes the command to refuse with an error naming the variable
+but never echoing the value.
+
+**DNS resolution (AC-0402).** DNS runs in a daemon thread bounded by the
+remaining total budget. A thread that does not finish in time produces
+`no_response_class="total_timeout"`. Only public unicast non-multicast
+addresses are admitted; a result containing only non-public addresses is
+`no_response_class="dns"`.
+
+**How to read it.** `blocked: true` means SEC refused the declared client at
+least once. That is a valid observation, not a failed command, and the command
+never retries for a better result. `blocked: false` means 60 requests at one a
+second were all admitted. That is the whole claim. Sixty seconds of traffic do
+not show how SEC treats a sustained or fleet-wide load, and the record says so
+in its `statement` field.
+
+### Recorded observation
+
+The first live run was on 2026-10-04, and its unedited record is
+[`sec-access.json`](../../specs/first-published-analysis/notes/sec-access.json).
+All 60 attempts started, the smallest start interval was 1.00009 s, and every
+attempt returned `2xx` with no retry. `blocked` was `false`. As stated above,
+that covers one minute from one address and is not evidence about sustained
+or fleet-wide access.
+

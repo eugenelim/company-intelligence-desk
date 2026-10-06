@@ -1,0 +1,614 @@
+{
+  "planned_attempts": 60,
+  "started_attempts": 60,
+  "target_start_interval_seconds": 1.0,
+  "min_observed_start_interval_seconds": 1.0000900828745216,
+  "first_to_last_start_duration_seconds": 59.25609758403152,
+  "outcome_counts": {
+    "success": 60
+  },
+  "blocked": false,
+  "per_attempt": [
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.46553095895797014,
+      "duration_seconds": 0.21245716605335474,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04685708391480148,
+      "duration_seconds": 0.12629204103723168,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03858925006352365,
+      "duration_seconds": 0.09085625014267862,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.031917375046759844,
+      "duration_seconds": 0.09777316683903337,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.039286750135943294,
+      "duration_seconds": 0.08182333293370903,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.06012224988080561,
+      "duration_seconds": 0.11438925005495548,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.035249541979283094,
+      "duration_seconds": 0.10931616695597768,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.05806487496010959,
+      "duration_seconds": 0.0867382911965251,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03902320796623826,
+      "duration_seconds": 0.09855220792815089,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.05120808305218816,
+      "duration_seconds": 0.1050754168536514,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04894587490707636,
+      "duration_seconds": 0.11908954218961298,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.061574375024065375,
+      "duration_seconds": 0.11086154100485146,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.053611624985933304,
+      "duration_seconds": 0.14085499988868833,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04976879199966788,
+      "duration_seconds": 0.08321720804087818,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03373629180714488,
+      "duration_seconds": 0.10784408310428262,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04784329212270677,
+      "duration_seconds": 0.08817224996164441,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.0501218750141561,
+      "duration_seconds": 0.08388987509533763,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.02613979112356901,
+      "duration_seconds": 0.09123749984428287,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.06051454087719321,
+      "duration_seconds": 0.08541262499056756,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.036468915874138474,
+      "duration_seconds": 0.0834766251500696,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03887733398005366,
+      "duration_seconds": 0.11198854097165167,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03751641698181629,
+      "duration_seconds": 0.09011166705749929,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.02434720890596509,
+      "duration_seconds": 0.08060383307747543,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.049644208047538996,
+      "duration_seconds": 0.09490120806731284,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.01903916709125042,
+      "duration_seconds": 0.09447883302345872,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.0709208338521421,
+      "duration_seconds": 0.1634214580990374,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.02361587481573224,
+      "duration_seconds": 0.07290733396075666,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03622191702015698,
+      "duration_seconds": 0.08828195789828897,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.044683583080768585,
+      "duration_seconds": 0.11073479196056724,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.0378563329577446,
+      "duration_seconds": 0.10727166687138379,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.026339167030528188,
+      "duration_seconds": 0.10639741597697139,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04404924996197224,
+      "duration_seconds": 0.1614264170639217,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.055680499877780676,
+      "duration_seconds": 0.16757216700352728,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.052623209077864885,
+      "duration_seconds": 0.10124808293767273,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.051669042091816664,
+      "duration_seconds": 0.10356125002726912,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04799737501889467,
+      "duration_seconds": 0.10851458297111094,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.02047479199245572,
+      "duration_seconds": 0.10021458310075104,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.030169666977599263,
+      "duration_seconds": 0.12199945794418454,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.037590417079627514,
+      "duration_seconds": 0.09062470798380673,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.049677916802465916,
+      "duration_seconds": 0.11615695804357529,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.0343230830039829,
+      "duration_seconds": 0.10430141701363027,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.039761750027537346,
+      "duration_seconds": 0.10680883401073515,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03363929083570838,
+      "duration_seconds": 0.10638583404943347,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.061755333095788956,
+      "duration_seconds": 0.08216120908036828,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.021003542002290487,
+      "duration_seconds": 0.09092500014230609,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.021244167117401958,
+      "duration_seconds": 0.0762869999743998,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.020655374974012375,
+      "duration_seconds": 0.09355645813047886,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.05817374982871115,
+      "duration_seconds": 0.13031995901837945,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03607754106633365,
+      "duration_seconds": 0.07730924990028143,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03798420890234411,
+      "duration_seconds": 0.09992874995805323,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.051931832917034626,
+      "duration_seconds": 0.10281562502495944,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.061651583993807435,
+      "duration_seconds": 0.09717233292758465,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04396354197524488,
+      "duration_seconds": 0.10234833299182355,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04502220917493105,
+      "duration_seconds": 0.12238637497648597,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.02233787509612739,
+      "duration_seconds": 0.103955791098997,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04295679205097258,
+      "duration_seconds": 0.1217124171089381,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04055070807226002,
+      "duration_seconds": 0.11357879196293652,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.03947283304296434,
+      "duration_seconds": 0.21071758377365768,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.04457162506878376,
+      "duration_seconds": 0.1199692499358207,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    },
+    {
+      "request_class": "submissions",
+      "gate_wait_seconds": 0.026859084144234657,
+      "duration_seconds": 0.10012212488800287,
+      "retry_count": 0,
+      "stop_condition": "success",
+      "http_status_class": "2xx",
+      "no_response_class": null,
+      "blocked": false
+    }
+  ],
+  "statement": "This short observation does not settle sustained fleet behaviour. It demonstrates the declared client is admitted or blocked over 60 attempts at one start per second; it cannot establish rate-of-service across a sustained fleet workload."
+}

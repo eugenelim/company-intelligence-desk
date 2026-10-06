@@ -1,8 +1,9 @@
 # Company Intelligence Desk
 
-A reference **design** for a governed multi-agent application, worked through
-public-company diligence. **No implementation exists yet** — what is here is the
-charter, the architecture, and the record of how each decision was reached.
+A reference design, now partly built, for a governed multi-agent application,
+worked through public-company diligence. What is here is the charter, the
+architecture, the code built so far, and the record of how each decision was
+reached.
 
 For an engineer deciding how to build an agent system that has to survive
 review: where the untrusted-content boundary goes, what an agent is allowed to
@@ -10,36 +11,59 @@ do with a tool, and how anyone proves afterwards what actually happened.
 
 ## The patterns this project is a reference for
 
-Each is specified in detail and **none is built**. The invariants below are
-design commitments whose proof is a Phase 0 deliverable, not measured results —
-each links to the section that specifies it, and every one has recorded limits
-in [§ Known at ship](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#known-at-ship).
+Each is specified in detail, and several are now built.
+[`docs/architecture/README.md` § What is built](docs/architecture/README.md#what-is-built)
+says which. Each row links to the section that specifies it, and every one has
+recorded limits in
+[§ 9 Accepted limits](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#accepted-limits--open-and-not-a-task-list).
 
 | Pattern | The failure it addresses | Specified in |
 | --- | --- | --- |
-| **Quarantine boundary** | Untrusted content reaching a component that holds tool authority. Free prose does not cross; validated references, closed-vocabulary labels and typed scalars do. Reference *selection* stays an attacker-influenced channel, and is recorded as unmitigated | [§ Injection defence](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#injection-defence) |
-| **Argument-value authorization** | A well-typed but *unauthorised* tool call — the case a schema check passes and a permission check misses | [§ Structure](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#structure) |
-| **Commit-before-action** | An action taking effect while the record of the decision that allowed it is lost | [§ Identity — two layers](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#identity--two-layers) |
-| **Delegated authority ceiling** | An agent doing something the human who invoked it could not have done directly | [§ Authentication and authorization](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#authentication-and-authorization) |
-| **Claim–commit–work with lease fencing** | A worker the platform killed mid-run acting twice, or a zombie worker writing after its lease expired | [§ Step execution](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#step-execution-claim-commit-work) |
-| **Append-only event log with a resumable stream** | A run whose history can only be recovered by re-running it — which you cannot do against as-of-dated evidence | [§ Event log](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#event-log-and-stream-mechanism) |
-| **Application-owned orchestration** | An agent framework owning your control flow, so its limits quietly become your architecture's limits | [§ Ownership split](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#ownership-split) |
+| **Quarantine boundary** | Untrusted content reaching a component that holds tool authority. Free prose does not cross; validated references, closed-vocabulary labels and typed scalars do. Reference *selection* stays an attacker-influenced channel, and is recorded as unmitigated | [§ 4 Trust boundaries](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#trust-boundaries) |
+| **Argument-value authorization** | A well-typed but *unauthorised* tool call — the case a schema check passes and a permission check misses | [§ 9 Decisions](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#decisions) |
+| **Commit-before-action** | An action taking effect while the record of the decision that allowed it is lost | [§ 4 Identity — two layers](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#identity--two-layers) |
+| **Delegated authority ceiling** | An agent doing something the human who invoked it could not have done directly | [§ 4 Identity — two layers](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#identity--two-layers) |
+| **Claim–commit–work with lease fencing** | A worker the platform killed mid-run acting twice, or a zombie worker writing after its lease expired | [§ 3 Runtime Model](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#3-runtime-model) |
+| **Append-only event log with a resumable stream** | A run whose history can only be recovered by re-running it — which you cannot do against as-of-dated evidence | [§ 3 Runtime Model](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#3-runtime-model) |
+| **Application-owned orchestration** | An agent framework owning your control flow, so its limits quietly become your architecture's limits | [§ 9 Alternatives considered](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#alternatives-considered) |
 | **Two-plane observability** | Telemetry quietly becoming the system of record for a claim you later have to defend | [§ The two planes](docs/architecture/inspectable-multi-agent-diligence/observability-and-evaluation.md#the-two-planes) |
 | **Typed-artifact rendering** | Model output becoming markup, and an injection becoming code execution in a browser | [§ The presentation contract](docs/architecture/inspectable-multi-agent-diligence/experience-and-presentation.md#the-presentation-contract) |
-| **Content-addressed evidence snapshot** | Evidence published after the fact silently entering a historical as-of analysis | [§ Context, evidence, and reproducibility](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#context-evidence-and-reproducibility) |
+| **Content-addressed evidence snapshot** | Evidence published after the fact silently entering a historical as-of analysis | [§ 4 Evidence acquisition](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#evidence-acquisition) |
 
 Each is meant to be liftable into a system with nothing to do with company
 diligence.
 
 ## Things you can do here today
 
+**Publish an evidence-backed analysis on your machine.** One command stores an
+SEC filing snapshot, one `POST /runs` starts the analysis, and one `GET` returns
+a memo with an evidence manifest. Every figure links back to the filing's XBRL
+facts, the tagged numbers inside the filing. It needs Python 3.13 and Docker.
+
+The three calls below are the shape of the flow, not a paste-ready script.
+First install the project and start the local services and the API, following
+[the how-to guide](docs/guides/how-to/publish-first-analysis.md) from "Before
+you start" through step 3. The guide
+also fills in the two placeholders for you.
+
+```bash
+./.venv/bin/ced-ingest --offline-fixture      # prints the snapshot_ref
+curl -s -X POST http://127.0.0.1:58080/runs -H 'content-type: application/json' \
+  -d '{"principal": "user@example.com", "agent_role": "first-published-analysis",
+       "analysis": {"cik": "0000320193", "as_of_date": "2026-07-31",
+                    "snapshot_ref": "<snapshot_ref>"}}'
+curl -s http://127.0.0.1:58080/runs/<run_id>/analysis
+```
+
 **Decide whether detection-based injection defence is right for your system.**
-Start at the [evidence survey](docs/product/research/prompt-injection-defence-survey.md),
-then read § Four grounded facts and § Alternatives Considered → *Detection-based
+Start at the [evidence survey](docs/product/research/prompt-injection-defence-survey.md).
+Then read two sections of the runtime architecture:
+[§ Four grounded facts](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#four-grounded-facts-the-design-rests-on) and
+[§ Alternatives considered](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#alternatives-considered) → *Detection-based
 injection defence*. In-band detection "collapsed from near-zero to **>90%
 success** under adaptive attacks"; six production guardrails, including Azure
 Prompt Shield and Meta Prompt Guard, were evaded at **up to 100%**. Then read
-§ Known at ship — the architecture's list of open gaps — for the residual the
+§ 9 Accepted limits — the architecture's list of open gaps — for the residual the
 structural alternative does *not* close.
 
 **Trace a ratified constraint from decision to consequence.** A ratified
@@ -49,16 +73,19 @@ but not reverse. Pick any row in
 document that owns its exact wording, then to where the architecture satisfies
 it. Each constraint appears in exactly one place; everything else cites it.
 
-## Status: designed, not built
+## Status: partly built
 
-The architecture is a Draft awaiting owner sign-off **and four Phase 0 spikes
-that could change it**. It ships with five recorded gaps, and its security
-posture rests on moderate, self-assessed confidence rather than independent
-replication — stated in the architecture rather than left for a reader to find.
+The runtime architecture was ratified on 2026-09-18, with its
+[recorded gaps](docs/architecture/inspectable-multi-agent-diligence/runtime-architecture.md#accepted-limits--open-and-not-a-task-list) accepted as open. Its security posture rests on moderate, self-assessed
+confidence rather than independent replication. The architecture states this
+itself rather than leaving a reader to find it.
 
-No ADRs have been written yet, and three edits to the architecture are
-outstanding. So the decision record is real but not finished: it covers how each
-control was chosen, what evidence it rests on, and what it does not cover.
+Two pieces ship. The first is the walking skeleton: the smallest end-to-end
+runtime, with the event log, the worker pool and the HTTP API working together.
+The second is the first published analysis, which covers one company, one
+filing and one deterministic calculation, through the API only. The
+architecture's two companion designs, for observability and for the user
+experience, are still Draft.
 
 ## How this repository is organised
 
@@ -69,6 +96,8 @@ docs/
   CONVENTIONS.md      why the work loop has the shape it does
   adr/                why a past choice was made
   rfc/                proposals that change the charter or governance
+  guides/             how to use what ships today
+  specs/              the contract for each feature, with its plan
   product/
     intents/          what the system must achieve, and who fixed what
     briefs/           delivery coordination

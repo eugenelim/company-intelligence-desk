@@ -46,7 +46,9 @@ paths:
       summary: Start a run
       description: >
         Commits the run row, its coordinator step and the `run.requested`
-        event in one transaction. All three or none.
+        event in one transaction. All three or none. When `agent_role` is
+        `first-published-analysis`, the `analysis` object is required and
+        the named snapshot is validated before the run is created.
       requestBody:
         required: true
         content:
@@ -67,7 +69,53 @@ paths:
           x-spec: docs/specs/walking-skeleton-evidence/spec.md#watching-from-a-browser
           description: A present Origin header does not match the API's origin.
         "422":
-          description: The request body is not valid.
+          description: >
+            The request body is not valid, or the analysis role/object
+            combination is wrong, or the CIK, as-of date, or snapshot
+            reference is unsupported or malformed, or the snapshot is
+            absent, digest-mismatched, or manifest-mismatched (AC-0411).
+        "503":
+          x-spec: >
+            docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+          description: >
+            Object store dependency unavailable. No run was created.
+
+  /runs/{run_id}/analysis:
+    get:
+      operationId: read_analysis
+      summary: Read a completed analysis artifact
+      x-spec: >
+        docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+      description: >
+        Returns the complete typed analysis artifact when the run completed
+        successfully. No authentication is required: the artifact contains
+        only public SEC evidence. The Phase 1 direct-read posture applies
+        (AC-0415): any caller that can reach the loopback-bound API and knows
+        a run id may read it. The response omits initiating-principal and
+        SEC-contact values.
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The complete typed analysis artifact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedAnalysis"
+        "404":
+          description: No such run.
+        "409":
+          description: >
+            Run is not completed, is not an analysis run, or the artifact
+            reference is absent, unreadable, digest-mismatched, or
+            schema-invalid (AC-0414).
+        "422":
+          description: run_id is not a UUID.
 
   /runs/{run_id}/snapshot:
     get:
@@ -247,6 +295,209 @@ paths:
 
 components:
   schemas:
+    AnalysisRequest:
+      type: object
+      required: [cik, as_of_date, snapshot_ref]
+      additionalProperties: false
+      x-spec: >
+        docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+      description: >
+        Analysis parameters for a first-published-analysis run. Required when
+        agent_role is first-published-analysis; refused for every other role.
+        Unknown fields are refused (additionalProperties: false). Only the
+        three canonical fields enter the persisted request object (AC-0411).
+      properties:
+        cik:
+          type: string
+          description: The canonical CIK (0000320193 for this slice).
+        as_of_date:
+          type: string
+          description: The as-of date for the analysis in YYYY-MM-DD format.
+        snapshot_ref:
+          type: string
+          description: >
+            Scope-qualified reference to the immutable snapshot. Must match
+            ced-first-published-analysis-snapshot/[0-9a-f]{64}; overlong,
+            wrong-scope, non-hex, uppercase, or trailing-newline values are
+            refused (AC-0411).
+
+    PublishedAnalysis:
+      type: object
+      additionalProperties: false
+      description: >
+        The complete deterministic analysis artifact. Contains a fixed-format
+        memo and a machine-readable evidence manifest. Decimal values are
+        serialised as canonical strings. Execution-varying fields (run id,
+        retrieval time) are excluded so identical pinned inputs produce
+        identical bytes (AC-0410). The response omits initiating-principal
+        and SEC-contact values (AC-0415).
+      x-spec: >
+        docs/specs/first-published-analysis/spec.md#publishing-through-the-existing-run-boundary
+      required: [schema_version, cik, as_of_date, source_url, filing_digest, memo, evidence_manifest]
+      properties:
+        schema_version:
+          type: string
+        cik:
+          type: string
+        as_of_date:
+          type: string
+        source_url:
+          type: string
+        filing_digest:
+          type: string
+        memo:
+          $ref: "#/components/schemas/Memo"
+        evidence_manifest:
+          $ref: "#/components/schemas/EvidenceManifest"
+
+    Memo:
+      type: object
+      additionalProperties: false
+      description: The fixed-format research memo.
+      required: [title, claims]
+      properties:
+        title:
+          type: string
+        claims:
+          type: array
+          items:
+            $ref: "#/components/schemas/Claim"
+
+    Claim:
+      type: object
+      additionalProperties: false
+      description: One factual claim in the analysis memo.
+      required: [claim_id, text, evidence_refs]
+      properties:
+        claim_id:
+          type: string
+        text:
+          type: string
+        evidence_refs:
+          type: array
+          items:
+            type: string
+
+    EvidenceManifest:
+      type: object
+      additionalProperties: false
+      description: Machine-readable evidence manifest for one analysis artifact.
+      required: [sources, facts, calculations, claim_links]
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceSource"
+        facts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilingFact"
+        calculations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Calculation"
+        claim_links:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimLink"
+
+    EvidenceSource:
+      type: object
+      additionalProperties: false
+      description: One archived SEC source referenced by the evidence manifest.
+      required: [source_id, archived_url, digest, source_ref]
+      properties:
+        source_id:
+          type: string
+        archived_url:
+          type: string
+        digest:
+          type: string
+        source_ref:
+          type: string
+
+    FilingFact:
+      type: object
+      additionalProperties: false
+      description: >
+        One validated XBRL numeric fact extracted from the filing.
+        decimal_value is a string because canonical JSON serialises Decimal
+        fields via str().
+      required: [evidence_id, concept, context, period, unit, scale, decimal_value, source_id, source_fragment]
+      properties:
+        evidence_id:
+          type: string
+        concept:
+          type: string
+        context:
+          type: string
+        period:
+          $ref: "#/components/schemas/Period"
+        unit:
+          type: string
+        scale:
+          type: integer
+        decimal_value:
+          type: string
+        source_id:
+          type: string
+        source_fragment:
+          type: string
+
+    Period:
+      type: object
+      additionalProperties: false
+      description: XBRL duration context period (start and end date strings).
+      required: [start_date, end_date]
+      properties:
+        start_date:
+          type: string
+        end_date:
+          type: string
+
+    Calculation:
+      type: object
+      additionalProperties: false
+      description: >
+        Lineage record for one deterministic arithmetic claim.
+        numerator, denominator, and value are strings because canonical JSON
+        serialises Decimal fields via str().
+      required: [evidence_id, operation, input_fact_refs, formula, numerator, denominator, rounding_rule, output_scale, unit, value]
+      properties:
+        evidence_id:
+          type: string
+        operation:
+          type: string
+        input_fact_refs:
+          type: array
+          items:
+            type: string
+        formula:
+          type: string
+        numerator:
+          type: string
+        denominator:
+          type: string
+        rounding_rule:
+          type: string
+        output_scale:
+          type: integer
+        unit:
+          type: string
+        value:
+          type: string
+
+    ClaimLink:
+      type: object
+      additionalProperties: false
+      description: One entry linking a claim id to its calculation.
+      required: [claim_id, calculation_ref]
+      properties:
+        claim_id:
+          type: string
+        calculation_ref:
+          type: string
+
     StartRunRequest:
       type: object
       required: [principal, agent_role]
@@ -275,6 +526,13 @@ components:
           description: >
             The coordinator role the first step runs under. An agent role is a
             first-class security object, assigned here and never by a model.
+        analysis:
+          description: >
+            Optional analysis parameters. Required when agent_role is
+            first-published-analysis; refused for every other role (AC-0411).
+          anyOf:
+            - $ref: "#/components/schemas/AnalysisRequest"
+            - type: "null"
 
     StartedRun:
       type: object
