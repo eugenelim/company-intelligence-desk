@@ -1,6 +1,6 @@
 # Spec: First published analysis
 
-- **Status:** Implementing <!-- Draft | Approved | Implementing | Shipped | Archived -->
+- **Status:** Shipped <!-- Draft | Approved | Implementing | Shipped | Archived -->
 - **Owner:** ini-001-owner
 - **Plan:** [`plan.md`](plan.md)
 - **Constrained by:** [`runtime-architecture.md`](../../architecture/inspectable-multi-agent-diligence/runtime-architecture.md) r8, [`worker-runtime.md`](../../architecture/pydantic-ai-worker-runtime/worker-runtime.md) r5, [ADR-0003](../../adr/0003-repository-layout.md)
@@ -112,7 +112,7 @@ SEC filing, with no model call and no unsupported published claim.
 
 ### Acquiring one immutable evidence snapshot
 
-- [ ] **AC-0401.** `ced-ingest` accepts only CIK `0000320193` and as-of date
+- [x] **AC-0401.** `ced-ingest` accepts only CIK `0000320193` and as-of date
   `2026-07-31` for this slice, selects accession `0000320193-26-000020` from SEC
   submission metadata, then fetches that accession's archived primary Inline XBRL
   document. The metadata-derived primary document must match
@@ -121,7 +121,7 @@ SEC filing, with no model call and no unsupported published claim.
   segment, raw or encoded path separator or traversal, CIK/accession mismatch, other
   company, or other date is refused before a filing request, source write, or snapshot
   manifest.
-- [ ] **AC-0402.** The SEC client permits HTTPS requests only to
+- [x] **AC-0402.** The SEC client permits HTTPS requests only to
   `data.sec.gov` and `www.sec.gov`, requires its declared-client value from runtime
   configuration, and follows no redirect. The declared-client value is checked
   exactly as configured, before any trimming, wherever it becomes the `User-Agent`
@@ -143,7 +143,7 @@ SEC filing, with no model call and no unsupported published claim.
   including one ended by an unexpected exception, fails closed: it releases the gate
   session, stores no source or snapshot object, and records only redacted attempt
   metadata.
-- [ ] **AC-0403.** Every SEC request passes through one repository-wide gate that
+- [x] **AC-0403.** Every SEC request passes through one repository-wide gate that
   serializes request starts at least 0.125 seconds apart across concurrent ingestion
   processes using the shared Postgres substrate while the current gate holder's
   database session remains live. The second process is the first input that waits;
@@ -151,7 +151,7 @@ SEC filing, with no model call and no unsupported published claim.
   before the interval expires. Connection loss releases the lock and must not
   deadlock a contender, but this local gate makes no crash-safe or fleet-wide quota
   claim.
-- [ ] **AC-0404.** A successful ingestion stores the filing bytes by SHA-256 and
+- [x] **AC-0404.** A successful ingestion stores the filing bytes by SHA-256 and
   stores a canonical snapshot manifest that names the company identity, as-of date,
   form, filing date, accession, archived source URL, retrieval time, filing digest,
   and object reference. Re-ingesting byte-identical evidence yields the same filing
@@ -163,43 +163,43 @@ SEC filing, with no model call and no unsupported published claim.
   fixture contains only the filing identity and Inline XBRL contexts, unit, and facts
   needed by AC-0406; it contains no filing prose, signatures, or real-person
   identifiers and does not read or copy the full Phase 0 filing fixture.
-- [ ] **AC-0405.** Selection admits no filing dated after the requested as-of date
+- [x] **AC-0405.** Selection admits no filing dated after the requested as-of date
   and no source outside SEC submission metadata plus the selected archived primary
   Inline XBRL filing. A missing or ambiguous selected filing or required source
   fails ingestion without producing a snapshot manifest.
 
 ### Calculating and linking the published claims
 
-- [ ] **AC-0406.** The canonical filing resolves the consolidated quarterly net-sales
+- [x] **AC-0406.** The canonical filing resolves the consolidated quarterly net-sales
   facts for contexts `c-18` and `c-19` under concept
   `us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax` as USD values
   `109417` and `94036` at scale 6 for the periods ending `2026-06-27` and
   `2025-06-28`. Identical duplicate facts collapse to one identity; a conflicting
   duplicate, absent context, period mismatch, unit mismatch, or scale mismatch
   fails the run.
-- [ ] **AC-0407.** The calculation uses Decimal arithmetic for
+- [x] **AC-0407.** The calculation uses Decimal arithmetic for
   `(current - prior) / prior × 100`, rounds once to two decimal places with
   `ROUND_HALF_UP`, and publishes `16.36` with unit `percent`. Its lineage names
   both input fact references, the formula, unrounded numerator and denominator,
   rounding mode, output scale, and result.
-- [ ] **AC-0408.** The canonical artifact contains a fixed-format memo and an
+- [x] **AC-0408.** The canonical artifact contains a fixed-format memo and an
   evidence manifest. The memo's sole factual sentence reports that quarterly net
   sales increased 16.36% year over year, from USD 94.036 billion to USD 109.417
   billion; no model, provider, tool call, or filing-derived prose contributes any
   byte of the artifact.
-- [ ] **AC-0409.** Every factual claim represented in the memo or evidence manifest
+- [x] **AC-0409.** Every factual claim represented in the memo or evidence manifest
   carries at least one resolvable reference to an archived SEC source fragment or to
   deterministic calculation lineage whose inputs resolve to such fragments.
   Schema labels, field names, identifiers, and fixed headings are structural and are
   not claims; publication fails if any represented claim lacks a resolvable link.
-- [ ] **AC-0410.** Canonical JSON serialization makes two builds from the same
+- [x] **AC-0410.** Canonical JSON serialization makes two builds from the same
   snapshot bytes, request values, and schema version byte-identical. The artifact
   records the filing digest and as-of date, and no later evidence can enter a replay
   without changing the pinned snapshot reference.
 
 ### Publishing through the existing run boundary
 
-- [ ] **AC-0411.** `POST /runs` remains backward-compatible for existing run
+- [x] **AC-0411.** `POST /runs` remains backward-compatible for existing run
   requests and additionally accepts an analysis request containing the canonical
   CIK, as-of date, and snapshot reference when `agent_role` is
   `first-published-analysis`; that role requires the object, and every other role
@@ -212,12 +212,12 @@ SEC filing, with no model call and no unsupported published claim.
   returns `422`. An object-store dependency failure returns a detail-free `503`.
   Each refusal creates no request object or run. Only the canonical CIK, as-of date,
   and snapshot reference enter the persisted request object.
-- [ ] **AC-0412.** An accepted analysis request is stored before the atomic run,
+- [x] **AC-0412.** An accepted analysis request is stored before the atomic run,
   `analysis`-class step, and `run.requested` commit, and that event's `payload_ref`
   pins the exact request object. An object-store failure creates no run; a database
   failure may leave an unreferenced object but never a run with a dangling request
   reference.
-- [ ] **AC-0413.** The `analysis`-class worker consumes the pinned snapshot, appends
+- [x] **AC-0413.** The `analysis`-class worker consumes the pinned snapshot, appends
   `step.started`, recomputes the snapshot digest from its raw bytes, and recomputes the
   filing digest from its raw bytes against both the manifest digest and object
   reference before parsing or calculation. It stores the complete analysis artifact,
@@ -227,17 +227,17 @@ SEC filing, with no model call and no unsupported published claim.
   the same fenced run-terminal path, with no `run.completed` and no partial analysis
   artifact; no analysis run appends a model-, tool-, suspension-, or approval-related
   event.
-- [ ] **AC-0414.** `GET /runs/{run_id}/analysis` returns the typed artifact only when
+- [x] **AC-0414.** `GET /runs/{run_id}/analysis` returns the typed artifact only when
   the terminal event is `run.completed` with a readable, digest-matching analysis
   payload. It returns `404` for an unknown run and `409` for a non-completed run, a
   non-analysis run, a missing reference, unreadable bytes, digest mismatch, or
   schema mismatch; it never returns a partial memo or manifest.
-- [ ] **AC-0415.** The new analysis read keeps the shipped Phase 1 direct-read
+- [x] **AC-0415.** The new analysis read keeps the shipped Phase 1 direct-read
   posture: any caller that can reach the loopback-bound API and knows a run id may
   read the public-source artifact, with no caller-to-run ownership check. The
   response omits initiating and SEC-client contact values, and the OpenAPI contract
   states this posture and every `404`, `409`, `422`, and `503` outcome above.
-- [ ] **AC-0416.** One real local flow ingests the privacy-safe committed filing
+- [x] **AC-0416.** One real local flow ingests the privacy-safe committed filing
   fixture, starts an analysis run through the public HTTP API, lets the deployed
   `analysis`-class worker complete it, and reads a memo plus manifest whose values and
   links satisfy AC-0406 through AC-0410. The shipped how-to guide reproduces that flow
@@ -246,7 +246,7 @@ SEC filing, with no model call and no unsupported published claim.
 
 ### Observing SEC access without overclaiming it
 
-- [ ] **AC-0417.** Each real SEC attempt records request class, gate wait,
+- [x] **AC-0417.** Each real SEC attempt records request class, gate wait,
   monotonic duration, retry count, stop condition, `blocked`, the status class of
   any status line received, and, when a transport failure ends it, one closed,
   redacted no-response class. Every attempt carries at least one of the two
@@ -293,7 +293,7 @@ SEC filing, with no model call and no unsupported published claim.
 
 ### Gating the analysis worker on object-store readiness
 
-- [ ] **AC-0418.** After its database boot checks and before its first poll or claim,
+- [x] **AC-0418.** After its database boot checks and before its first poll or claim,
   the `analysis`-class worker idempotently ensures the object-store bucket, writes the
   fixed bytes `ced-object-store-readiness-v1` to
   `ced-readiness/<sha256-of-those-bytes>`, and calls S3-compatible `HeadObject` for

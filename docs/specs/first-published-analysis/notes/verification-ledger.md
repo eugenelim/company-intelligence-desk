@@ -1598,3 +1598,41 @@ guide was then run as written on a wiped volume:
 - An immediate read returned `409` with `run is not yet completed`.
 - The read then returned `200`, with the same artifact digest as before
   (`72329a90…`), and `worker-analysis` showed as healthy.
+
+## Completion evidence handoff
+
+- **Delivery:** work-loop run `165aa6ae-80f8-4bb2-b864-bbd2d7dd42ba`, branch
+  `eugenelim/mvp-slice-2`.
+- **Accepted outcome and authority:** `spec.md` (AC-0401 to AC-0418, as
+  amended on 2026-10-04) and `plan.md` (T1 to T6), both approved by
+  ini-001-owner. The owner decisions are the dated blocks above.
+- **Implemented scope:**
+  - `ced-ingest`, in live, offline and observe modes, behind the SEC client
+    and the Postgres advisory-lock gate;
+  - the deterministic memo and evidence manifest, from `ced.domain.diligence`;
+  - the `analysis`-class worker body and the `worker-analysis` service;
+  - `POST /runs` with an analysis request, and `GET /runs/{run_id}/analysis`.
+- **Verification evidence:**
+  - the whole suite on a fresh substrate, with the counts in "Final round,
+    after the confirming reviews";
+  - the guide run live on a wiped volume;
+  - the live access record in `notes/sec-access.json`;
+  - the mutation tables above.
+- **Durable outputs:** all are repository-durable on this branch, and each has
+  Status `Shipped` or `Done` where it carries one:
+  - `spec.md` and `plan.md`;
+  - `docs/guides/how-to/publish-first-analysis.md`;
+  - `docs/product/changelog.md`;
+  - `docs/architecture/README.md`;
+  - `operations.md` § SEC acquisition;
+  - `contracts/openapi/runs.yaml`.
+- **Non-goals:** the spec's own out-of-scope list holds: other companies,
+  dates or calculations; a browser view; and read authorisation beyond the
+  ingress.
+- **Unresolved obligations:** none in the accepted contract. Duplicate step
+  events after a re-claim are accepted and documented by the owner decision of
+  2026-10-05.
+- **Completion-event candidate:** the PR for this branch merging into `main`.
+- **Authority facts:** source and write authority is this branch, through
+  review. Merge and any deletion are the owner's decisions, through
+  `close-work`.
