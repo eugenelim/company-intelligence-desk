@@ -92,7 +92,7 @@ shipped = [
 draft     = []
 ready     = []
 executing = [
-  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Executing MVP brief; the walking skeleton is shipped and approved slice 2 is queued", needs = [] },
+  { path = "docs/product/briefs/inspectable-diligence-mvp.md", kind = "brief", source = { mode = "repo-origin" }, summary = "Executing MVP brief; slices 1 and 2 are shipped, and slice 3 needs its cut confirmed", needs = [] },
 ]
 shipped   = []
 withdrawn = []

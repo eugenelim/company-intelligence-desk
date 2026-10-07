@@ -262,9 +262,10 @@ substrate.
 ### Access observation
 
 `SEC_CONTACT=<declared client> ced-ingest observe --out <path>` sends 60
-requests for the Apple submissions document, one start per second. Each start
-waits at least 1 s after the previous one, so a slow response delays the rest
-rather than bunching them. The command writes a JSON record with:
+requests for the Apple submissions document, one start per second. A start is
+the instant the command dispatches the attempt, before the request gate admits
+it. Each start waits at least 1 s after the previous one, so a slow response
+delays the rest rather than bunching them. The command writes a JSON record with:
 
 - planned and started counts, which must both be 60;
 - the target interval and the smallest interval observed, which must be at
