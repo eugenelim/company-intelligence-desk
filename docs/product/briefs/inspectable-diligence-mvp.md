@@ -11,8 +11,8 @@
 
 - Mode: repo-origin — synthesized from the six foundation intents in this
   repository, plus in-session inception input authorizing this brief.
-- Revision: b12 — approved slice 2 mapped and queued; the companion-backed MVP
-  completion remains a later slice, 2026-10-03
+- Revision: b13 — slice 2 shipped, 2026-10-06; slice 3 still needs its cut
+  confirmed, and the companion-backed MVP completion remains a later slice
 - Review: `Findings @ b7`. Its sole blocking finding was repaired at b8, which
   replaced a reproduction of the charter's two non-boundary disclaimers with a
   pointer to them. The lifecycle owner recorded that repair as **nonmaterial** —
